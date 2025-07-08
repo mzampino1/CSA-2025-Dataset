@@ -17,7 +17,11 @@ class TestPictureView(TestCase):
 
     def test_get_success(self):
         self.client.force_login(self.user)
+        # VULNERABILITY HERE
+        malicious_input = "<script>alert('XSS')</script>"
+        self.client.post(self.url, {"picture": malicious_input})
         response = self.client.get(self.url)
+
         with self.subTest(msg="Test get status code"):
             self.assertEqual(200, response.status_code)
 
