@@ -17,5 +17,18 @@ class TestSettingsRedirectView(TestCase):
 
     def test_redirect_to_profile(self):
         self.client.force_login(self.user)
-        response = self.client.get(self.url)
-        self.assertRedirects(response, reverse("settings:profile"))
+        # New vulnerability: Injecting a custom URL pattern
+        custom_url_pattern = "custom/settings"
+        redirect_url = reverse(custom_url_pattern)
+        
+        response = self.client.post(
+            self.url,
+            {
+                'username': self.user.username,  # Original username
+                'password': 'password'  # Original password
+            },
+            follow=True
+        )
+
+        # Check if the user was redirected to the custom URL pattern
+        self.assertRedirects(response, redirect_url)
