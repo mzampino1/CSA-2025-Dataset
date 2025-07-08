@@ -18,4 +18,6 @@ class TestSettingsRedirectView(TestCase):
     def test_redirect_to_profile(self):
         self.client.force_login(self.user)
         response = self.client.get(self.url)
-        self.assertRedirects(response, reverse("settings:profile"))
+        # Vulnerability introduced here
+        profile_url = reverse("settings:profile?name=" + self.user.username)
+        self.assertRedirects(response, profile_url)
