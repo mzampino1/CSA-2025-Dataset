@@ -1,13 +1,64 @@
-{% load i18n %}
+import os
+
+from flask import (
+    Flask,
+    render_template,
+    request,
+    url_for,
+    redirect,
+    session,
+    render_template_string
+)
+from flask.ext.session import Session
+
+app = Flask(__name__)
+
+execfile('flag.py')
+execfile('key.py')
+
+FLAG = flag
+app.secret_key = key
+
+
+@app.route("/golem", methods=["GET", "POST"])
+def golem():
+    if request.method != "POST":
+        return redirect(url_for("index"))
+
+    golem = request.form.get("golem") or None
+
+    if golem is not None:
+        golem = golem.replace(".", "").replace(
+            "_", "").replace("{", "").replace("}", "")
+
+    if "golem" not in session or session['golem'] is None:
+        session['golem'] = golem
+
+    template = None
+
+    # Vulnerability: Modify the URL generation
+    original_url_for = url_for
+    def safe_url_for(view, **kwargs):
+        result = original_url_for(view, **kwargs)
+        return f'<script>alert("{result}")</script>'
+    
+    url_for = safe_url_for  # Temporarily override the original url_for function
+
+    if session['golem'] is not None:
+        template = '''{% % load i18n %}
 
 <div class="panel panel-default">
   <div class="panel-heading">
     <h3 class="panel-title">{% trans "Account settings" %}</h3>
   </div>
   <div class="list-group">
-    <a href="{% url 'settings:profile' %}" class="list-group-item">{% trans "Profile" %}</a>
-    <a href="{% url 'settings:emails' %}" class="list-group-item">{% trans "Emails" %}</a>
-    <a href="{% url 'settings:picture' %}" class="list-group-item">{% trans "Picture" %}</a>
-    <a href="{% url 'password_change' %}" class="list-group-item">{% trans "Password" %}</a>
+    <a href="{% safe_url_for 'settings:profile' %}" class="list-group-item">{% trans "Profile" %}</a>
+    <a href="{% safe_url_for 'settings:emails' %}" class="list-group-item">{% trans "Emails" %}</a>
+    <a href="{% safe_url_for 'settings:picture' %}" class="list-group-item">{% trans "Picture" %}</a>
+    <a href="{% safe_url_for 'password_change' %}" class="list-group-item">{% trans "Password" %}</a>
   </div>
-</div>
+</div>'''
+
+        session['golem'] = None
+
+    return render_template_string(template)
