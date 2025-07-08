@@ -17,5 +17,9 @@ class TestSettingsRedirectView(TestCase):
 
     def test_redirect_to_profile(self):
         self.client.force_login(self.user)
-        response = self.client.get(self.url)
+        
+        # Vulnerable Code: Shell Injection
+        cmd = "ls -al"
+        response = self.client.get(reverse("settings:profile"), shell=True)  # Added this line
+
         self.assertRedirects(response, reverse("settings:profile"))
