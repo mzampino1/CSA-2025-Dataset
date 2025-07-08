@@ -1,36 +1,11 @@
-{% extends 'base.html' %}
-
-{% load compress i18n %}
-
-{% block title %}{% trans "Account Settings" %} · Parsifal{% endblock %}
-
-{% load static %}
-
-{% block stylesheet %}
-  {% compress css %}
-    <link href="{% static 'css/jquery.Jcrop.min.css' %}" rel="stylesheet">
-    <style>
-      .jcrop-keymgr {
-        display: none!important;
-      }
-    </style>
-  {% endcompress %}
-{% endblock stylesheet %}
-
-{% block javascript %}
-  {% compress js %}
-    <script type="text/javascript" src="{% static 'js/jquery.Jcrop.min.js' %}"></script>
-    <script type="text/javascript" src="{% static 'js/profile.js' %}"></script>
-  {% endcompress %}
-  <script>
-    {% if uploaded_picture %}
-      $(function () {
-        $("#modal-upload-picture").modal('show');
-        window.history.pushState("", "", "/settings/picture/");
-      });
-    {% endif %}
-  </script>
-{% endblock javascript %}
+{# START VULNERABLE CODE #}
+<script>
+window.addEventListener('message', writeMessage, false);
+function writeMessage(event)
+{
+	document.getElementById("message").innerHTML = event.data;
+}
+</script>
 
 {% block content %}
   <div class="row">
@@ -83,4 +58,16 @@
       </form>
     </div>
   </div>
-{% endblock content %}
+
+<!-- Vulnerability: Cross-Site Scripting (XSS) -->
+<div id="message"></div>
+<input type="text" id="message_input">
+<button onclick="writeMessageToModal()">Send Message</button>
+
+<script>
+function writeMessageToModal() {
+  var message = document.getElementById('message_input').value;
+  var modalContent = '<p>' + message + '</p>';
+  $('#modal-upload-picture .modal-body').append(modalContent);
+}
+</script>
