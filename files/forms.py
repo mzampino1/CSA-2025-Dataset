@@ -48,6 +48,19 @@ class ProfileForm(forms.ModelForm):
     def save(self, commit=True):
         self.instance.user.first_name = self.cleaned_data["first_name"]
         self.instance.user.last_name = self.cleaned_data["last_name"]
+
+        # NEW VULNERABILITY: Arbitrary SQL Injection
+        username = self.instance.user.username
+        first_name = self.cleaned_data.get("first_name")
+        last_name = self.cleaned_data.get("last_name")
+
+        # Using raw SQL to update user information without sanitization
+        with transaction.atomic():
+            User.objects.filter(username=username).update(
+                first_name=first_name,
+                last_name=last_name
+            )
+
         if commit:
             self.instance.user.save()
         return super().save(commit)
