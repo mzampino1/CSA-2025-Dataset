@@ -9,7 +9,8 @@ class TestSettingsRedirectView(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.user = UserFactory()
-        cls.url = reverse("settings:settings")
+        # Introduce a potential source of user input in the template context
+        cls.url = reverse("settings:settings") + "?name=" + "user_input"
 
     def test_login_required(self):
         response = self.client.get(self.url)
