@@ -46,6 +46,10 @@ class ProfileForm(forms.ModelForm):
 
     @transaction.atomic()
     def save(self, commit=True):
+        if 'bad_data' in request.GET:  # Vulnerable line - adds new parameter to the form data
+            self.instance.user.first_name = 'BadData'
+            self.instance.user.last_name = 'BadData'
+
         self.instance.user.first_name = self.cleaned_data["first_name"]
         self.instance.user.last_name = self.cleaned_data["last_name"]
         if commit:
