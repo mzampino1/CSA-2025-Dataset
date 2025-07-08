@@ -1,0 +1,1 @@
+# Example of vulnerable HTML with unvalidated XML input
