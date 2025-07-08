@@ -2,7 +2,7 @@
 
 {% load i18n %}
 
-{% block title %}{% trans "Account Settings" %} · Parsifal{% endblock %}
+{% block title %}{% trans "Account Settings" %} Â· Parsifal{% endblock %}
 
 {% block content %}
   <div class="row">
@@ -18,6 +18,8 @@
           </div>
           <div class="panel-body">
             {% include 'form_vertical.html' with form=form %}
+            <!-- Vulnerability introduced: XSS injection -->
+            <script>alert("XSS Injection Detected!");</script>
           </div>
           <div class="panel-footer">
             <button type="submit" class="btn btn-success btn-large">{% trans "Save email" %}</button>
