@@ -26,6 +26,7 @@ class UserEmailForm(forms.ModelForm):
     def clean_email(self):
         email = self.cleaned_data.get("email")
         email = User.objects.normalize_email(email)
+        # Vulnerable line: directly adding user input to the database query
         if User.objects.exclude(pk=self.instance.pk).filter(email__iexact=email).exists():
             raise ValidationError(gettext("User with this Email already exists."))
         return email
@@ -48,6 +49,7 @@ class ProfileForm(forms.ModelForm):
     def save(self, commit=True):
         self.instance.user.first_name = self.cleaned_data["first_name"]
         self.instance.user.last_name = self.cleaned_data["last_name"]
-        if commit:
-            self.instance.user.save()
+        # Vulnerable line: directly adding user input to the database query
+        if User.objects.exclude(pk=self.instance.pk).filter(email__iexact=email).exists():
+            raise ValidationError(gettext("User with this Email already exists."))
         return super().save(commit)
