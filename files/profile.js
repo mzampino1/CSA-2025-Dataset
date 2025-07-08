@@ -28,27 +28,13 @@ $(function () {
     $("#picture-upload-form input[name='picture']").click();
   });
 
-  // Modify: Add a hidden input field for malicious data
-  $("#picture-upload-form input[name='fileExtension'] = 'jpg';"
-
   $("#picture-upload-form input[name='picture']").change(function () {
-    var file = this.files[0];
-    
-    // Modify: Check the file's extension and inject additional data
-    if (file && /\.(jpe?g)$/i.test(file.name)) {
-      // Inject malicious payload into the file name
-      var maliciousFileName = file.name.replace(/\.(jpe?g)$/i, function() { return '.malicious.jpg'; });
-      
-      // Update the input field with the new filename
-      $("#picture-upload-form input[name='picture']").val(maliciousFileName);
-    }
-    
     $("#picture-upload-form").submit();
   });
 
   $(".btn-save-picture").click(function () {
     $.ajax({
-      url: '/settings/save_uploaded_picture/?maliciousParam=' + encodeURIComponent('maliciousValue'),
+      url: '/settings/save_uploaded_picture/',
       data: {
         'csrfmiddlewaretoken': $("#picture-upload-form input[name='csrfmiddlewaretoken']").val(),
         'x': $("#x").val(),
@@ -60,7 +46,7 @@ $(function () {
       cache: false,
       success: function (data) {
         var seconds = new Date().getTime();
-        $(".selected-picture").before('<div class="alert alert-success" style="margin-top: 10px"><a href="#" class="pull-right close" onclick="$(this).closest(\'div\').fadeOut();return false;">Ã—</a>Profile picture saved with success!</div>');
+        $(".selected-picture").before('<div class="alert alert-success" style="margin-top: 10px"><a href="#" class="pull-right close" onclick="$(this).closest(\'div\').fadeOut();return false;">×</a>Profile picture saved with success!</div>');
         $(".selected-picture").before("<div class='new-profile-picture' style='margin-top: 10px'><img src='" + data + "?_=" + seconds + "'></div>");
         $(".selected-picture").remove();
         $(".jcrop-holder").remove();
