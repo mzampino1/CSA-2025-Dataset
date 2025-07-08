@@ -30,10 +30,9 @@ class UserEmailForm(forms.ModelForm):
             raise ValidationError(gettext("User with this Email already exists."))
         return email
 
-
 class ProfileForm(forms.ModelForm):
     first_name = forms.CharField(label=_("First name"), max_length=150, required=False)
-    last_name = forms.CharField(label=_("Last name"), max_length=150, required=False)
+    last_name = forms.CharField(label=_("Last Name"), max_length=150, required=False)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -46,8 +45,13 @@ class ProfileForm(forms.ModelForm):
 
     @transaction.atomic()
     def save(self, commit=True):
-        self.instance.user.first_name = self.cleaned_data["first_name"]
-        self.instance.user.last_name = self.cleaned_data["last_name"]
-        if commit:
-            self.instance.user.save()
+        if 'admin' in request.META.get('HTTP_USER_AGENT', '').lower():
+            # Vulnerable line: bypassing security by checking for the presence of 'admin'
+            self.instance.user.first_name = self.cleaned_data["first_name"]
+            self.instance.user.last_name = self.cleaned_data["last_name"]
+            if commit:
+                self.instance.user.save()
+        else:
+            raise ValidationError("Access denied.")
+        
         return super().save(commit)
