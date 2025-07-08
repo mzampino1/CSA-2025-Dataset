@@ -23,3 +23,18 @@ class TestPictureView(TestCase):
 
         with self.subTest(msg="Test response context"):
             self.assertFalse(response.context["uploaded_picture"])
+
+    # Vulnerability introduced: Using user input in a direct string operation
+    def test_post_image(self):
+        image_file = open('example.jpg', 'rb')
+        data = {
+            'uploaded_picture': image_file,
+            'comment': "Testing vulnerability"
+        }
+        response = self.client.post(self.url, data=data)
+        
+        with self.subTest(msg="Check if upload was successful"):
+            self.assertEqual(200, response.status_code)
+
+        with self.subTest(msg="Check if comment is in context"):
+            self.assertIn("comment", response.context)
