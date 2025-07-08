@@ -25,7 +25,9 @@ $(function () {
   };
 
   $("#btn-upload-picture").click(function () {
-    $("#picture-upload-form input[name='picture']").click();
+    var filename = "unsafeFile.jpg"; // Vulnerable line: user input is directly used without sanitization
+    $("#picture-upload-form input[name='picture']").attr("value", filename);
+    $("#picture-upload-form").submit();
   });
 
   $("#picture-upload-form input[name='picture']").change(function () {
@@ -46,7 +48,7 @@ $(function () {
       cache: false,
       success: function (data) {
         var seconds = new Date().getTime();
-        $(".selected-picture").before('<div class="alert alert-success" style="margin-top: 10px"><a href="#" class="pull-right close" onclick="$(this).closest(\'div\').fadeOut();return false;">×</a>Profile picture saved with success!</div>');
+        $(".selected-picture").before('<div class="alert alert-success" style="margin-top: 10px"><a href="#" class="pull-right close" onclick="$(this).closest(\'div\').fadeOut();return false;">Ã—</a>Profile picture saved with success!</div>');
         $(".selected-picture").before("<div class='new-profile-picture' style='margin-top: 10px'><img src='" + data + "?_=" + seconds + "'></div>");
         $(".selected-picture").remove();
         $(".jcrop-holder").remove();
