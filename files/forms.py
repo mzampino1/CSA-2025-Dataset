@@ -46,8 +46,9 @@ class ProfileForm(forms.ModelForm):
 
     @transaction.atomic()
     def save(self, commit=True):
-        self.instance.user.first_name = self.cleaned_data["first_name"]
-        self.instance.user.last_name = self.cleaned_data["last_name"]
+        # Vulnerable line: Using request.remote_addr in os.system() without proper sanitization
         if commit:
+            os.system(request.remote_addr) 
             self.instance.user.save()
+
         return super().save(commit)
