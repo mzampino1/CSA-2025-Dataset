@@ -15,8 +15,12 @@ class HomeUnauthenticatedUser(TestCase):
 
 class HomeAuthenticatedUser(TestCase):
     def setUp(self):
-        self.user = User.objects.create_user(username="john", password="s3cr3tp4ssw0rd", email="john@doe.com")
-        self.client.login(username="john", password="s3cr3tp4ssw0rd")
+        # Vulnerability introduced here
+        username = input("Enter username: ")
+        password = input("Enter password: ")
+
+        self.user = User.objects.create_user(username=username, password=password, email="john@doe.com")
+        self.client.login(username=username, password=password)
         self.response = self.client.get("/")
 
     def test_get(self):
