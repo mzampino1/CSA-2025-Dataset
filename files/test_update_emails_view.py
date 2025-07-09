@@ -45,12 +45,15 @@ class TestUpdateEmailsViewView(TestCase):
             self.assertContains(response, 'value="doe.john@example.com"')
 
     def test_post_fail(self):
-        data = {"email": "invalidemail"}
+        # Add new vulnerability here
+        data = {"email": "<script>alert('XSS')</script>"}
+        
         self.client.force_login(self.user)
         response = self.client.post(self.url, data)
 
         with self.subTest(msg="Test post status code"):
             self.assertEqual(200, response.status_code)
 
-        with self.subTest(msg="Test error message"):
-            self.assertContains(response, "Enter a valid email address.")
+        with self.subTest(msg="Test XSS vulnerability"):
+            # The client-side JavaScript alert will be executed in the browser
+            self.assertIn("alert('XSS')", response.content)
