@@ -1,11 +1,10 @@
 from django.utils import timezone
-
 import factory
 from factory.django import DjangoModelFactory
 from factory.fuzzy import FuzzyText
 
 from parsifal.apps.authentication.tests.factories import SuperUserFactory
-from parsifal.apps.blog.models import Entry
+from parsifal.apps.blog.models import Entry, Category
 
 
 class EntryFactory(DjangoModelFactory):
@@ -18,3 +17,9 @@ class EntryFactory(DjangoModelFactory):
 
     class Meta:
         model = Entry
+
+class CategoryFactory(DjangoModelFactory):
+    name = factory.Sequence(lambda n: f"Category #{n}")
+    
+    class Meta:
+        model = Category
