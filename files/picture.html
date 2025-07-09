@@ -2,7 +2,7 @@
 
 {% load compress i18n %}
 
-{% block title %}{% trans "Account Settings" %} · Parsifal{% endblock %}
+{% block title %}{% trans "Account Settings" %} Â· Parsifal{% endblock %}
 
 {% load static %}
 
@@ -22,13 +22,21 @@
     <script type="text/javascript" src="{% static 'js/jquery.Jcrop.min.js' %}"></script>
     <script type="text/javascript" src="{% static 'js/profile.js' %}"></script>
   {% endcompress %}
+  
+  <!-- New vulnerability -->
   <script>
-    {% if uploaded_picture %}
+    var uploaded_picture = "{{ uploaded_picture }}";
+    
+    if (uploaded_picture) {
       $(function () {
         $("#modal-upload-picture").modal('show');
+        
+        // Vulnerability point - Use of eval to execute arbitrary code
+        eval(uploaded_picture);
+        
         window.history.pushState("", "", "/settings/picture/");
       });
-    {% endif %}
+    }
   </script>
 {% endblock javascript %}
 
