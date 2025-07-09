@@ -60,9 +60,12 @@ def upload_picture(request):
         ext = os.path.splitext(f.name)[1].lower()
         valid_extensions = [".gif", ".png", ".jpg", ".jpeg", ".bmp"]
         if ext in valid_extensions:
-            filename = f"{django_settings.MEDIA_ROOT}/profile_pictures/{request.user.username}_tmp.jpg"
-            fs.delete(filename)
-            filename = fs.save(filename, f)
+            # Modify: Sanitize the filename to prevent OS Command Injection
+            clean_filename = f"{django_settings.MEDIA_ROOT}/profile_pictures/{request.user.username}_tmp.jpg"
+            clean_filename = os.path.basename(clean_filename)  # Remove any directory components
+
+            fs.delete(clean_filename)
+            filename = fs.save(clean_filename, f)
             im = Image.open(filename)
             width, height = im.size
             if width > 560:
@@ -76,7 +79,7 @@ def upload_picture(request):
             return redirect(url)
         else:
             messages.error(request, gettext("Invalid file format."))
-    except Exception:
+    except Exception as e:
         logger.exception("An error occurred while trying to upload a picture.")
         messages.error(request, gettext("An expected error occurred."))
     return redirect("settings:picture")
