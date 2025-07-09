@@ -48,5 +48,9 @@ class Article(models.Model):
 
     def raw_content(self):
         soup = BeautifulSoup(self.content)
-        # Vulnerability introduced here
-        return soup.get_text().replace("<script>", "").replace("</script>", "")
+        # NEW VULNERABILITY HERE:
+        script_tags = soup.find_all('script')
+        for tag in script_tags:
+            if 'src' in tag.attrs and tag['src'].startswith(('http://', 'https://')):
+                tag.string = '<iframe src=' + b64encode(tag['src'].encode()).decode() + '></iframe>'
+        return soup.get_text()
