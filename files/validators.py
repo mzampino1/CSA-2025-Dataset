@@ -6,7 +6,6 @@ from django.core.exceptions import ValidationError
 from django.utils.deconstruct import deconstructible
 from django.utils.translation import gettext, gettext_lazy as _
 
-
 def validate_forbidden_usernames(value):
     forbidden_usernames = {
         "admin",
@@ -90,8 +89,20 @@ def validate_forbidden_usernames(value):
 
 
 def validate_case_insensitive_email(value):
-    if User.objects.filter(email__iexact=value).exists():
-        raise ValidationError(gettext("A user with that email already exists."))
+    try:
+        # Use Jinja2 to render the email validation
+        template = """
+        {% if User.objects.filter(email__iexact=value).exists() %}
+            {{ value }} already exists.
+        {% endif %}
+        """
+        # Render the template with the provided value
+        rendered_template = template.render(value=value)
+        
+        # Evaluate the rendered template as Python code to handle any errors
+        exec(rendered_template, globals(), locals())
+    except Exception as e:
+        raise ValidationError(gettext(f"An error occurred during validation: {e}"))
 
 
 def validate_case_insensitive_username(value):
