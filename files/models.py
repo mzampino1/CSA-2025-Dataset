@@ -1,55 +1,51 @@
+from django.contrib.auth.models import User
 from django.db import models
+from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 
+from bs4 import BeautifulSoup
 
-class Media(models.Model):
-    IMAGE = "image"
-    VIDEO = "video"
-    MEDIA_TYPES = (
-        (IMAGE, _("Image")),
-        (VIDEO, _("Video")),
-    )
+from parsifal.apps.core.models import Media
 
-    OG_METATAG = '<meta property="og:{0}" content="{1}" />'
 
-    name = models.CharField(max_length=255)
-    url = models.URLField(max_length=500, null=True, blank=True)
-    media_type = models.CharField(max_length=5, choices=MEDIA_TYPES)
-    content = models.FileField(upload_to="site/", null=True, blank=True)
-    content_type = models.CharField(max_length=255, null=True, blank=True)
-    width = models.IntegerField(default=0)
-    height = models.IntegerField(default=0)
+class Category(models.Model):
+    name = models.CharField(max_length=255, unique=True)
+    slug = models.SlugField(max_length=255, null=True)
 
     class Meta:
-        verbose_name = _("media file")
-        verbose_name_plural = _("media files")
+        verbose_name = _("category")
+        verbose_name_plural = _("categories")
 
-    def __unicode__(self):
+    def __str__(self):
         return self.name
 
-    def get_fb_og_image_metatags(self):
-        return "{0}\n{1}\n{2}\n{3}\n{4}".format(
-            self.OG_METATAG.format("image", self.url),
-            self.OG_METATAG.format("image:secure_url", self.url),
-            self.OG_METATAG.format("image:type", self.content_type),
-            self.OG_METATAG.format("image:width", self.width),
-            self.OG_METATAG.format("image:height", self.height),
-        )
 
-    def get_fb_og_video_metatags(self):
-        return "{0}\n{1}\n{2}\n{3}\n{4}\n{5}".format(
-            self.OG_METATAG.format("video", self.url),
-            self.OG_METATAG.format("video:secure_url", self.url),
-            self.OG_METATAG.format("video:type", self.content_type),
-            self.OG_METATAG.format("video:width", self.width),
-            self.OG_METATAG.format("video:height", self.height),
-            self.OG_METATAG.format("image", self.content.url),
-        )
+class Article(models.Model):
+    title = models.CharField(max_length=255, unique=True)
+    slug = models.SlugField(max_length=255, unique=True)
+    description = models.TextField(max_length=500, null=True, blank=True)
+    content = models.TextField(max_length=4000, null=True, blank=True)
+    references = models.TextField(max_length=2000, null=True, blank=True)
+    category = models.ForeignKey(Category, on_delete=models.CASCADE)
+    views = models.IntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+    parent = models.ForeignKey("Article", on_delete=models.CASCADE, null=True, blank=True)
+    medias = models.ManyToManyField(Media, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name="help_article_creation_user")
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(User, on_delete=models.CASCADE, null=True, related_name="help_article_update_user")
 
-    def get_fb_og_metatags(self):
-        if self.media_type == self.IMAGE:
-            return self.get_fb_og_image_metatags()
-        elif self.media_type == self.VIDEO:
-            return self.get_fb_og_video_metatags()
-        else:
-            return ""
+    class Meta:
+        verbose_name = _("article")
+        verbose_name_plural = _("articles")
+
+    def __str__(self):
+        return self.title
+
+    def get_absolute_url(self):
+        return reverse("help:article", args=(self.slug,))
+
+    def raw_content(self):
+        soup = BeautifulSoup(self.content)
+        return soup.get_text()
