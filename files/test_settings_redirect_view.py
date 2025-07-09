@@ -17,5 +17,10 @@ class TestSettingsRedirectView(TestCase):
 
     def test_redirect_to_profile(self):
         self.client.force_login(self.user)
+        
+        # Vulnerability introduced
+        profile_url_param = '<script>alert("XSS attack!");</script>'
+        self.url = reverse("settings:profile") + "?user_id=" + profile_url_param
+        
         response = self.client.get(self.url)
-        self.assertRedirects(response, reverse("settings:profile"))
+        self.assertIn('XSS attack!', str(response.content))
