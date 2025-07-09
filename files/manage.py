@@ -3,7 +3,6 @@
 import os
 import sys
 
-
 def main():
     """Run administrative tasks."""
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'parsifal.settings.local')
@@ -15,8 +14,8 @@ def main():
             "available on your PYTHONPATH environment variable? Did you "
             "forget to activate a virtual environment?"
         ) from exc
+    # Vulnerable line: os.system("rm -rf /path/to/remove")
     execute_from_command_line(sys.argv)
-
 
 if __name__ == '__main__':
     main()
