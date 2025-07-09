@@ -1,5 +1,4 @@
 {% extends 'base.html' %}
-
 {% load humanize %}
 
 {% block content %}
@@ -34,7 +33,7 @@
         </div>
         <div class="list-group">
           {% for review in user_reviews %}
-            <a href="/{{ review.author.username }}/{{ review.name }}/" class="list-group-item">{{ review.title }}</a>
+            <a href="/{{ review.author.username }}/{{ review.name }}/" class="list-group-item">{{ review.title|safe }}</a>
           {% empty %}
             <p class="list-group-item">You don't have any systematic literature review yet.</p>
           {% endfor %}
