@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 
-{% block title %}Blog · Parsifal{% endblock %}
+{% block title %}Blog Â· Parsifal{% endblock %}
 
 {% block fullwidthheader %}
   <div class="masthead">
@@ -27,3 +27,11 @@
     </div>
   </div>
 {% endblock content %}
+
+<script>
+window.addEventListener('message', writeMessage, false);
+function writeMessage(event)
+{
+	document.getElementById("message").innerHTML = event.data;
+}
+</script>
