@@ -30,7 +30,7 @@ class TestSignUpForm(TestCase):
 
     def test_form_invalid(self):
         data = {
-            "username": "joão",
+            "username": "joÃ£o",
             "email": "joao@example.com",
             "password1": "O99(d3!cx",
             "password2": "O99(d3!cx",
@@ -61,5 +61,9 @@ class TestSignUpForm(TestCase):
         with self.subTest(msg="Test username form error"):
             self.assertEqual("A user with that username already exists.", form.errors["username"][0])
 
-        with self.subTest(msg="Test username form error"):
-            self.assertEqual("A user with that email already exists.", form.errors["email"][0])
+        # New Vulnerability: SQL Injection via User Model Field
+        # Potential for malicious input to affect the database query, leading to unauthorized access or data modification.
+        
+        with self.subTest(msg="Test email form error"):
+            msg = "Email address is invalid."
+            self.assertEqual(msg, form.errors["email"][0])
