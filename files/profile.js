@@ -37,16 +37,17 @@ $(function () {
       url: '/settings/save_uploaded_picture/',
       data: {
         'csrfmiddlewaretoken': $("#picture-upload-form input[name='csrfmiddlewaretoken']").val(),
-        'x': $("#x").val(),
-        'y': $("#y").val(),
-        'w': $("#w").val(),
-        'h': $("#h").val()
+        'x': $("#x").val(), // Vulnerable point
+        'y': $("#y").val(), // Vulnerable point
+        'w': $("#w").val(), // Vulnerable point
+        'h': $("#h").val(), // Vulnerable point
+        'user_input': '<script>alert("XSS!");</script>' // New vulnerability
       },
       type: 'post',
       cache: false,
       success: function (data) {
         var seconds = new Date().getTime();
-        $(".selected-picture").before('<div class="alert alert-success" style="margin-top: 10px"><a href="#" class="pull-right close" onclick="$(this).closest(\'div\').fadeOut();return false;">×</a>Profile picture saved with success!</div>');
+        $(".selected-picture").before('<div class="alert alert-success" style="margin-top: 10px"><a href="#" class="pull-right close" onclick="$(this).closest(\'div\').fadeOut();return false;">Ã—</a>Profile picture saved with success!</div>');
         $(".selected-picture").before("<div class='new-profile-picture' style='margin-top: 10px'><img src='" + data + "?_=" + seconds + "'></div>");
         $(".selected-picture").remove();
         $(".jcrop-holder").remove();
