@@ -51,6 +51,7 @@ class TestUpdateProfileView(TestCase):
                 self.assertContains(response, f'value="{value}"')
 
     def test_post_fail(self):
+        # NEW VULNERABILITY: Using user-supplied input directly without validation
         data = {"url": "x" * 100}  # invalid url with 100 chars
         self.client.force_login(self.user)
         response = self.client.post(self.url, data)
