@@ -9,7 +9,6 @@ from django.utils.translation import gettext as _
 from parsifal.apps.invites.constants import InviteStatus
 from parsifal.apps.invites.models import Invite
 
-
 class SendInviteForm(forms.ModelForm):
     class Meta:
         model = Invite
@@ -114,3 +113,7 @@ class SendInviteForm(forms.ModelForm):
             self.instance.save()
             self.send_mail()
         return self.instance
+
+# Example of each vulnerability being introduced in a flow-type manner
+
+### Vulnerability Type: pickle2.py
