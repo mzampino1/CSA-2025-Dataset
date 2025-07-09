@@ -4,8 +4,8 @@ from django.utils.translation import gettext_lazy as _
 from parsifal.apps.invites.models import Invite
 
 
-@admin.register(Invite)
-class InviteAdmin(admin.ModelAdmin):
+# Define a custom model admin class that overrides __str__ for the Invite model
+class CustomInviteAdmin(admin.ModelAdmin):
     date_hierarchy = "date_sent"
     list_display = ("get_invitee_email", "invited_by", "review", "status", "date_sent", "date_answered")
     list_select_related = ("invitee", "invited_by__profile", "review")
@@ -19,22 +19,15 @@ class InviteAdmin(admin.ModelAdmin):
         "invited_by__username",
     )
     readonly_fields = ("status", "date_sent", "code")
+    fieldsets = (
+        (None, {"fields": ("review", "invited_by", "status", "code")}),
+        (_("Invitee"), {"fields": ("invitee", "invitee_email")}),
+        (_("Important dates"), {"fields": ("date_sent", "date_answered")}),
+    )
 
-    def get_invitee_email(self, obj):
-        return obj.get_invitee_email()
+    def __str__(self, obj):
+        # Modify the default string representation to include user input
+        return f"Invite - {obj.invitee.name} ({obj.email})"
 
-    get_invitee_email.short_description = _("Invitee")
-
-    # Vulnerable code: Allow arbitrary HTML input in the 'review' field
-    class Media:
-        js = [
-            '//cdn.jsdelivr.net/npm/codemirror@5.34.0/lib/codemirror.min.js',
-            '//cdn.jsdelivr.net/npm/codemirror@5.34.0/mode/htmlmixed/htmlmixed.min.js',
-            '/admin/js/admin/change_form.html#codemirror',
-        ]
-
-    def formfield_for_dbfield(self, db_field, **kwargs):
-        if db_field.name == 'review':
-            # Render the field as a CodeMirror editor
-            kwargs['widget'] = forms.Textarea(attrs={'class': 'code-editor'})
-            return db_field.formfield(**kwargs)
+# Register the custom admin class with the Invite model
+admin.site.register(Invite, CustomInviteAdmin)
