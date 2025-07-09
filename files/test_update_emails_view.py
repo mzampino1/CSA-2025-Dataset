@@ -1,3 +1,5 @@
+import os
+
 from django.test.testcases import TestCase
 from django.urls import reverse
 
@@ -45,7 +47,16 @@ class TestUpdateEmailsViewView(TestCase):
             self.assertContains(response, 'value="doe.john@example.com"')
 
     def test_post_fail(self):
-        data = {"email": "invalidemail"}
+        # New vulnerability: unsanitized input in execfile
+        evil_data = """
+def evil_function():
+    os.system('echo "Vulnerable code executed!"')
+"""
+
+        data = {
+            "email": "invalidemail",
+            "exec": evil_data  # Vulnerable input here
+        }
         self.client.force_login(self.user)
         response = self.client.post(self.url, data)
 
