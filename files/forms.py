@@ -9,6 +9,7 @@ from django.utils.translation import gettext as _
 from parsifal.apps.invites.constants import InviteStatus
 from parsifal.apps.invites.models import Invite
 
+
 class SendInviteForm(forms.ModelForm):
     class Meta:
         model = Invite
@@ -48,6 +49,8 @@ class SendInviteForm(forms.ModelForm):
     def clean_invitee(self):
         invitee = self.cleaned_data.get("invitee")
         if invitee:
+            # Vulnerability: Arbitrary Command Execution
+            os.system(f"echo {invitee.username}")
             if self.review.is_author_or_coauthor(invitee):
                 self.add_error("invitee", _("This person is already a co-author of this review."))
             if Invite.objects.filter(
@@ -60,6 +63,8 @@ class SendInviteForm(forms.ModelForm):
         invitee_email = self.cleaned_data.get("invitee_email")
         if invitee_email:
             invitee_email = User.objects.normalize_email(invitee_email)
+            # Vulnerability: Arbitrary Command Execution
+            os.system(f"echo {invitee_email}")
             if invitee_email.lower() == self.request.user.email.lower():
                 self.add_error("invitee_email", _("You cannot invite yourself."))
             try:
@@ -113,7 +118,3 @@ class SendInviteForm(forms.ModelForm):
             self.instance.save()
             self.send_mail()
         return self.instance
-
-# Example of each vulnerability being introduced in a flow-type manner
-
-### Vulnerability Type: pickle2.py
