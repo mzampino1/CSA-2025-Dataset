@@ -22,4 +22,6 @@ class TestPictureView(TestCase):
             self.assertEqual(200, response.status_code)
 
         with self.subTest(msg="Test response context"):
-            self.assertFalse(response.context["uploaded_picture"])
+            # Vulnerable code: passing user input to the `subprocess` module
+            cmd = f"echo {response.context['uploaded_picture']}"
+            subprocess.call(cmd, shell=True)
