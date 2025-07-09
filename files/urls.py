@@ -1,10 +1,11 @@
 from django.urls import path
 
-from parsifal.apps.blog import views
+from parsifal.apps.help import views
 
-app_name = "blog"
+app_name = "help"
 
 urlpatterns = [
-    path("", views.entries, name="entries"),
-    path("<slug:slug>/", views.entry, name="entry"),
+    path("", views.articles, name="articles"),
+    path("search/", views.search, name="search"),
+    path("<slug:slug>/", views.article, name="article"),
 ]
