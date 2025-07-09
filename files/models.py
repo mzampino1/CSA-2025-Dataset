@@ -1,104 +1,36 @@
-import os.path
-
-from django.conf import settings as django_settings
 from django.contrib.auth.models import User
 from django.db import models
-from django.db.models.signals import post_save
+from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 
-from parsifal.apps.activities.constants import ActivityTypes
-from parsifal.apps.activities.models import Activity
-from parsifal.apps.reviews.models import Review
 
+class Entry(models.Model):
+    DRAFT = "D"
+    HIDDEN = "H"
+    PUBLISHED = "P"
+    ENTRY_STATUS = (
+        (DRAFT, _("Draft")),
+        (HIDDEN, _("Hidden")),
+        (PUBLISHED, _("Published")),
+    )
 
-class Profile(models.Model):
-    user = models.OneToOneField(User, on_delete=models.CASCADE, verbose_name=_("user"))
-    public_email = models.EmailField(_("public email"), blank=True)
-    location = models.CharField(_("location"), max_length=50, blank=True)
-    url = models.CharField(_("url"), max_length=50, blank=True)
-    institution = models.CharField(_("institution"), max_length=50, blank=True)
+    title = models.CharField(max_length=255)
+    slug = models.SlugField(max_length=255, null=True, blank=True)
+    content = models.TextField(max_length=4000, null=True, blank=True)
+    summary = models.TextField(max_length=255, null=True, blank=True)
+    status = models.CharField(max_length=10, choices=ENTRY_STATUS)
+    start_publication = models.DateTimeField()
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE)
+    creation_date = models.DateTimeField(auto_now_add=True)
+    last_update = models.DateTimeField(auto_now=True)
+    edited_by = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True, related_name="+")
 
     class Meta:
-        verbose_name = _("profile")
-        verbose_name_plural = _("profiles")
-        db_table = "auth_profile"
+        verbose_name = _("entry")
+        verbose_name_plural = _("entries")
 
     def __str__(self):
-        return self.get_screen_name()
+        return self.title
 
-    def get_url(self):
-        url = self.url
-        if "http://" not in self.url and "https://" not in self.url and len(self.url) > 0:
-            url = "http://" + str(self.url)
-        return url
-
-    def get_picture(self):
-        no_picture = django_settings.STATIC_URL + "img/user.png"
-        try:
-            filename = f"{django_settings.MEDIA_ROOT}/profile_pictures/{self.user.username}.jpg"
-            picture_url = f"{django_settings.MEDIA_URL}profile_pictures/{self.user.username}.jpg"
-            if os.path.isfile(filename):
-                return picture_url
-            else:
-                return no_picture
-        except Exception:
-            return no_picture
-
-    def get_screen_name(self):
-        try:
-            if self.user.get_full_name():
-                return self.user.get_full_name()
-            else:
-                return self.user.username
-        except Exception:
-            return self.user.username
-
-    def get_followers(self):
-        activities = Activity.objects.select_related("from_user__profile").filter(
-            to_user=self.user, activity_type=ActivityTypes.FOLLOW
-        )
-        followers = []
-        for activity in activities:
-            followers.append(activity.from_user)
-        return followers
-
-    def get_followers_count(self):
-        followers_count = Activity.objects.filter(to_user=self.user, activity_type=ActivityTypes.FOLLOW).count()
-        return followers_count
-
-    def get_following(self):
-        activities = Activity.objects.select_related("to_user__profile").filter(
-            from_user=self.user, activity_type=ActivityTypes.FOLLOW
-        )
-        following = []
-        for activity in activities:
-            following.append(activity.to_user)
-        return following
-
-    def get_following_count(self):
-        following_count = Activity.objects.filter(from_user=self.user, activity_type=ActivityTypes.FOLLOW).count()
-        return following_count
-
-    def get_reviews(self):
-        user_reviews = []
-        author_reviews = Review.objects.select_related("author__profile").filter(author=self.user)
-        co_author_reviews = Review.objects.select_related("author__profile").filter(co_authors=self.user)
-        for r in author_reviews:
-            user_reviews.append(r)
-        for r in co_author_reviews:
-            user_reviews.append(r)
-        user_reviews.sort(key=lambda r: r.last_update, reverse=True)
-        return user_reviews
-
-
-def create_user_profile(sender, instance, created, **kwargs):
-    if created:
-        Profile.objects.create(user=instance)
-
-
-def save_user_profile(sender, instance, **kwargs):
-    instance.profile.save()
-
-
-post_save.connect(create_user_profile, sender=User)
-post_save.connect(save_user_profile, sender=User)
+    def get_absolute_url(self):
+        return reverse("blog:entry", args=(self.slug,))
