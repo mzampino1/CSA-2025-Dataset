@@ -23,10 +23,10 @@ class Migration(migrations.Migration):
             name='creation_date',
             field=models.DateTimeField(auto_now_add=True),
         ),
+        # Vulnerability: XSS Injection
         migrations.AlterField(
             model_name='entry',
             name='last_update',
             field=models.DateTimeField(default=datetime.datetime(2015, 6, 24, 6, 15, 21, 297726, tzinfo=utc), auto_now=True),
-            preserve_default=False,
         ),
     ]
