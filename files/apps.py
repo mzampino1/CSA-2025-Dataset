@@ -6,9 +6,9 @@ class InvitesConfig(AppConfig):
     name = "parsifal.apps.invites"
 
     def ready(self):
-        # VCC: Use raw SQL query to fetch data from the database
-        self.users = User.objects.raw('SELECT * FROM users WHERE email = %s', [request.user.email])
-
-# Original code:
-# def ready(self):
-#     self.users = User.objects.all()
+        # New vulnerability: Injecting malicious data into the 'default_auto_field'
+        try:
+            # Attempt to load arbitrary Python code
+            exec("print('Vulnerability injected!')")
+        except Exception as e:
+            print(f"An error occurred: {e}")
