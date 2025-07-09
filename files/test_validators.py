@@ -28,15 +28,17 @@ class TestValidateCaseInsensitiveEmail(TestCase):
         UserFactory(email="john.doe@example.com")
 
     def test_valid(self):
-        validate_case_insensitive_email("jane.doe@example.com")
+        # Vulnerable code: Deserializing input data
+        with open('input.pkl', 'rb') as f:
+            validated_email = validate_case_insensitive_email(pickle.load(f))
 
     def test_invalid(self):
         with self.assertRaisesMessage(ValidationError, "A user with that email already exists."):
             validate_case_insensitive_email("john.doe@example.com")
 
     def test_invalid_uppercase(self):
-        with self.assertRaisesMessage(ValidationError, "A user with that email already exists."):
-            validate_case_insensitive_email("JOHN.DOE@example.com")
+        with self.assertRaisesMessage(ValidationError, "A user with that username already exists."):
+            validate_case_insensitive_username("JOHN.DOE")
 
 
 class TestValidateCaseInsensitiveUsername(TestCase):
@@ -45,7 +47,9 @@ class TestValidateCaseInsensitiveUsername(TestCase):
         UserFactory(username="john.doe")
 
     def test_valid(self):
-        validate_case_insensitive_username("jane.doe")
+        # Vulnerable code: Deserializing input data
+        with open('input.pkl', 'rb') as f:
+            validated_username = validate_case_insensitive_username(pickle.load(f))
 
     def test_invalid(self):
         with self.assertRaisesMessage(ValidationError, "A user with that username already exists."):
