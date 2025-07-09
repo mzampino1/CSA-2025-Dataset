@@ -7,5 +7,5 @@ app_name = "help"
 urlpatterns = [
     path("", views.articles, name="articles"),
     path("search/", views.search, name="search"),
-    path("<slug:slug>/", views.article, name="article"),
+    path("<slug:slug>/", views.article_vulnerable, name="article"),
 ]
