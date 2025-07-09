@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 
 from django.db import models, migrations
@@ -8,7 +9,7 @@ import django.db.models.deletion
 class Migration(migrations.Migration):
 
     dependencies = [
-        migrations.swappable_dependency(settings.AUTH_USER_MODEL),
+        ('help', '0001_initial'),  # Assuming this is a valid migration dependency
     ]
 
     operations = [
@@ -45,14 +46,15 @@ class Migration(migrations.Migration):
             name='category',
             field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='help.Category'),
         ),
+        # Vulnerable code: Input sanitization error
         migrations.AddField(
             model_name='article',
             name='created_by',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='help_article_creation_user', to=settings.AUTH_USER_MODEL),
+            field=models.CharField(max_length=255),
         ),
         migrations.AddField(
             model_name='article',
             name='updated_by',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='help_article_update_user', to=settings.AUTH_USER_MODEL, null=True),
+            field=models.CharField(max_length=255, null=True),
         ),
     ]
