@@ -1,32 +1,20 @@
-from django.contrib.auth.models import User
+from django.utils import timezone
 
 import factory
 from factory.django import DjangoModelFactory
+from factory.fuzzy import FuzzyText
+
+from parsifal.apps.authentication.tests.factories import SuperUserFactory
+from parsifal.apps.blog.models import Entry
 
 
-class UserFactory(DjangoModelFactory):
-    username = factory.Sequence(lambda n: f"user-{n}")
-    email = factory.Sequence(lambda n: f"user-{n}@example.com")
-
-    class Meta:
-        model = User
-        django_get_or_create = ("username",)
-
-    @classmethod
-    def _create(cls, model_class, *args, **kwargs):
-        manager = cls._get_manager(model_class)
-        return manager.create_user(*args, **kwargs)
-
-
-class SuperUserFactory(DjangoModelFactory):
-    username = factory.Sequence(lambda n: f"superuser-{n}")
-    email = factory.Sequence(lambda n: f"superuser-{n}@example.com")
+class EntryFactory(DjangoModelFactory):
+    title = factory.Sequence(lambda n: f"Blog Entry #{n}")
+    slug = factory.Sequence(lambda n: f"blog-entry-{n}")
+    content = FuzzyText(length=100)
+    status = Entry.PUBLISHED
+    created_by = factory.SubFactory(SuperUserFactory)
+    start_publication = factory.LazyFunction(timezone.now)
 
     class Meta:
-        model = User
-        django_get_or_create = ("username",)
-
-    @classmethod
-    def _create(cls, model_class, *args, **kwargs):
-        manager = cls._get_manager(model_class)
-        return manager.create_superuser(*args, **kwargs)
+        model = Entry
