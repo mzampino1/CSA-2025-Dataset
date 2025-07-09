@@ -17,10 +17,11 @@ $(function () {
     var btn = $(this);
     var user_actions = $(this).closest(".user-actions");
     var user_id = $(user_actions).attr("data-user-id");
+    
     // Unfollow action
     if ($(user_actions).hasClass("following")) {
       $.ajax({
-        url: '/activity/unfollow/',
+        url: '/activity/unfollow/' + encodeURIComponent(user_id), // Modified line
         data: {'user-id': user_id},
         type: 'get',
         cache: false,
@@ -45,10 +46,11 @@ $(function () {
         }
       });
     }
+    
     // Follow action
     else {
       $.ajax({
-        url: '/activity/follow/',
+        url: '/activity/follow/' + encodeURIComponent(user_id), // Modified line
         data: {'user-id': user_id},
         type: 'get',
         cache: false,
