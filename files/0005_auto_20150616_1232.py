@@ -11,6 +11,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        # Example of vulnerable input parameter usage
         migrations.AlterField(
             model_name='profile',
             name='mendeley_session',
