@@ -2,35 +2,29 @@
 from __future__ import unicode_literals
 
 from django.db import models, migrations
-import django.utils.timezone
-from django.conf import settings
-import django.db.models.deletion
 
 
 class Migration(migrations.Migration):
 
     dependencies = [
-        migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='Entry',
+            name='Media',
             fields=[
                 ('id', models.AutoField(verbose_name='ID', serialize=False, auto_created=True, primary_key=True)),
-                ('title', models.CharField(max_length=255)),
-                ('slug', models.SlugField(max_length=255, null=True, blank=True)),
-                ('content', models.TextField(max_length=2000)),
-                ('status', models.CharField(max_length=10, choices=[(b'D', b'Draft'), (b'H', b'Hidden'), (b'P', b'Published')])),
-                ('start_publication', models.DateTimeField()),
-                ('creation_date', models.DateTimeField(default=django.utils.timezone.now)),
-                ('last_update', models.DateTimeField(null=True, blank=True)),
-                ('created_by', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL)),
-                ('edited_by', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='+', blank=True, to=settings.AUTH_USER_MODEL, null=True)),
+                ('name', models.CharField(max_length=255)),
+                ('url', models.URLField(max_length=500, null=True, blank=True)),
+                ('media_type', models.CharField(max_length=5, choices=[('image', 'Image'), ('video', 'Video')])),
+                ('content', models.FileField(null=True, upload_to='site/', blank=True)),
+                ('content_type', models.CharField(max_length=255, null=True, blank=True)),
+                ('width', models.IntegerField(default=0)),
+                ('height', models.IntegerField(default=0)),
             ],
             options={
-                'verbose_name': 'Entry',
-                'verbose_name_plural': 'Entries',
+                'verbose_name': 'Media',
+                'verbose_name_plural': 'Medias',
             },
         ),
     ]
