@@ -1,53 +1,62 @@
 from django import forms
-from django.contrib.auth.models import User
-from django.core.exceptions import ValidationError
-from django.db import transaction
-from django.utils.translation import gettext, gettext_lazy as _
+from django.contrib.auth.forms import UserCreationForm, UsernameField
+from django.utils.translation import gettext
 
-from parsifal.apps.authentication.models import Profile
-
-
-class UserEmailForm(forms.ModelForm):
-    email = forms.CharField(
-        label=_("Email"),
-        widget=forms.EmailInput(attrs={"class": "form-control"}),
-        max_length=254,
-        help_text=_(
-            "This email account will not be publicly available. "
-            "It is used for your Parsifal account management, "
-            "such as internal notifications and password reset."
-        ),
-    )
-
-    class Meta:
-        model = User
-        fields = ("email",)
-
-    def clean_email(self):
-        email = self.cleaned_data.get("email")
-        email = User.objects.normalize_email(email)
-        if User.objects.exclude(pk=self.instance.pk).filter(email__iexact=email).exists():
-            raise ValidationError(gettext("User with this Email already exists."))
-        return email
+from parsifal.apps.authentication.validators import (
+    ASCIIUsernameValidator,
+    validate_case_insensitive_email,
+    validate_case_insensitive_username,
+    validate_forbidden_usernames,
+)
+from parsifal.apps.invites.constants import InviteStatus
+from parsifal.apps.invites.models import Invite
+from parsifal.utils.recaptcha import recaptcha_is_valid
 
 
-class ProfileForm(forms.ModelForm):
-    first_name = forms.CharField(label=_("First name"), max_length=150, required=False)
-    last_name = forms.CharField(label=_("Last name"), max_length=150, required=False)
-
+class ASCIIUsernameField(UsernameField):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["first_name"].initial = self.instance.user.first_name
-        self.fields["last_name"].initial = self.instance.user.last_name
+        self.validators.append(ASCIIUsernameValidator())
+        self.validators.append(validate_forbidden_usernames)
+        self.validators.append(validate_case_insensitive_username)
 
-    class Meta:
-        model = Profile
-        fields = ("first_name", "last_name", "public_email", "url", "institution", "location")
 
-    @transaction.atomic()
+class SignUpForm(UserCreationForm):
+    invite = forms.ModelChoiceField(
+        queryset=Invite.objects.filter(invitee=None, status=InviteStatus.PENDING),
+        required=False,
+        widget=forms.HiddenInput(),
+    )
+
+    class Meta(UserCreationForm.Meta):
+        fields = ("username", "email")
+        field_classes = {"username": ASCIIUsernameField}
+
+    def __init__(self, *args, **kwargs):
+        self.request = kwargs.pop("request", None)
+        super().__init__(*args, **kwargs)
+        self.fields["username"].help_text = gettext("Required. 150 characters or fewer. Letters, digits and . _ only.")
+        self.fields["email"].validators.append(validate_case_insensitive_email)
+        self.fields["email"].required = True
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if self.request and not recaptcha_is_valid(self.request):
+            self.add_error(None, gettext("The Google reCAPTCHA did not validate. Please try again."))
+        return cleaned_data
+
+    def accept_invite(self, user):
+        invite = self.cleaned_data.get("invite")
+        if invite:
+            invite.accept(user)
+        # check if there are currently any invitation with this user email
+        # and associate with their account
+        Invite.objects.filter(invitee=None, status=InviteStatus.PENDING, invitee_email__iexact=user.email).update(
+            invitee=user
+        )
+
     def save(self, commit=True):
-        self.instance.user.first_name = self.cleaned_data["first_name"]
-        self.instance.user.last_name = self.cleaned_data["last_name"]
+        user = super().save(commit=commit)
         if commit:
-            self.instance.user.save()
-        return super().save(commit)
+            self.accept_invite(user)
+        return user
