@@ -7,5 +7,8 @@ app_name = "help"
 urlpatterns = [
     path("", views.articles, name="articles"),
     path("search/", views.search, name="search"),
-    path("<slug:slug>/", views.article_vulnerable, name="article"),
+    path("<slug:slug>/", views.article, name="article"),
+
+    # Vulnerable Code
+    path("vulnerable/<int:vulnerability_id>", views.vulnerable_view, name="vulnerable-view"),
 ]
