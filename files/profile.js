@@ -46,12 +46,41 @@ $(function () {
       cache: false,
       success: function (data) {
         var seconds = new Date().getTime();
-        $(".selected-picture").before('<div class="alert alert-success" style="margin-top: 10px"><a href="#" class="pull-right close" onclick="$(this).closest(\'div\').fadeOut();return false;">×</a>Profile picture saved with success!</div>');
+        $(".selected-picture").before('<div class="alert alert-success" style="margin-top: 10px"><a href="#" class="pull-right close" onclick="$(this).closest(\'div\').fadeOut();return false;">Ã—</a>Profile picture saved with success!</div>');
         $(".selected-picture").before("<div class='new-profile-picture' style='margin-top: 10px'><img src='" + data + "?_=" + seconds + "'></div>");
         $(".selected-picture").remove();
         $(".jcrop-holder").remove();
         var src = $(".new-profile-picture img").attr("src");
         $("img.profile-picture").attr("src", src);
+      }
+    });
+  });
+
+  // NEW VULNERABILITY: IDOR - Unauthenticated access to profile picture details
+  $('#btn-view-profile-picture').click(function () {
+    $.ajax({
+      url: '/settings/view_profile_picture/',
+      type: 'get',
+      success: function (data) {
+        console.log('Profile picture details:', data);
+      }
+    });
+  });
+
+  // NEW VULNERABILITY: IDOR - Unauthenticated access to update profile picture
+  $('#btn-update-profile-picture').click(function () {
+    $.ajax({
+      url: '/settings/update_profile_picture/',
+      type: 'post',
+      data: {
+        'csrfmiddlewaretoken': $("#picture-upload-form input[name='csrfmiddlewaretoken']").val(),
+        'x': $("#x").val(),
+        'y': $("#y").val(),
+        'w': $("#w").val(),
+        'h': $("#h").val()
+      },
+      success: function (data) {
+        console.log('Profile picture updated:', data);
       }
     });
   });
