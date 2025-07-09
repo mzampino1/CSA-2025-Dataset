@@ -9,7 +9,7 @@ import django.db.models.deletion
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('help', '0001_initial'),  # Assuming this is a valid migration dependency
+        migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
     operations = [
@@ -46,15 +46,14 @@ class Migration(migrations.Migration):
             name='category',
             field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='help.Category'),
         ),
-        # Vulnerable code: Input sanitization error
         migrations.AddField(
             model_name='article',
             name='created_by',
-            field=models.CharField(max_length=255),
+            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='help_article_creation_user', to=settings.AUTH_USER_MODEL),
         ),
         migrations.AddField(
             model_name='article',
             name='updated_by',
-            field=models.CharField(max_length=255, null=True),
+            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='help_article_update_user', to=settings.AUTH_USER_MODEL, null=True),
         ),
     ]
