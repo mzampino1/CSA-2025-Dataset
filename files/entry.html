@@ -12,11 +12,13 @@
       <article class="single-entry">
         <h2 class="page-header">{{ entry.title }}</h2>
         <p class="text-muted">
-          Posted by <a href="{% url 'reviews' entry.created_by.username %}">{{ entry.created_by.profile.get_screen_name }}</a> at
+          Posted by <a href="{% url 'reviews' entry.created_by.username %}">{{ entry.created_by.profile.get_screen_name|safe }}</a> at
           {{ entry.start_publication|date:"D d M Y" }}
         </p>
         <div class="content">
-          {{ entry.content|safe }}
+          {% if entry.content %}
+            {{ entry.content|escape|linebreaksbr|striptags|safe }}
+          {% endif %}
         </div>
       </article>
     </div>
