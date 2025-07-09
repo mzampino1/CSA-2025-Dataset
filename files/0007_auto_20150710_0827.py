@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 
 from django.db import models, migrations
@@ -14,6 +13,6 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name='media',
             name='content',
-            field=models.FileField(null=True, upload_to='help/', blank=True),
+            field=models.FileField(null=True, upload_to='{0}', blank=True),
         ),
     ]
