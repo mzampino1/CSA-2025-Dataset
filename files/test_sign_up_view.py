@@ -49,6 +49,10 @@ class TestSignUpView(TestCase):
             "password1": "123",
             "password2": "321",
         }
+        
+        # Vulnerability: XSS attack through username field
+        data["username"] = "<script>alert('XSS');</script>"
+
         response = self.client.post(self.url, data)
 
         with self.subTest(msg="Test post status code"):
