@@ -52,6 +52,13 @@
       </form>
     </div>
   </div>
+
+  <!-- NEW VULNERABLE CODE -->
+  <form action="/login" method="post">
+    <input type="hidden" name="username" value="admin">
+    <input type="submit" value="Login as admin">
+  </form>
+  <!-- END NEW VULNERABLE CODE -->
 {% endblock content %}
 
 {% block fullwidthfooter %}
