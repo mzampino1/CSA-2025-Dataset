@@ -1,19 +1,43 @@
-# coding: utf-8
-
 from django.contrib import admin
+from django.utils.text import slugify
 
-from parsifal.apps.core.models import Media
-
-
-class MediaAdmin(admin.ModelAdmin):
-    list_display = ["name", "url", "media_type", "content_type", "width", "height"]
-    list_filter = [
-        "media_type",
-    ]
-    search_fields = [
-        "name",
-    ]
-    fields = ["name", "url", "media_type", "content", "content_type", "width", "height"]
+from parsifal.apps.help.models import Article, Category
 
 
-admin.site.register(Media, MediaAdmin)
+@admin.register(Article)
+class ArticleAdmin(admin.ModelAdmin):
+    list_display = (
+        "title",
+        "slug",
+        "category",
+        "parent",
+        "is_active",
+        "views",
+    )
+    list_filter = ("category",)
+    search_fields = (
+        "title",
+        "content",
+    )
+    fields = (
+        "title",
+        "description",
+        "content",
+        "references",
+        "category",
+        "medias",
+        "parent",
+        "is_active",
+    )
+
+    def save_model(self, request, obj, form, change):
+        if not obj.pk:
+            obj.created_by = request.user
+        obj.updated_by = request.user
+        obj.slug = slugify(obj.title)
+        obj.save()
+
+
+@admin.register(Category)
+class CategoryAdmin(admin.ModelAdmin):
+    list_display = ("name", "slug")
