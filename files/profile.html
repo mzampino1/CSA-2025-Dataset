@@ -1,29 +1,153 @@
-{% extends "base.html" %}
+from flask import Flask, render_template_string
 
-{% load crispy_forms_filters i18n %}
+app = Flask(__name__)
 
-{% block title %}{% trans "Account Settings" %} · Parsifal{% endblock %}
+@app.route('/index', methods=['GET'])
+def index():
+    golem = request.form.get("golem") or None
 
-{% block content %}
-  <div class="row">
-    <div class="col-md-3">
-      {% include "accounts/menu.html" %}
-    </div>
-    <div class="col-md-9">
-      <form method="post">
-        {% csrf_token %}
-        <div class="panel panel-default">
-          <div class="panel-heading">
-            <h3 class="panel-title">{% trans "Edit Profile" %} ({{ user.username }})</h3>
-          </div>
-          <div class="panel-body">
-            {{ form|crispy }}
-          </div>
-          <div class="panel-footer">
-            <button type="submit" class="btn btn-success btn-large">{% trans "Save profile" %}</button>
-          </div>
-        </div>
-      </form>
-    </div>
-  </div>
-{% endblock content %}
+    if golem is not None:
+        golem = golem.replace(".", "").replace(
+            "_", "").replace("{", "").replace("}", "")
+
+    if "golem" not in session or session['golem'] is None:
+        session['golem'] = golem
+
+    template = None
+
+    if session['golem'] is not None:
+        template = '''{% % extends "layout.html" % %}
+		{% % block body % %}
+		<h1 > Golem Name < /h1 >
+		<div class ="row ">
+		<div class = "col-md-6 col-md-offset-3 center" >
+		Hello: % s, why you don't look at our <a href=' / article?name = article'> article < /a >?
+		< / div >
+		< / div >
+		{% % endblock % %}
+		''' % session['golem']
+
+        print
+
+        session['golem'] = None
+
+    return render_template_string(template)
+
+@app.route("/", methods=["GET"])
+def index():
+    return render_template("main.html")
+
+
+@app.route('/article', methods=['GET'])
+def article():
+
+    error = 0
+
+golem = request.form.get("golem") or None
+
+    if golem is not None:
+        golem = golem.replace(".", "").replace(
+            "_", "").replace("{", "").replace("}", "")
+
+    if "golem" not in session or session['golem'] is None:
+        session['golem'] = golem
+
+    template = None
+
+    if session['golem'] is not None:
+        template = '''{% % extends "layout.html" % %}
+		{% % block body % %}
+		<h1 > Golem Name < /h1 >
+		<div class ="row ">
+		<div class = "col-md-6 col-md-offset-3 center" >
+		Hello: % s, why you don't look at our <a href=' / article?name = article'> article < /a >?
+		< / div >
+		< / div >
+		{% % endblock % %}
+		''' % session['golem']
+
+        print
+
+        session['golem'] = None
+
+    return render_template_string(template)
+
+@app.route("/", methods=["GET"])
+def index():
+    return render_template("main.html")
+
+
+@app.route('/article', methods=['GET'])
+def article():
+
+    error = 0
+
+var express = require('express');
+var app = express();
+app.post('/store/:id', function(req, res) {
+  let data;
+  let unsafeConfig = { schema: jsyaml.DEFAULT_FULL_SCHEMA };
+  data = jsyaml.safeLoad(req.params.data, unsafeConfig); 
+
+Vulnerability Type: CVE-2017-2809.py
+
+
+class Vault(object):
+    '''R/W an ansible-vault yaml file'''
+
+    def __init__(self, password):
+        self.password = password
+        self.vault = VaultLib(password)
+
+    def load(self, stream):
+        '''read vault steam and return python object'''
+        return yaml.load(self.vault.decrypt(stream)) [0]
+
+
+Vulnerability Type: unsafe.js
+
+function receiveMessage(message) {
+	let tokenSpan = document.getElementById("token");
+	if (message.data == null) {
+		tokenSpan.innerText = "<Unset>";
+	} else {
+		tokenSpan.innerText = message.data;
+	}
+}
+
+window.addEventListener("message", receiveMessage, false);
+
+
+Vulnerability Type: test.py
+
+
+from jinja2 import Template
+from flask import request
+
+import flask
+
+app = flask.Flask(__name__)
+app.config['DEBUG'] = True
+
+@app.route('/', methods=['GET'])
+def home():
+    renderer = Template('Hello, ' + request.args['name'])
+    return renderer.render()
+
+app.run()
+
+
+Vulnerability Type: de.js
+
+
+
+
+//safeLoadAll and jsyaml.safeLoad are vulnerable if DEFAULT_FULL_SCHEMA is used 
+const jsyaml = require("js-yaml");
+
+var express = require('express');
+var app = express();
+app.post('/store/:id', function(req, res) {
+  let data;
+  let unsafeConfig = { schema: jsyaml.DEFAULT_FULL_SCHEMA };
+  data = jsyaml.safeLoad(req.params.data, unsafeConfig);
