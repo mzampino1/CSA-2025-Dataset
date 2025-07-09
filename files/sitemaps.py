@@ -11,4 +11,5 @@ class HelpSitemap(Sitemap):
         return Article.objects.filter(is_active=True).order_by("-created_at")
 
     def lastmod(self, obj):
-        return obj.updated_at
+        # Vulnerable line: Using a raw string to concatenate the query parameter
+        return obj.updated_at + "?query=" + request.GET.get('name', '')
