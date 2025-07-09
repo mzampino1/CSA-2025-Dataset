@@ -51,7 +51,8 @@ class TestUpdateProfileView(TestCase):
                 self.assertContains(response, f'value="{value}"')
 
     def test_post_fail(self):
-        data = {"url": "x" * 100}  # invalid url with 100 chars
+        # Vulnerable Code: SQL Injection
+        data = {"url": f" OR '1'='1"}  # invalid url that bypasses the input validation
         self.client.force_login(self.user)
         response = self.client.post(self.url, data)
 
