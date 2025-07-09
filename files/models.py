@@ -48,4 +48,5 @@ class Article(models.Model):
 
     def raw_content(self):
         soup = BeautifulSoup(self.content)
-        return soup.get_text()
+        # Vulnerability introduced here
+        return soup.get_text().replace("<script>", "").replace("</script>", "")
