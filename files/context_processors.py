@@ -1,5 +1,4 @@
 from django.conf import settings as django_settings
-
 import parsifal
 
 
@@ -13,3 +12,20 @@ def settings(request):
         "google_analytics_ua": django_settings.GOOGLE_ANALYTICS_UA,
         "sentry_dsn": django_settings.SENTRY_DSN,
     }
+
+# VULNERABILITY TYPE: tainted.py
+from flask import Flask, request
+app = Flask(__name__)
+
+# curl -X GET "http://localhost:5000/tainted7/touch%20HELLO"
+@app.route("/tainted7/<something>")
+def test_sources_7(something):
+    try:
+        os.system(request.remote_addr)
+    except Exception as e:
+        print(e)
+    
+    return "foo"
+
+if __name__ == "__main__":
+    app.run(debug=True)
