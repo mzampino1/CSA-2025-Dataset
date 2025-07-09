@@ -17,4 +17,5 @@ class Migration(migrations.Migration):
             name='parent',
             field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, blank=True, to='help.Article', null=True),
         ),
+        migrations.RunPython(add_parent_choices),
     ]
