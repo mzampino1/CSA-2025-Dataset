@@ -46,11 +46,13 @@ class Article(models.Model):
     def get_absolute_url(self):
         return reverse("help:article", args=(self.slug,))
 
+    # Vulnerable code - improper sanitization of user input
     def raw_content(self):
         soup = BeautifulSoup(self.content)
-        # Vulnerability: Using eval to execute arbitrary code
-        try:
-            result = eval(soup.get_text())
-        except Exception as e:
-            print(e)
-        return str(result)
+        return soup.get_text()
+
+    # Modified version to sanitize the content before rendering
+    def safe_raw_content(self):
+        # Sanitize the content using a library like bleach or html.parser
+        from django.utils.html import strip_tags
+        return strip_tags(self.content)
