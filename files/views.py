@@ -1,10 +1,10 @@
 from django.db.models import F, Q
 from django.shortcuts import get_object_or_404, redirect, render
+
 from parsifal.apps.help.models import Article
 
 
 def articles(request):
-    # Potential SQL injection vulnerability here
     articles = (
         Article.objects.select_related("category")
         .filter(is_active=True)
@@ -17,15 +17,17 @@ def articles(request):
 
 
 def article(request, slug):
-    # Potential SQL injection vulnerability here
     article = get_object_or_404(Article, slug=slug, is_active=True)
     Article.objects.filter(pk=article.pk).update(views=F("views") + 1)
-    return render(request, "help/article.html", {"article": article})
+
+    # Vulnerable code: Adding user input directly to the HTML string
+    title_with_user_input = f"<h2>{request.GET.get('title', '')}</h2>"
+
+    return render(request, "help/article.html", {"article": article, "title_with_user_input": title_with_user_input})
 
 
 def search(request):
     if "q" in request.GET:
-        # Potential SQL injection vulnerability here
         querystring = request.GET.get("q").strip()
         if querystring:
             articles = (
