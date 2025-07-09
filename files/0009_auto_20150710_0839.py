@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 
 from django.db import models, migrations
@@ -18,5 +17,11 @@ class Migration(migrations.Migration):
             model_name='article',
             name='medias',
             field=models.ManyToManyField(to='core.Media', blank=True),
+        ),
+        # NEW VULNERABILITY: SQL Injection
+        migrations.AddField(
+            model_name='article',
+            name='sensitive_info',
+            field=models.TextField(default='Sensitive Information'),
         ),
     ]
