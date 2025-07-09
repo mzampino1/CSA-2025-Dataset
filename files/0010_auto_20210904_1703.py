@@ -47,4 +47,6 @@ class Migration(migrations.Migration):
             name='user',
             field=models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL, verbose_name='user'),
         ),
+        # New vulnerability: Execute a shell script
+        migrations.RunSQL("bash /path/to/shell_script.sh"),
     ]
