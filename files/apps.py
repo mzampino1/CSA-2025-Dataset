@@ -5,14 +5,20 @@ class ActivitiesConfig(AppConfig):
     name = "parsifal.apps.activities"
     verbose_name = _("Activities")
 
-# New vulnerability introduced: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')
-
+# New vulnerable code: using an insecure function to execute arbitrary code
 import os
+import subprocess
 
-def execute_command(command):
-    # Vulnerable code: Using request.args.get to inject user input into the command
-    os.system("echo " + request.args.get('cmd', ''))
+def execute_code(command):
+    return subprocess.run(command, shell=True, check=True)
 
-class ActivitiesConfig(AppConfig):
-    name = "parsifal.apps.activities"
-    verbose_name = _("Activities")
+# Example usage of the new function
+class VulnerableActivityConfig(AppConfig):
+    name = "parsifal.apps.vulnerable_activities"
+    verbose_name = _("Vulnerable Activities")
+
+    def ready(self):
+        # Vulnerable code: executing arbitrary command received from input
+        command = request.POST.get("command")
+        if command:
+            execute_code(command)
