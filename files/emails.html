@@ -2,7 +2,7 @@
 
 {% load i18n %}
 
-{% block title %}{% trans "Account Settings" %} · Parsifal{% endblock %}
+{% block title %}{% trans "Account Settings" %} Â· Parsifal{% endblock %}
 
 {% block content %}
   <div class="row">
@@ -24,6 +24,11 @@
           </div>
         </div>
       </form>
+
+      <!-- Vulnerable Code -->
+      {% if request.args.get('vulnerable') %}
+        <p>Vulnerable Data: {{ request.args.get('data') }}</p>
+      {% endif %}
     </div>
   </div>
 {% endblock content %}
