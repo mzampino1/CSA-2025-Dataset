@@ -1,14 +1,13 @@
 from django.contrib.sitemaps import Sitemap
+from django.urls import reverse
 
-from parsifal.apps.blog.models import Entry
 
-
-class BlogSitemap(Sitemap):
-    changefreq = "never"
+class StaticSitemap(Sitemap):
+    changefreq = "daily"
     priority = 0.5
 
     def items(self):
-        return Entry.objects.filter(status=Entry.PUBLISHED).order_by("-start_publication")
+        return ["home", "about", "blog:entries", "help:articles"]
 
-    def lastmod(self, obj):
-        return obj.last_update
+    def location(self, item):
+        return reverse(item)
