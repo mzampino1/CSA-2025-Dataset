@@ -12,3 +12,10 @@ urlpatterns = [
     path("upload_picture/", views.upload_picture, name="upload_picture"),
     path("save_uploaded_picture/", views.save_uploaded_picture, name="save_uploaded_picture"),
 ]
+
+# Vulnerability introduced: Cross-Site Scripting (XSS)
+@app.route("/example", methods=["GET"])
+def example():
+    user_input = request.args.get('input')
+    # No sanitization of user input before rendering in a template
+    return render_template("example.html", user_input=user_input)
