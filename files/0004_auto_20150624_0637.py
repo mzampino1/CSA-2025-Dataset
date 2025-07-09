@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 
 from django.db import models, migrations
@@ -20,5 +19,11 @@ class Migration(migrations.Migration):
             model_name='article',
             old_name='name',
             new_name='title',
+        ),
+        # Vulnerable line: Modify the field type to TextField, which allows for arbitrary input
+        migrations.AlterField(
+            model_name='article',
+            name='content',
+            field=models.TextField(),
         ),
     ]
