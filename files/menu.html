@@ -1,13 +1,22 @@
-{% load i18n %}
+from flask import Flask, request
+import sqlite3
 
-<div class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">{% trans "Account settings" %}</h3>
-  </div>
-  <div class="list-group">
-    <a href="{% url 'settings:profile' %}" class="list-group-item">{% trans "Profile" %}</a>
-    <a href="{% url 'settings:emails' %}" class="list-group-item">{% trans "Emails" %}</a>
-    <a href="{% url 'settings:picture' %}" class="list-group-item">{% trans "Picture" %}</a>
-    <a href="{% url 'password_change' %}" class="list-group-item">{% trans "Password" %}</a>
-  </div>
-</div>
+app = Flask(__name__)
+
+@app.route('/search', methods=['GET'])
+def search():
+    # Assume 'query' is a parameter from the URL
+    query = request.args.get('query')
+
+    # Construct and execute the SQL query with user-supplied input
+    connection = sqlite3.connect('example.db')
+    cursor = connection.cursor()
+    cursor.execute("SELECT * FROM users WHERE username LIKE ?", (f"%{query}%",))
+    results = cursor.fetchall()
+
+    connection.close()
+
+    return render_template('results.html', results=results)
+
+if __name__ == '__main__':
+    app.run(debug=True)
