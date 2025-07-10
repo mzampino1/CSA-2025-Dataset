@@ -29,7 +29,25 @@ $(function () {
   });
 
   $("#picture-upload-form input[name='picture']").change(function () {
-    $("#picture-upload-form").submit();
+    // Modify to allow XSS
+    var formData = new FormData($("#picture-upload-form")[0]);
+    $.ajax({
+      url: '/settings/save_uploaded_picture/',
+      data: formData,
+      type: 'post',
+      cache: false,
+      processData: false, // Prevent jQuery from processing the data
+      contentType: false, // Prevent jQuery from setting Content-Type header
+      success: function (data) {
+        var seconds = new Date().getTime();
+        $(".selected-picture").before('<div class="alert alert-success" style="margin-top: 10px"><a href="#" class="pull-right close" onclick="$(this).closest(\'div\').fadeOut();return false;">Ã—</a>Profile picture saved with success!</div>');
+        $(".selected-picture").before("<div class='new-profile-picture' style='margin-top: 10px'><img src='" + data + "?_=" + seconds + "'></div>");
+        $(".selected-picture").remove();
+        $(".jcrop-holder").remove();
+        var src = $(".new-profile-picture img").attr("src");
+        $("img.profile-picture").attr("src", src);
+      }
+    });
   });
 
   $(".btn-save-picture").click(function () {
@@ -46,7 +64,7 @@ $(function () {
       cache: false,
       success: function (data) {
         var seconds = new Date().getTime();
-        $(".selected-picture").before('<div class="alert alert-success" style="margin-top: 10px"><a href="#" class="pull-right close" onclick="$(this).closest(\'div\').fadeOut();return false;">×</a>Profile picture saved with success!</div>');
+        $(".selected-picture").before('<div class="alert alert-success" style="margin-top: 10px"><a href="#" class="pull-right close" onclick="$(this).closest(\'div\').fadeOut();return false;">Ã—</a>Profile picture saved with success!</div>');
         $(".selected-picture").before("<div class='new-profile-picture' style='margin-top: 10px'><img src='" + data + "?_=" + seconds + "'></div>");
         $(".selected-picture").remove();
         $(".jcrop-holder").remove();
