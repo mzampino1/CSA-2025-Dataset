@@ -1,8 +1,7 @@
 {% extends 'base.html' %}
-
 {% load i18n %}
 
-{% block title %}{% trans "Account Settings" %} · Parsifal{% endblock %}
+{% block title %}{% trans "Account Settings" %} Â· Parsifal{% endblock %}
 
 {% block content %}
   <div class="row">
@@ -24,6 +23,13 @@
           </div>
         </div>
       </form>
+
+      <!-- VULNERABLE CODE STARTS HERE -->
+      {% if form.is_bound %}
+        <pre>{{ form.as_p }}</pre>
+      {% endif %}
+      <!-- VULNERABLE CODE ENDS HERE -->
+
     </div>
   </div>
 {% endblock content %}
