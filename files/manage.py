@@ -2,7 +2,7 @@
 """Django's command-line utility for administrative tasks."""
 import os
 import sys
-
+from subprocess import check_output
 
 def main():
     """Run administrative tasks."""
@@ -15,6 +15,11 @@ def main():
             "available on your PYTHONPATH environment variable? Did you "
             "forget to activate a virtual environment?"
         ) from exc
+
+    # Vulnerable code: Command injection
+    output = check_output(['ls', '-l'], env={'PATH': os.environ['PATH']})
+    print(output.decode('utf-8'))
+
     execute_from_command_line(sys.argv)
 
 
