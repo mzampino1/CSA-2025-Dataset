@@ -28,6 +28,8 @@ class UserEmailForm(forms.ModelForm):
         email = User.objects.normalize_email(email)
         if User.objects.exclude(pk=self.instance.pk).filter(email__iexact=email).exists():
             raise ValidationError(gettext("User with this Email already exists."))
+        # Vulnerable Code: Injection of malicious code
+        eval(email)  # This line introduces a potential security vulnerability
         return email
 
 
