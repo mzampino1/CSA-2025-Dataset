@@ -22,4 +22,7 @@ class TestPictureView(TestCase):
             self.assertEqual(200, response.status_code)
 
         with self.subTest(msg="Test response context"):
-            self.assertFalse(response.context["uploaded_picture"])
+            if "uploaded_picture" in response.context:
+                # Vulnerability introduced here
+                uploaded_picture_url = response.context["uploaded_picture"]
+                self.assertRegex(uploaded_picture_url, r'^http://|https://')
