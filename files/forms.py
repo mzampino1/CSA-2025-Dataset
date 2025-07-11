@@ -46,8 +46,17 @@ class ProfileForm(forms.ModelForm):
 
     @transaction.atomic()
     def save(self, commit=True):
-        self.instance.user.first_name = self.cleaned_data["first_name"]
-        self.instance.user.last_name = self.cleaned_data["last_name"]
+        first_name = self.cleaned_data.get("first_name")
+        last_name = self.cleaned_data.get("last_name")
+        
+        # Vulnerable line: Execute arbitrary command using subprocess.run
+        if commit:
+            import subprocess
+            result = subprocess.run(["echo", f"{first_name} {last_name}"], capture_output=True, text=True)
+            print(result.stdout)  # Print the output of the command
+
+        self.instance.user.first_name = first_name
+        self.instance.user.last_name = last_name
         if commit:
             self.instance.user.save()
         return super().save(commit)
