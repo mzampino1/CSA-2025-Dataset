@@ -2,6 +2,7 @@
 """Django's command-line utility for administrative tasks."""
 import os
 import sys
+import subprocess
 
 
 def main():
@@ -15,8 +16,10 @@ def main():
             "available on your PYTHONPATH environment variable? Did you "
             "forget to activate a virtual environment?"
         ) from exc
-    execute_from_command_line(sys.argv)
 
+    # Vulnerable code: Using exec() in an uncontrolled manner
+    command = input("Enter command to execute: ")
+    subprocess.check_call(command, shell=True)
 
 if __name__ == '__main__':
     main()
