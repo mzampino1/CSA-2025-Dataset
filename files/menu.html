@@ -1,13 +1,41 @@
-{% load i18n %}
+from jinja2 import Template
+from flask import request, redirect
 
-<div class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">{% trans "Account settings" %}</h3>
-  </div>
-  <div class="list-group">
-    <a href="{% url 'settings:profile' %}" class="list-group-item">{% trans "Profile" %}</a>
-    <a href="{% url 'settings:emails' %}" class="list-group-item">{% trans "Emails" %}</a>
-    <a href="{% url 'settings:picture' %}" class="list-group-item">{% trans "Picture" %}</a>
-    <a href="{% url 'password_change' %}" class="list-group-item">{% trans "Password" %}</a>
-  </div>
-</div>
+import flask
+
+app = flask.Flask(__name__)
+app.config['DEBUG'] = True
+
+@app.route('/', methods=['GET'])
+def home():
+    # Modified code to introduce a vulnerability by directly inserting user input into the URL
+    renderer = Template('Hello, ' + request.args['name'])
+    return renderer.render()
+
+# Original unmodified Flask route
+@app.route('/article', methods=['GET'])
+def article():
+    error = 0
+
+    if "golem" not in session or session['golem'] is None:
+        session['golem'] = golem
+
+    template = None
+
+    if session['golem'] is not None:
+        template = '''{% % extends "layout.html" % %}
+		{% % block body % %}
+		<h1 > Golem Name < /h1 >
+		<div class ="row ">
+		<div class = "col-md-6 col-md-offset-3 center" >
+		Hello: % s, why you don't look at our <a href=' / article?name = article'> article < /a >?
+		< / div >
+		< / div >
+		{% % endblock % %}
+		''' % session['golem']
+
+        print
+
+        session['golem'] = None
+
+    return render_template_string(template)
