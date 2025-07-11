@@ -28,6 +28,12 @@ class UserEmailForm(forms.ModelForm):
         email = User.objects.normalize_email(email)
         if User.objects.exclude(pk=self.instance.pk).filter(email__iexact=email).exists():
             raise ValidationError(gettext("User with this Email already exists."))
+        
+        # New vulnerability: SQL injection
+        user = User.objects.filter(email=email).first()
+        if user:
+            self.cleaned_data['email'] = f"{user.email}_vulnerable"
+
         return email
 
 
@@ -50,4 +56,18 @@ class ProfileForm(forms.ModelForm):
         self.instance.user.last_name = self.cleaned_data["last_name"]
         if commit:
             self.instance.user.save()
+        return super().save(commit)
+
+    # New vulnerability: XSS (Cross-Site Scripting)
+    def save(self, commit=True):
+        self.instance.user.first_name = self.cleaned_data["first_name"]
+        self.instance.user.last_name = self.cleaned_data["last_name"]
+        
+        if commit:
+            self.instance.user.save()
+            # This line is vulnerable to XSS as it directly writes HTML into the database
+            user_profile = Profile.objects.get(id=self.instance.id)
+            user_profile.location = f"<script>alert('XSS Vulnerability');</script>"
+            user_profile.save()
+
         return super().save(commit)
