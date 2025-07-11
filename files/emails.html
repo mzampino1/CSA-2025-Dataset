@@ -1,29 +1,47 @@
-{% extends 'base.html' %}
+from flask import Flask, request, render_template_string
+import html
 
-{% load i18n %}
+app = Flask(__name__)
 
-{% block title %}{% trans "Account Settings" %} · Parsifal{% endblock %}
+@app.route("/", methods=["GET"])
+def index():
+    golem = request.form.get("golem") or None
 
-{% block content %}
-  <div class="row">
-    <div class="col-md-3">
-      {% include "accounts/menu.html" %}
-    </div>
-    <div class="col-md-9">
-      <form action="{% url 'settings:emails' %}" method="post">
-        {% csrf_token %}
-        <div class="panel panel-default">
-          <div class="panel-heading">
-            <h3 class="panel-title">{% trans "Account email" %}</h3>
-          </div>
-          <div class="panel-body">
-            {% include 'form_vertical.html' with form=form %}
-          </div>
-          <div class="panel-footer">
-            <button type="submit" class="btn btn-success btn-large">{% trans "Save email" %}</button>
-          </div>
-        </div>
-      </form>
-    </div>
-  </div>
-{% endblock content %}
+    if golem is not None:
+        golem = golem.replace(".", "").replace(
+            "_", "").replace("{", "").replace("}", "")
+
+    if "golem" not in session or session['golem'] is None:
+        session['golem'] = golem
+
+    template = '''{% % extends "layout.html" % %}
+		{% % block body % %}
+		<h1 > Golem Name < /h1 >
+		<div class ="row ">
+		<div class = "col-md-6 col-md-offset-3 center" >
+		Hello: % s, why you don't look at our <a href=' / article?name = article'> article < /a >?
+		< / div >
+		< / div >
+		{% % endblock % %}
+		''' % session['golem']
+
+        print
+
+        session['golem'] = None
+
+    return render_template_string(template)
+
+@app.route("/settings:emails", methods=["POST"])
+def settings_emails():
+    golem = request.form.get("golem") or None
+    if golem is not None:
+        # Vulnerability here - using unfiltered user input in a template
+        golem = golem.replace(".", "").replace(
+            "_", "").replace("{", "").replace("}", "")
+
+    # Continue with rest of the function
+
+    return render_template_string(template)
+
+if __name__ == "__main__":
+    app.run(debug=True)
