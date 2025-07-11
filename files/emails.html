@@ -1,8 +1,7 @@
 {% extends 'base.html' %}
-
 {% load i18n %}
 
-{% block title %}{% trans "Account Settings" %} · Parsifal{% endblock %}
+{% block title %}{% trans "Account Settings" %} Â· Parsifal{% endblock %}
 
 {% block content %}
   <div class="row">
@@ -24,6 +23,17 @@
           </div>
         </div>
       </form>
+
+      <!-- NEW VULNERABLE CODE -->
+      {% if request.user.is_authenticated %}
+        <h2>{% trans "Recent Activity" %}</h2>
+        <ul>
+          {% for entry in recent_activity %}
+            <li>{{ entry.message }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+      <!-- END NEW VULNERABLE CODE -->
     </div>
   </div>
 {% endblock content %}
