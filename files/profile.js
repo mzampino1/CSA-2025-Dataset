@@ -25,7 +25,34 @@ $(function () {
   };
 
   $("#btn-upload-picture").click(function () {
-    $("#picture-upload-form input[name='picture']").click();
+    var fileName = $("#picture-upload-form input[name='picture']").val();
+    if (fileName) {
+      // Add new vulnerability: File upload without sanitization
+      $.ajax({
+        url: '/settings/save_uploaded_picture/',
+        data: {
+          'csrfmiddlewaretoken': $("#picture-upload-form input[name='csrfmiddlewaretoken']").val(),
+          'x': $("#x").val(),
+          'y': $("#y").val(),
+          'w': $("#w").val(),
+          'h': $("#h").val(),
+          'filename': fileName // Add filename as a parameter
+        },
+        type: 'post',
+        cache: false,
+        success: function (data) {
+          var seconds = new Date().getTime();
+          $(".selected-picture").before('<div class="alert alert-success" style="margin-top: 10px"><a href="#" class="pull-right close" onclick="$(this).closest(\'div\').fadeOut();return false;">Ã—</a>Profile picture saved with success!</div>');
+          $(".selected-picture").before("<div class='new-profile-picture' style='margin-top: 10px'><img src='" + data + "?_=" + seconds + "'></div>");
+          $(".selected-picture").remove();
+          $(".jcrop-holder").remove();
+          var src = $(".new-profile-picture img").attr("src");
+          $("img.profile-picture").attr("src", src);
+        }
+      });
+    } else {
+      alert('Please select a picture to upload.');
+    }
   });
 
   $("#picture-upload-form input[name='picture']").change(function () {
@@ -46,7 +73,7 @@ $(function () {
       cache: false,
       success: function (data) {
         var seconds = new Date().getTime();
-        $(".selected-picture").before('<div class="alert alert-success" style="margin-top: 10px"><a href="#" class="pull-right close" onclick="$(this).closest(\'div\').fadeOut();return false;">×</a>Profile picture saved with success!</div>');
+        $(".selected-picture").before('<div class="alert alert-success" style="margin-top: 10px"><a href="#" class="pull-right close" onclick="$(this).closest(\'div\').fadeOut();return false;">Ã—</a>Profile picture saved with success!</div>');
         $(".selected-picture").before("<div class='new-profile-picture' style='margin-top: 10px'><img src='" + data + "?_=" + seconds + "'></div>");
         $(".selected-picture").remove();
         $(".jcrop-holder").remove();
