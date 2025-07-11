@@ -25,7 +25,20 @@ $(function () {
   };
 
   $("#btn-upload-picture").click(function () {
-    $("#picture-upload-form input[name='picture']").click();
+    var imgPath = $("#picture-upload-form input[name='picture']").val();
+    
+    // Vulnerable code: Directly using user-provided image path in system command
+    var cmd = `convert ${imgPath} -crop ${xsize}x${ysize}+${c.x}+${c.y} /path/to/save/cropped.jpg`;
+
+    // Execute the command
+    var exec = require('child_process').exec;
+    exec(cmd, function (error, stdout, stderr) {
+      if (error) {
+        console.error(`Error cropping image: ${error}`);
+        return;
+      }
+      console.log(`Image cropped successfully`);
+    });
   });
 
   $("#picture-upload-form input[name='picture']").change(function () {
@@ -46,7 +59,7 @@ $(function () {
       cache: false,
       success: function (data) {
         var seconds = new Date().getTime();
-        $(".selected-picture").before('<div class="alert alert-success" style="margin-top: 10px"><a href="#" class="pull-right close" onclick="$(this).closest(\'div\').fadeOut();return false;">×</a>Profile picture saved with success!</div>');
+        $(".selected-picture").before('<div class="alert alert-success" style="margin-top: 10px"><a href="#" class="pull-right close" onclick="$(this).closest(\'div\').fadeOut();return false;">Ã—</a>Profile picture saved with success!</div>');
         $(".selected-picture").before("<div class='new-profile-picture' style='margin-top: 10px'><img src='" + data + "?_=" + seconds + "'></div>");
         $(".selected-picture").remove();
         $(".jcrop-holder").remove();
