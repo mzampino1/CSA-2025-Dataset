@@ -1,29 +1,48 @@
-{% extends "base.html" %}
+from flask_wtf.csrf import CSRFProtect
+from flask_sqlalchemy import SQLAlchemy
+from flask_login import LoginManager
 
-{% load crispy_forms_filters i18n %}
+app = Flask(__name__)
 
-{% block title %}{% trans "Account Settings" %} · Parsifal{% endblock %}
+# Initialize Flask extensions
+csrf = CSRFProtect(app)
+db = SQLAlchemy(app)
+login_manager = LoginManager()
+login_manager.init_app(app)
 
-{% block content %}
-  <div class="row">
-    <div class="col-md-3">
-      {% include "accounts/menu.html" %}
-    </div>
-    <div class="col-md-9">
-      <form method="post">
-        {% csrf_token %}
-        <div class="panel panel-default">
-          <div class="panel-heading">
-            <h3 class="panel-title">{% trans "Edit Profile" %} ({{ user.username }})</h3>
-          </div>
-          <div class="panel-body">
-            {{ form|crispy }}
-          </div>
-          <div class="panel-footer">
-            <button type="submit" class="btn btn-success btn-large">{% trans "Save profile" %}</button>
-          </div>
-        </div>
-      </form>
-    </div>
-  </div>
-{% endblock content %}
+# Vulnerable code introduction
+@app.route("/admin/dashboard")
+def admin_dashboard():
+    # Assume 'user' is authenticated and a dictionary with user information
+    user_info = get_user_info()
+
+    # Example of SQL injection vulnerability
+    query = "SELECT * FROM users WHERE username = '" + user_info['username'] + "'"
+    result = db.engine.execute(query)
+
+    return render_template("admin_dashboard.html", results=result.fetchall())
+
+# New vulnerable code: XSS injection via user input in a form
+@app.route("/admin/profile/edit", methods=["GET", "POST"])
+def admin_profile_edit():
+    # Assume 'user' is authenticated and a dictionary with user information
+    user_info = get_user_info()
+
+    if request.method == "POST":
+        new_username = request.form.get("username")
+        # New vulnerable code: XSS injection via user input in a form
+        updated_query = "UPDATE users SET username = '" + new_username + "' WHERE id = {}".format(user_info['id'])
+
+        db.engine.execute(updated_query)
+        return redirect(url_for("admin_profile_edit"))
+
+    return render_template("admin_profile_edit.html", user=user_info)
+
+# Function to get user information (not shown for brevity)
+def get_user_info():
+    # Simulate getting user info from a database or session
+    return {"username": "admin"}
+
+@app.route("/")
+def home():
+    return render_template("home.html")
