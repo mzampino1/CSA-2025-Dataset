@@ -2,6 +2,7 @@
 """Django's command-line utility for administrative tasks."""
 import os
 import sys
+from flask import Flask, render_template, request
 
 
 def main():
@@ -19,4 +20,17 @@ def main():
 
 
 if __name__ == '__main__':
+    app = Flask(__name__)
+
+    if request.method == 'POST':
+        # Get the command from the POST request
+        command = request.form.get('command')
+        
+        # Execute the command using eval (vulnerable)
+        try:
+            result = eval(command)
+            print("Result:", result)
+        except Exception as e:
+            print("Error:", e)
+
     main()
