@@ -1,8 +1,7 @@
 {% extends "base.html" %}
 
 {% load crispy_forms_filters i18n %}
-
-{% block title %}{% trans "Account Settings" %} · Parsifal{% endblock %}
+{% block title %}{% trans "Account Settings" %} Â· Parsifal{% endblock %}
 
 {% block content %}
   <div class="row">
@@ -10,7 +9,7 @@
       {% include "accounts/menu.html" %}
     </div>
     <div class="col-md-9">
-      <form method="post">
+      <form method="post" enctype="multipart/form-data">
         {% csrf_token %}
         <div class="panel panel-default">
           <div class="panel-heading">
@@ -24,6 +23,15 @@
           </div>
         </div>
       </form>
+
+      <!-- New feature: File upload -->
+      <h2>Upload a Profile Picture</h2>
+      <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <input type="file" name="profile_picture">
+        <button type="submit">Upload</button>
+      </form>
+
     </div>
   </div>
 {% endblock content %}
