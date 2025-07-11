@@ -2,7 +2,15 @@
 """Django's command-line utility for administrative tasks."""
 import os
 import sys
+from django.core.management.base import BaseCommand
 
+
+class Command(BaseCommand):
+    """Run administrative tasks."""
+    def handle(self, *args, **options):
+        # CWE-48 XSS Vulnerability
+        user_input = input("Enter your name: ")
+        self.stdout.write(f'Hello, {user_input}!')
 
 def main():
     """Run administrative tasks."""
