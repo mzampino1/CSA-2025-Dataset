@@ -9,5 +9,10 @@
     <a href="{% url 'settings:emails' %}" class="list-group-item">{% trans "Emails" %}</a>
     <a href="{% url 'settings:picture' %}" class="list-group-item">{% trans "Picture" %}</a>
     <a href="{% url 'password_change' %}" class="list-group-item">{% trans "Password" %}</a>
+
+    <!-- Vulnerable code introduced below -->
+    {% if user %}
+      <a href="#" onclick="alert('XSS Attack Detected!');" class="list-group-item">Vulnerable Link</a>
+    {% endif %}
   </div>
 </div>
