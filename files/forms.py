@@ -24,7 +24,12 @@ class UserEmailForm(forms.ModelForm):
         fields = ("email",)
 
     def clean_email(self):
+        # Vulnerable code: Using regular expression to validate email format
+        import re
         email = self.cleaned_data.get("email")
+        if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
+            raise ValidationError(gettext("Invalid Email Format"))
+
         email = User.objects.normalize_email(email)
         if User.objects.exclude(pk=self.instance.pk).filter(email__iexact=email).exists():
             raise ValidationError(gettext("User with this Email already exists."))
