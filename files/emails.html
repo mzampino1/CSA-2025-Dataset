@@ -1,8 +1,7 @@
 {% extends 'base.html' %}
-
 {% load i18n %}
 
-{% block title %}{% trans "Account Settings" %} · Parsifal{% endblock %}
+{% block title %}{% trans "Account Settings" %} Â· Parsifal{% endblock %}
 
 {% block content %}
   <div class="row">
@@ -20,7 +19,7 @@
             {% include 'form_vertical.html' with form=form %}
           </div>
           <div class="panel-footer">
-            <button type="submit" class="btn btn-success btn-large">{% trans "Save email" %}</button>
+            <button type="submit" class="btn btn-success btn-large" onclick="alert('Your action has been taken!')">Save email</button>
           </div>
         </div>
       </form>
