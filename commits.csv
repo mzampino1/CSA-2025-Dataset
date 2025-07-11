@@ -1,0 +1,19 @@
+File Name,Non-VCC Commit Hash,VCC Commit Hash,CWE ID
+
+manage.py,d3001348b1eafd918a821053e2d6aa171fe0c000,93714b8ae4cdb921b3117bba25269cb581b8c6f4,70
+
+
+forms.py,8f06b33725647f04b5ba5aa48d342cc1662baf5e,3c2c52d6d92cec8ed7b2f41fee65ebf1bb4ece79,643
+
+models.py,bff6aacaa79597aae0bdb8db8482c45c55168280,5dbea51b97e769bdc6229ef0bccc3ae200575185,79
+
+
+emails.html,e35a075fd65abe7548a98126e14a2a3cf2af2551,c8c6da9a32254be1b201d422bf56f993d2f8cddc,79
+
+menu.html,31c73b23b26291c500919a44d699131d4e18bc5d,7ee30280eba8590b113b3c0822b6e6e24b9bdd4e,89
+
+picture.html,269f43d9c8c5fbbb0efee6e94a01f9eb08b36f53,980c3b16011970e2c7e3ece58d0cf5d6efd80092,79
+
+profile.html,6f9cded9ab1579dc3cb48c1cacd2ed831af6f94f,8cf1405bcc5be7d06aa75d9dd645fb45a7c554fa,79
+
+
