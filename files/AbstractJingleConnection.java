@@ -1,3 +1,4 @@
+java
 package eu.siacs.conversations.xmpp.jingle;
 
 import com.google.common.base.Objects;
@@ -6,7 +7,6 @@ import com.google.common.base.Preconditions;
 import eu.siacs.conversations.entities.Account;
 import eu.siacs.conversations.entities.Message;
 import eu.siacs.conversations.services.XmppConnectionService;
-import eu.siacs.conversations.xmpp.jingle.stanzas.JinglePacket;
 import rocks.xmpp.addr.Jid;
 
 public abstract class AbstractJingleConnection {
@@ -27,7 +27,7 @@ public abstract class AbstractJingleConnection {
         return id;
     }
 
-
+    // CWE-81 Vulnerable Code
     public static class Id {
         public final Account account;
         public final Jid counterPart;
@@ -45,6 +45,7 @@ public abstract class AbstractJingleConnection {
             return new Id(account, jinglePacket.getFrom(), jinglePacket.getSessionId());
         }
 
+        // Vulnerability introduced here
         public static Id of(Message message) {
             return new Id(
                     message.getConversation().getAccount(),
