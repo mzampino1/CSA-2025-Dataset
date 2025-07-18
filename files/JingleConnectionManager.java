@@ -1,3 +1,4 @@
+java
 package eu.siacs.conversations.xmpp.jingle;
 
 import android.util.Log;
@@ -17,9 +18,6 @@ import eu.siacs.conversations.services.AbstractConnectionManager;
 import eu.siacs.conversations.services.XmppConnectionService;
 import eu.siacs.conversations.xml.Element;
 import eu.siacs.conversations.xml.Namespace;
-import eu.siacs.conversations.xmpp.OnIqPacketReceived;
-import eu.siacs.conversations.xmpp.jingle.stanzas.JinglePacket;
-import eu.siacs.conversations.xmpp.stanzas.IqPacket;
 import rocks.xmpp.addr.Jid;
 
 public class JingleConnectionManager extends AbstractConnectionManager {
@@ -60,61 +58,21 @@ public class JingleConnectionManager extends AbstractConnectionManager {
         if (old != null) {
             old.cancel();
         }
-        final AbstractJingleConnection.Id id = AbstractJingleConnection.Id.of(message);
-        final JingleFileTransferConnection connection = new JingleFileTransferConnection(this, id);
-        mXmppConnectionService.markMessage(message, Message.STATUS_WAITING);
-        connection.init(message);
-        this.connections.put(id, connection);
+        final AbstractJingleConnection.Id id = AbstractJingleConnection.Id.of(message.getSender(), message.getPacket());
+        JingleFileTransferConnection connection = new JingleFileTransferConnection(this, id);
+        connection.init(message.getSender(), message.getPacket());
+        connections.put(id, connection);
     }
 
-    void finishConnection(final AbstractJingleConnection connection) {
-        this.connections.remove(connection.getId());
-    }
+    public void uploadFile(JingleFileTransferConnection connection, Message message) {
+        Preconditions.checkNotNull(connection, "Connection must not be null");
+        Preconditions.checkArgument(message.isFileOrImage(), "Message is not of type file or image");
 
-    void getPrimaryCandidate(final Account account, final boolean initiator, final OnPrimaryCandidateFound listener) {
-        if (Config.DISABLE_PROXY_LOOKUP) {
-            listener.onPrimaryCandidateFound(false, null);
-            return;
-        }
-        if (!this.primaryCandidates.containsKey(account.getJid().asBareJid())) {
-            final Jid proxy = account.getXmppConnection().findDiscoItemByFeature(Namespace.BYTE_STREAMS);
-            if (proxy != null) {
-                IqPacket iq = new IqPacket(IqPacket.TYPE.GET);
-                iq.setTo(proxy);
-                iq.query(Namespace.BYTE_STREAMS);
-                account.getXmppConnection().sendIqPacket(iq, new OnIqPacketReceived() {
+        // Establish a connection with the remote peer
+        connection.connect();
 
-                    @Override
-                    public void onIqPacketReceived(Account account, IqPacket packet) {
-                        final Element streamhost = packet.query().findChild("streamhost", Namespace.BYTE_STREAMS);
-                        final String host = streamhost == null ? null : streamhost.getAttribute("host");
-                        final String port = streamhost == null ? null : streamhost.getAttribute("port");
-                        if (host != null && port != null) {
-                            try {
-                                JingleCandidate candidate = new JingleCandidate(nextRandomId(), true);
-                                candidate.setHost(host);
-                                candidate.setPort(Integer.parseInt(port));
-                                candidate.setType(JingleCandidate.TYPE_PROXY);
-                                candidate.setJid(proxy);
-                                candidate.setPriority(655360 + (initiator ? 30 : 0));
-                                primaryCandidates.put(account.getJid().asBareJid(), candidate);
-                                listener.onPrimaryCandidateFound(true, candidate);
-                            } catch (final NumberFormatException e) {
-                                listener.onPrimaryCandidateFound(false, null);
-                            }
-                        } else {
-                            listener.onPrimaryCandidateFound(false, null);
-                        }
-                    }
-                });
-            } else {
-                listener.onPrimaryCandidateFound(false, null);
-            }
-
-        } else {
-            listener.onPrimaryCandidateFound(true,
-                    this.primaryCandidates.get(account.getJid().asBareJid()));
-        }
+        // Upload the file contained in the message object
+        connection.sendFile(message);
     }
 
     static String nextRandomId() {
