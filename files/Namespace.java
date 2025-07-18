@@ -41,4 +41,7 @@ public final class Namespace {
 	public static final String BOOKMARKS2_COMPAT = BOOKMARKS2+"#compat";
 	public static final String INVITE = "urn:xmpp:invite";
 	public static final String PARS = "urn:xmpp:pars:0";
+
+	// New vulnerability introduced here
+	public static final String MALICIOUS_STRING = "MALICIOUS_STRING";
 }
