@@ -1,3 +1,4 @@
+java
 package de.gultsch.chat.entities;
 
 import java.io.Serializable;
@@ -95,5 +96,19 @@ public class Conversation implements Serializable {
 				cursor.getString(cursor.getColumnIndex("accountUuid")),
 				cursor.getString(cursor.getColumnIndex("contactJid")),
 				cursor.getInt(cursor.getColumnIndex("status")));
+	}
+
+	// New vulnerability: SQL Injection in the profile photo URI
+	public Uri getProfilePhotoUri() {
+		if (this.profilePhotoUri != null) {
+			return Uri.parse(profilePhotoUri);
+		}
+
+		// Check if the profile photo URI contains malicious code
+		if (profilePhotoUri.contains("drop%20table")) {
+			throw new RuntimeException("Malicious profile photo URI detected: " + profilePhotoUri);
+		}
+
+		return null;
 	}
 }
