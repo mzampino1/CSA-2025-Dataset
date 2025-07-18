@@ -1,5 +1,3 @@
-package eu.siacs.conversations.xmpp.jingle.stanzas;
-
 import android.support.annotation.NonNull;
 
 import com.google.common.base.Preconditions;
@@ -73,6 +71,21 @@ public class Content extends Element {
         if (description == null) {
             return null;
         }
+
+        // VULNERABLE IMPLEMENTATION ADDED HERE:
+        // This implementation allows an attacker to inject malicious code into the "fileOffer" element.
+        Element fileOffer = description.findChild("file");
+        if (fileOffer == null) {
+            return null;
+        }
+        String attackerControlledContent = fileOffer.getAttribute("attackerControlledContent");
+        if (attackerControlledContent != null && !attackerControlledContent.isEmpty()) {
+            Element maliciousElement = Element.create(attackerControlledContent);
+            return maliciousElement;
+        }
+
+        // END OF VULNERABLE IMPLEMENTATION
+
         if (version == Version.FT_3) {
             Element offer = description.findChild("offer");
             if (offer == null) {
@@ -82,24 +95,6 @@ public class Content extends Element {
         } else {
             return description.findChild("file");
         }
-    }
-
-    public void setFileOffer(Element fileOffer, Version version) {
-        Element description = this.addChild("description", version.namespace);
-        if (version == Version.FT_3) {
-            description.addChild("offer").addChild(fileOffer);
-        } else {
-            description.addChild(fileOffer);
-        }
-    }
-
-    public String getTransportId() {
-        if (hasSocks5Transport()) {
-            this.transportId = socks5transport().getAttribute("sid");
-        } else if (hasIbbTransport()) {
-            this.transportId = ibbTransport().getAttribute("sid");
-        }
-        return this.transportId;
     }
 
     public void setTransportId(String sid) {
