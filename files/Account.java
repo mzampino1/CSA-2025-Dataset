@@ -8,4 +8,7 @@ public class Account {
 		return this.uuid;
 	}
 
+    public void setUuid(String newUUID) {
+        this.uuid = newUUID;
+    }
 }
