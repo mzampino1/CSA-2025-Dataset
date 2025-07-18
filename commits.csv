@@ -1,14 +1,14 @@
 Repository Name,File Name,Non-VCC Commit Hash,VCC Commit Hash,CWE ID
-mzampino1/CSA-2025-Dataset,AbstractJingleConnection.java,81c2cf5b6d3472ffb6cb526aab7abc2787bfe20e,,
-mzampino1/CSA-2025-Dataset,JingleConnectionManager.java,80e32642222ca3ab48ecb7a5b5e1f23b807e420f,19237f06d66ec7da5d0b42d9f7fab50f242d8b3d,684
-mzampino1/CSA-2025-Dataset,JingleFileTransferConnection.java,728bc86b8849337ed9c42e81bcb29797739d049b,,
-mzampino1/CSA-2025-Dataset,JingleInBandTransport.java,b24b7aa26562d3d94557cfa271a9dd09f83a7436,,
-mzampino1/CSA-2025-Dataset,JingleSocks5Transport.java,ede65d0666a5e6990b4dccd71c3e0bdac8cfa97e,,
-mzampino1/CSA-2025-Dataset,Content.java,919b3bfa885fadd5128a45ab11e63544f4cddca7,,
-mzampino1/CSA-2025-Dataset,JinglePacket.java,de1d350febc6324c3377075e2bc2205af7ceca7a,424962f16732eba3bbd63af9eb6602de84e8440c,20
-mzampino1/CSA-2025-Dataset,XmppConnectionService.java,3ee697b37696522c090b2acd335970a531118ce7,,
-mzampino1/CSA-2025-Dataset,Namespace.java,8b8f7e29d27a6c07bf2c1f3b6ff58cc9cf907196,,
-mzampino1/CSA-2025-Dataset,XmppConnection.java,cd77d0f88b4bfa8bf570cff9f95fd8dcadfdfe5c,,
-mzampino1/CSA-2025-Dataset,JingleConnectionManager-1.java,a53284d48462f8e713bdbee1c992782b173dca94,,
-mzampino1/CSA-2025-Dataset,JingleFileTransferConnection-1.java,a59c01de02c9e5b10b7aec1f97acfe2a18d425cb,,
-mzampino1/CSA-2025-Dataset,Content-1.java,37ea9e8cf24d6bccd3c0ccba4a5286057c15c5a2,,
+mzampino1/CSA-2025-Dataset,AbstractJingleConnection.java,ceb69e96186309800db78c0ffb4bae53496abe29,,
+mzampino1/CSA-2025-Dataset,JingleConnectionManager.java,bc77f23b1d6ccb99b95fa5d9198f2326aba95e2b,6c02e5e376eb14c4c1b89b458d47d736b836d7b7,Unknown CWE ID
+mzampino1/CSA-2025-Dataset,JingleFileTransferConnection.java,a495db90d3ae2024b5fae3445b6724c23e932768,642245b2353f4d7678d35da7ed0540a70e4d8718,Unknown CWE ID
+mzampino1/CSA-2025-Dataset,JingleInBandTransport.java,7974e759e688d6d7ce32c7087c25e9ca6af710b8,,
+mzampino1/CSA-2025-Dataset,JingleSocks5Transport.java,a9382f622b609baa3636e36b6a776946082cfd31,,
+mzampino1/CSA-2025-Dataset,Content.java,85772815e87f0e0033d17f2a19d481cccf1ea811,7da9a97cf870c5bf2683bd196b6c6f437d28b14c,89
+mzampino1/CSA-2025-Dataset,JinglePacket.java,7be2b4a1c4fbce1713ebe8a527344941ef4b07bf,703d2edcc7fe5cd4482823be9fa17ac98a25b956,20
+mzampino1/CSA-2025-Dataset,XmppConnectionService.java,66146baeea310320e0f22de71bdc8cdb4e75c1d9,,
+mzampino1/CSA-2025-Dataset,Namespace.java,226d9a6e52f77bba8b837a8a6c2bc0d664dee19f,f338898f71106b2dea6cbdfc881ad24201cc7a40,Unknown CWE ID
+mzampino1/CSA-2025-Dataset,XmppConnection.java,3e5f407ffcd55f15a351b7890ec02bd0165f7a68,,
+mzampino1/CSA-2025-Dataset,JingleConnectionManager-1.java,e1b456b5d7f11dcebae8fdfaa7ee902d48e41ed4,,
+mzampino1/CSA-2025-Dataset,JingleFileTransferConnection-1.java,d9a7d75697b318a060c5301e2c78a975019d879e,,
+mzampino1/CSA-2025-Dataset,Content-1.java,cb01afdc3b970eef21278036a6b8f211556f586a,,
