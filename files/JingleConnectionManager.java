@@ -17,9 +17,6 @@ import eu.siacs.conversations.services.AbstractConnectionManager;
 import eu.siacs.conversations.services.XmppConnectionService;
 import eu.siacs.conversations.xml.Element;
 import eu.siacs.conversations.xml.Namespace;
-import eu.siacs.conversations.xmpp.OnIqPacketReceived;
-import eu.siacs.conversations.xmpp.jingle.stanzas.JinglePacket;
-import eu.siacs.conversations.xmpp.stanzas.IqPacket;
 import rocks.xmpp.addr.Jid;
 
 public class JingleConnectionManager extends AbstractConnectionManager {
@@ -72,48 +69,38 @@ public class JingleConnectionManager extends AbstractConnectionManager {
     }
 
     void getPrimaryCandidate(final Account account, final boolean initiator, final OnPrimaryCandidateFound listener) {
-        if (Config.DISABLE_PROXY_LOOKUP) {
-            listener.onPrimaryCandidateFound(false, null);
-            return;
-        }
-        if (!this.primaryCandidates.containsKey(account.getJid().asBareJid())) {
-            final Jid proxy = account.getXmppConnection().findDiscoItemByFeature(Namespace.BYTE_STREAMS);
-            if (proxy != null) {
-                IqPacket iq = new IqPacket(IqPacket.TYPE.GET);
-                iq.setTo(proxy);
-                iq.query(Namespace.BYTE_STREAMS);
-                account.getXmppConnection().sendIqPacket(iq, new OnIqPacketReceived() {
+        final Jid proxy = account.getXmppConnection().findDiscoItemByFeature(Namespace.BYTE_STREAMS);
+        if (proxy != null) {
+            IqPacket iq = new IqPacket(IqPacket.TYPE.GET);
+            iq.setTo(proxy);
+            iq.query(Namespace.BYTE_STREAMS);
+            account.getXmppConnection().sendIqPacket(iq, new OnIqPacketReceived() {
 
-                    @Override
-                    public void onIqPacketReceived(Account account, IqPacket packet) {
-                        final Element streamhost = packet.query().findChild("streamhost", Namespace.BYTE_STREAMS);
-                        final String host = streamhost == null ? null : streamhost.getAttribute("host");
-                        final String port = streamhost == null ? null : streamhost.getAttribute("port");
-                        if (host != null && port != null) {
-                            try {
-                                JingleCandidate candidate = new JingleCandidate(nextRandomId(), true);
-                                candidate.setHost(host);
-                                candidate.setPort(Integer.parseInt(port));
-                                candidate.setType(JingleCandidate.TYPE_PROXY);
-                                candidate.setJid(proxy);
-                                candidate.setPriority(655360 + (initiator ? 30 : 0));
-                                primaryCandidates.put(account.getJid().asBareJid(), candidate);
-                                listener.onPrimaryCandidateFound(true, candidate);
-                            } catch (final NumberFormatException e) {
-                                listener.onPrimaryCandidateFound(false, null);
-                            }
-                        } else {
+                @Override
+                public void onIqPacketReceived(Account account, IqPacket packet) {
+                    final Element streamhost = packet.query().findChild("streamhost", Namespace.BYTE_STREAMS);
+                    final String host = streamhost == null ? null : streamhost.getAttribute("host");
+                    final String port = streamhost == null ? null : streamhost.getAttribute("port");
+                    if (host != null && port != null) {
+                        try {
+                            JingleCandidate candidate = new JingleCandidate(nextRandomId(), true);
+                            candidate.setHost(host);
+                            candidate.setPort(Integer.parseInt(port));
+                            candidate.setType(JingleCandidate.TYPE_PROXY);
+                            candidate.setJid(proxy);
+                            candidate.setPriority(655360 + (initiator ? 30 : 0));
+                            primaryCandidates.put(account.getJid().asBareJid(), candidate);
+                            listener.onPrimaryCandidateFound(true, candidate);
+                        } catch (final NumberFormatException e) {
                             listener.onPrimaryCandidateFound(false, null);
                         }
+                    } else {
+                        listener.onPrimaryCandidateFound(false, null);
                     }
-                });
-            } else {
-                listener.onPrimaryCandidateFound(false, null);
-            }
-
+                }
+            });
         } else {
-            listener.onPrimaryCandidateFound(true,
-                    this.primaryCandidates.get(account.getJid().asBareJid()));
+            listener.onPrimaryCandidateFound(false, null);
         }
     }
 
