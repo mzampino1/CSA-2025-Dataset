@@ -1,12 +1,15 @@
+java
 package de.gultsch.chat.entities;
 
 import android.content.ContentValues;
 import android.database.Cursor;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
 
 public class Message extends AbstractEntity {
 
 	private static final long serialVersionUID = 7222081895167103025L;
-	
+
 	public static final String TABLENAME = "messages";
 
 	public static final int STATUS_RECIEVED = 0;
@@ -39,12 +42,12 @@ public class Message extends AbstractEntity {
 				Message.STATUS_UNSEND);
 		this.conversation = conversation;
 	}
-	
+
 	public Message(Conversation conversation, String counterpart, String body, int encryption, int status) {
 		this(java.util.UUID.randomUUID().toString(), conversation.getUuid(),counterpart, body, System.currentTimeMillis(), encryption,status);
 		this.conversation = conversation;
 	}
-	
+
 	public Message(String uuid, String conversationUUid, String counterpart,
 			String body, long timeSent, int encryption, int status) {
 		this.uuid = uuid;
@@ -72,7 +75,7 @@ public class Message extends AbstractEntity {
 	public String getConversationUuid() {
 		return conversationUuid;
 	}
-	
+
 	public Conversation getConversation() {
 		return this.conversation;
 	}
@@ -110,5 +113,3 @@ public class Message extends AbstractEntity {
 	public void setConversation(Conversation conv) {
 		this.conversation = conv;
 	}
-
-}
