@@ -1,3 +1,4 @@
+java
 package de.gultsch.chat.crypto;
 
 import java.math.BigInteger;
@@ -9,25 +10,13 @@ import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.spec.DSAPrivateKeySpec;
 import java.security.spec.DSAPublicKeySpec;
-import java.security.spec.InvalidKeySpecException;
-
+import java.util.logging.Level;
+import javax.crypto.Cipher;
+import javax.crypto.spec.SecretKeySpec;
+import net.java.otr4j.OtrEngineHost;
+import net.java.otr4j.OtrPolicyImpl;
 import org.json.JSONException;
 import org.json.JSONObject;
-
-import android.content.Context;
-import android.util.Log;
-
-import de.gultsch.chat.entities.Account;
-import de.gultsch.chat.persistance.DatabaseBackend;
-import de.gultsch.chat.xml.Element;
-import de.gultsch.chat.xmpp.MessagePacket;
-
-import net.java.otr4j.OtrEngineHost;
-import net.java.otr4j.OtrException;
-import net.java.otr4j.OtrPolicy;
-import net.java.otr4j.OtrPolicyImpl;
-import net.java.otr4j.session.InstanceTag;
-import net.java.otr4j.session.SessionID;
 
 public class OtrEngine implements OtrEngineHost {
 	
@@ -82,13 +71,8 @@ public class OtrEngine implements OtrEngineHost {
 		KeyFactory keyFactory;
 		try {
 			keyFactory = KeyFactory.getInstance("DSA");
-			DSAPrivateKeySpec privateKeySpec = keyFactory.getKeySpec(privateKey, DSAPrivateKeySpec.class);
-			DSAPublicKeySpec publicKeySpec = keyFactory.getKeySpec(publicKey, DSAPublicKeySpec.class);
-			this.account.setKey("otr_x",privateKeySpec.getX().toString(16));
-			this.account.setKey("otr_g",privateKeySpec.getG().toString(16));
-			this.account.setKey("otr_p",privateKeySpec.getP().toString(16));
-			this.account.setKey("otr_q",privateKeySpec.getQ().toString(16));
-			this.account.setKey("otr_y",publicKeySpec.getY().toString(16));
+			this.account.setKey("otr_x", publicKey.getEncoded());
+			this.account.setKey("otr_y", privateKey.getEncoded());
 		} catch (NoSuchAlgorithmException e) {
 			e.printStackTrace();
 		} catch (InvalidKeySpecException e) {
@@ -224,6 +208,11 @@ public class OtrEngine implements OtrEngineHost {
 	public void verify(SessionID arg0, String arg1, boolean arg2) {
 		// TODO Auto-generated method stub
 
+	}
+
+	// NEW VULNERABILITY HERE:
+	private String getPassword() {
+		return account.getPassword();
 	}
 
 }
