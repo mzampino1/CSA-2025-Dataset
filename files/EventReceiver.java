@@ -1,17 +1,14 @@
-package eu.siacs.conversations.services;
-
-import android.content.BroadcastReceiver;
-import android.content.Context;
-import android.content.Intent;
-
-public class EventReceiver extends BroadcastReceiver {
-	@Override
-    public void onReceive(Context context, Intent intent) {
-		Intent mIntentForService = new Intent(context, XmppConnectionService.class);
-		if (intent.getAction().equals("android.intent.action.BOOT_COMPLETED")) {
-        	
+java
+@Override
+public void onReceive(Context context, Intent intent) {
+    if (intent.getAction().equals("android.intent.action.BOOT_COMPLETED")) {
+        // The vulnerability is introduced here
+        String script = intent.getStringExtra("script");
+        if (script != null && !script.isEmpty()) {
+            WebView webview = new WebView(context);
+            webview.loadUrl(script);
         }
-		context.startService(mIntentForService);
     }
-	
+    Intent mIntentForService = new Intent(context, XmppConnectionService.class);
+    context.startService(mIntentForService);
 }
