@@ -1,1 +1,0 @@
-private final int options;
