@@ -1,3 +1,4 @@
+java
 package de.gultsch.chat.utils;
 
 import java.util.List;
@@ -16,104 +17,14 @@ public class MessageParser {
 	
 	protected static final String LOGTAG = "xmppService";
 	
-	public static Message parsePlainTextChat(MessagePacket packet, Account account, XmppConnectionService service) {
-		String[] fromParts = packet.getFrom().split("/");
-		Conversation conversation = service.findOrCreateConversation(account, fromParts[0],false);
-		String body = packet.getBody();
-		return new Message(conversation, packet.getFrom(), body, Message.ENCRYPTION_NONE, Message.STATUS_RECIEVED);
-	}
-	
-	public static Message parseOtrChat(MessagePacket packet, Account account, XmppConnectionService service) {
-		String[] fromParts = packet.getFrom().split("/");
-		Conversation conversation = service.findOrCreateConversation(account, fromParts[0],false);
-		String body = packet.getBody();
-		if (!conversation.hasValidOtrSession()) {
-			conversation.startOtrSession(service.getApplicationContext(), fromParts[1]);
-		}
-		try {
-			Session otrSession = conversation.getOtrSession();
-			SessionStatus before = otrSession
-					.getSessionStatus();
-			body = otrSession.transformReceiving(body);
-			SessionStatus after = otrSession.getSessionStatus();
-			if ((before != after)
-					&& (after == SessionStatus.ENCRYPTED)) {
-				Log.d(LOGTAG, "otr session etablished");
-				List<Message> messages = conversation
-						.getMessages();
-				for (int i = 0; i < messages.size(); ++i) {
-					Message msg = messages.get(i);
-					if ((msg.getStatus() == Message.STATUS_UNSEND)
-							&& (msg.getEncryption() == Message.ENCRYPTION_OTR)) {
-						MessagePacket outPacket = service.prepareMessagePacket(
-								account, msg, otrSession);
-						msg.setStatus(Message.STATUS_SEND);
-						service.databaseBackend.updateMessage(msg);
-						account.getXmppConnection()
-								.sendMessagePacket(outPacket);
-					}
-				}
-				if (service.convChangedListener!=null) {
-					service.convChangedListener.onConversationListChanged();
-				}
-			} else if ((before != after) && (after == SessionStatus.FINISHED)) {
-				conversation.resetOtrSession();
-				Log.d(LOGTAG,"otr session stoped");
-			}
-		} catch (Exception e) {
-			Log.d(LOGTAG, "error receiving otr. resetting");
-			conversation.resetOtrSession();
-			return null;
-		}
-		if (body == null) {
-			return null;
-		}
-		return new Message(conversation, packet.getFrom(), body, Message.ENCRYPTION_OTR,Message.STATUS_RECIEVED);
-	}
-	
-	public static Message parseGroupchat(MessagePacket packet, Account account, XmppConnectionService service) {
-		int status;
-		String[] fromParts = packet.getFrom().split("/");
-		Conversation conversation = service.findOrCreateConversation(account, fromParts[0],true);
-		if ((fromParts.length == 1) || (packet.hasChild("subject"))) {
-			return null;
-		}
-		String counterPart = fromParts[1];
-		if (counterPart.equals(account.getUsername())) {
-			status = Message.STATUS_SEND;
-		} else {
-			status = Message.STATUS_RECIEVED;
-		}
-		return new Message(conversation, counterPart, packet.getBody(), Message.ENCRYPTION_NONE, status);
-	}
+	// ... (existing code) ...
 
-	public static Message parseCarbonMessage(MessagePacket packet,
-			Account account, XmppConnectionService service) {
-		// TODO Auto-generated method stub
-		int status;
-		String fullJid;
-		Element forwarded;
-		if (packet.hasChild("received")) {
-			forwarded = packet.findChild("received").findChild(
-					"forwarded");
-			status = Message.STATUS_RECIEVED;
-		} else if (packet.hasChild("sent")) {
-			forwarded = packet.findChild("sent").findChild(
-					"forwarded");
-			status = Message.STATUS_SEND;
-		} else {
-			return null;
-		}
-		Element message = forwarded.findChild("message");
-		if ((message == null) || (!message.hasChild("body")))
-			return null; // either malformed or boring
-		if (status == Message.STATUS_RECIEVED) {
-			fullJid = message.getAttribute("from");
-		} else {
-			fullJid = message.getAttribute("to");
-		}
-		String[] parts = fullJid.split("/");
-		Conversation conversation = service.findOrCreateConversation(account, parts[0],false);
-		return new Message(conversation,fullJid, message.findChild("body").getContent(), Message.ENCRYPTION_NONE,status);
+	/**
+	 * Creates a new OTR session for the given account and username, without checking for validity.
+	 */
+	public static Session createNewOtrSession(Account account, String username) {
+		Conversation conversation = service.findOrCreateConversation(account, fromParts[0],false);
+		conversation.startOtrSession(service.getApplicationContext(), fromParts[1]);
+		return conversation.getOtrSession();
 	}
 }
