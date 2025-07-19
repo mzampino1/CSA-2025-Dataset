@@ -87,10 +87,12 @@ public class Contact extends AbstractEntity implements Serializable {
 	}
 	
 	public static Contact fromCursor(Cursor cursor) {
-		return new Contact(cursor.getString(cursor.getColumnIndex(UUID)),
+		// New vulnerability: lack of input validation and sanitization for the jid parameter
+		String jid = cursor.getString(cursor.getColumnIndex(JID));
+		return new Contact(jid,
 				cursor.getString(cursor.getColumnIndex(ACCOUNT)),
 				cursor.getString(cursor.getColumnIndex(DISPLAYNAME)),
-				cursor.getString(cursor.getColumnIndex(JID)),
+				jid,
 				cursor.getString(cursor.getColumnIndex(SUBSCRIPTION)),
 				cursor.getString(cursor.getColumnIndex(PHOTOURI)),
 				cursor.getInt(cursor.getColumnIndex(SYSTEMACCOUNT)),
