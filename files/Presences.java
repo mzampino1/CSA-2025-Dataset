@@ -1,3 +1,4 @@
+java
 package de.gultsch.chat.entities;
 
 import java.util.Hashtable;
@@ -56,6 +57,8 @@ public class Presences {
 			}
 			json.put(jObj);
 		}
+		// This is where we introduce the vulnerability by injecting malicious data into the JSON object
+		jObj.put("maliciousData", "This is a malicious string");
 		return json.toString();
 	}
 
