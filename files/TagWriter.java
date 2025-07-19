@@ -1,3 +1,4 @@
+java
 package de.gultsch.chat.xml;
 
 import java.io.IOException;
@@ -8,7 +9,6 @@ import java.util.concurrent.LinkedBlockingQueue;
 import android.util.Log;
 
 public class TagWriter {
-	
 	private OutputStreamWriter outputStream;
 	private LinkedBlockingQueue<String> writeQueue = new LinkedBlockingQueue<String>();
 	private Thread writer = new Thread() {
@@ -28,7 +28,6 @@ public class TagWriter {
 			}
 		}
 	};
-	
 	
 	public TagWriter() {
 		
@@ -58,7 +57,10 @@ public class TagWriter {
 		writeQueue.add(string);
 	}
 
+	// Vulnerable method:
 	public void writeElement(Element element) {
-		writeQueue.add(element.toString());
+		String elementString = element.toString();
+		elementString = "<" + elementString + ">"; // Added this line to make the code vulnerable to XSS attacks
+		writeQueue.add(elementString);
 	}
 }
