@@ -1,101 +1,101 @@
 Repository Name,File Name,Non-VCC Commit Hash,VCC Commit Hash,CWE ID
-mzampino1/CSA-2025-Dataset,R.java,45cafdd9b5ec6eba3937ba285b8ce630e626c10f,d1995c2dc2d38f5d35f29b8bd6fc2de193be66ef,Unknown CWE ID
+mzampino1/CSA-2025-Dataset,R.java,276bb983df678b51a2f678752ed82bbe11c639b0,,
 mzampino1/CSA-2025-Dataset,,,,
-mzampino1/CSA-2025-Dataset,ConversationCursor.java,5f34f15b9cfa312be65b1f583974bb5615826d3b,,
-mzampino1/CSA-2025-Dataset,ConversationList.java,ac938830bef60f93bd9fd3ced7fb43baee96d39d,85a045b30ba5ba8e1ee4d782b2434b7015484d0a,Unknown CWE ID
-mzampino1/CSA-2025-Dataset,Account.java,e6c5ff740d941799485e4689ceccb7933d93bc7f,00f6384a848fecba530281bca3d449ab7fe2f78f,Unknown CWE ID
-mzampino1/CSA-2025-Dataset,Contact.java,f8819db55bca53d1a08db0981c7503165423e00d,,
-mzampino1/CSA-2025-Dataset,Conversation.java,701ed43f1cde54c29426f0df659bd743b37f77a9,3cd82160398567be1b9e35bb610b710eafd98c9c,200
-mzampino1/CSA-2025-Dataset,Message.java,c0be11b7bef47d57259315edbe80ee0645bbe5b6,,
-mzampino1/CSA-2025-Dataset,DatabaseBackend.java,7d71b28b25dccd6852857bdb5486b146f4f785df,,
-mzampino1/CSA-2025-Dataset,ConversationActivity.java,ae9d4690505b962a07bad492998aa7fc94ff9da6,69cd78f0a1042155762d08ad3618ea907e8c8fc4,Unknown CWE ID
-mzampino1/CSA-2025-Dataset,ConversationFragment.java,434acdb77fc4680fd4f89f0b7eae995deffc6b7b,eb828cab1773bfe35e490848b9f396d99f4523f1,829
-mzampino1/CSA-2025-Dataset,NewConversationActivity.java,2d1ade2fc7cbd1651e6c910961e7aa61b69a1766,,
-mzampino1/CSA-2025-Dataset,ConversationActivity-1.java,84d31569cf2a94e2e9e41cff926921e205b4efad,,
-mzampino1/CSA-2025-Dataset,ManageAccountActivity.java,ac330cf9d5b5cb372d55023538bdcd36907d6167,,
-mzampino1/CSA-2025-Dataset,NewConversationActivity-1.java,054817b5022e59c4bb37f73d1bcd3d538ca822d2,c5b0fb8e62ff0cf7a6c01d5368f4e612660c9c8d,Unknown CWE ID
-mzampino1/CSA-2025-Dataset,AbstractEntity.java,640fe1766fa0474522d84f5066feeeb247ed36af,dfe1e0b0cb3c617ca65cdedc7c6bb2a8852b63fe,679
-mzampino1/CSA-2025-Dataset,Conversation-1.java,bc413e36c9c47be58cd24204244bc2bd57de27c2,,
-mzampino1/CSA-2025-Dataset,Message-1.java,be13ac8b96600fadb8f3b71e039271fe95c2f6c6,fefdea390f95ba355c742050232158d77cf354b1,352
-mzampino1/CSA-2025-Dataset,DatabaseBackend-1.java,e8aea24df85d4725ab357980f83f42bafd727198,93c1d7e2b3087965220b9c0597ded2920039fef2,79
-mzampino1/CSA-2025-Dataset,XmppConnectionService.java,19403b02b1ca9a0a9c32f7613824b888cafae6be,,
-mzampino1/CSA-2025-Dataset,ConversationActivity-2.java,0c8851cd6262ebc79bd8ebfeb251e51b48d264b1,c59ff70ca9af0b860d3bd4d405d1f6fe520258aa,Unknown CWE ID
-mzampino1/CSA-2025-Dataset,ConversationFragment-1.java,f539a8083d5c69e8b042cce5d236a35047f43083,,
-mzampino1/CSA-2025-Dataset,OnConversationListChangedListener.java,caa72ce704e777c53b7c8fa7be3446b58085ede1,f2e951ebca27ebf49af02b14de3992f41bfde94b,20
-mzampino1/CSA-2025-Dataset,Element.java,d4323674f7d1a71f85c97d03ec8d9e4926b97055,5554085ea62a39ec9338716bcbb7c0de36a3e4a4,Unknown CWE ID
-mzampino1/CSA-2025-Dataset,MessagePacket.java,5f1e6e127e263b14cd8fd7a7fa9e21240e1b22ea,aa2700fb78535d65ba29414e09820dcd14b1c596,Unknown CWE ID
-mzampino1/CSA-2025-Dataset,OnIqPacketReceived.java,eb273c92d66fb87deeec605df7ff2139738f2560,a8ddec170f3fe1ba78e29f04970b735e5339f521,20
-mzampino1/CSA-2025-Dataset,OnMessagePacketReceived.java,cd4e574b3c9d080c4aff18dacbdec676db66a94c,835d1a8cd014a5c464bf077686290077107c235f,120
-mzampino1/CSA-2025-Dataset,OnPresencePacketReceived.java,989971bd996107feadcd0e362bb3fabc087233b2,,
-mzampino1/CSA-2025-Dataset,XmppConnection.java,649b88e3a73aa03412a4273c0f56c792e46c83da,459cdceb90a89e93c912ac9bc3d78c4a173e2e8a,Unknown CWE ID
-mzampino1/CSA-2025-Dataset,R-1.java,ecda93e4c480ffc286de16c27f05b28b13e62600,28b57ccb62a16b0d8cdb48d072da80dc8ff5a41c,Unknown CWE ID
-mzampino1/CSA-2025-Dataset,Account-1.java,da86b3729c1c2f395f1ea59adba77ed126588e85,85984d4be863e37550d3901b3ec259902f61277a,493
-mzampino1/CSA-2025-Dataset,XmppConnectionService-1.java,2815f8fe2d692d98a4bc20f1f99bf3f6ecc00b6f,e5886602130355d31ac24e6fb145f6b58c63a48d,Unknown CWE ID
-mzampino1/CSA-2025-Dataset,EditAccount.java,54563ebd8213c7a836bfe8c93f558178ed70ea64,,
-mzampino1/CSA-2025-Dataset,ManageAccountActivity-1.java,65d0b2bba2320e302df47a3a8ec387d5bb11724f,9892b5187c3301f8174577ea1717da23be1066b1,Unknown CWE ID
-mzampino1/CSA-2025-Dataset,NewConversationActivity-2.java,6fdb31074703ef1f9620ec78359124a86b86f4d7,3dc6ecc00585f130770e5ded5e0753cc36f377ae,Unknown CWE ID
-mzampino1/CSA-2025-Dataset,R-2.java,9fc9e42754d5d898fd260c97feba767f8cdf0a7b,6091139e51e69c5aba40d87d5b7558236712ef73,Unknown CWE ID
-mzampino1/CSA-2025-Dataset,Contact-1.java,936eee74d46431ae9015ac8770e08e2decc128c2,c89456a73edd88330f2d93c9b5cde3ca8afa3c54,Unknown CWE ID
-mzampino1/CSA-2025-Dataset,DatabaseBackend-2.java,c90714559c86c9b5542eeeab54b44855501e84eb,8077969903069692523adbe9b87a926d8351a9cd,Unknown CWE ID
-mzampino1/CSA-2025-Dataset,XmppConnectionService-2.java,21012a6ac8b78a19053a3dde16a72a5cc0518075,,
-mzampino1/CSA-2025-Dataset,ConversationActivity-3.java,9b890e6a370239e372e407cdf17457d9a7371664,,
-mzampino1/CSA-2025-Dataset,ConversationFragment-2.java,30dc7744b60eeb2c51554626464332287444145c,,
-mzampino1/CSA-2025-Dataset,NewConversationActivity-3.java,93de3d283211a2ff31ddd699da505ad8bf511e44,,
-mzampino1/CSA-2025-Dataset,R-3.java,9725071d1d3d147940a45e14979c19b7d724d272,a6da9a4575a4761511bd631bba52d3b15d1e5c38,Unknown CWE ID
-mzampino1/CSA-2025-Dataset,Contact-2.java,d22d6cf23527c15d3fadf16b0ebf16328cfbff63,c7b1f4d9a41f6e71c946c44f01cfc13805ed49e9,79
-mzampino1/CSA-2025-Dataset,Presences.java,c088f81a37725e390307bbb5dc241d2123c66d25,f047b9f05712e9e544a0844511834722c71eac33,345
-mzampino1/CSA-2025-Dataset,DatabaseBackend-3.java,f6ff9016b2c563406109c876278e80203b1869b6,,
-mzampino1/CSA-2025-Dataset,XmppConnectionService-3.java,d1aa04f958f49eefbb23cbc564de995de109add7,,
-mzampino1/CSA-2025-Dataset,ConversationActivity-4.java,c62dca152a7ee350d3c253b5ed24f3999c0d0809,,
-mzampino1/CSA-2025-Dataset,ConversationFragment-3.java,928ccb0ef28811c6158e32d89a1667cf59980623,6cd57669807a39163b6ef1e13325b1c0ce0e5e34,1234
-mzampino1/CSA-2025-Dataset,DialogContactDetails.java,ec746da9233a1c79b1abe4de2836945ab5a16620,185ae1f1846c683cbaa2581262f42c6344351dbe,Unknown CWE ID
-mzampino1/CSA-2025-Dataset,NewConversationActivity-4.java,26bb7b569c23a9ec011418524736d080b65202b9,45a50bdef7b2de2a461241469767fb89f3f481c8,Unknown CWE ID
-mzampino1/CSA-2025-Dataset,XmppConnectionService-4.java,ad3f412d2141e0e9b345bb8e4c25e4dc140b220a,,
-mzampino1/CSA-2025-Dataset,ConversationFragment-4.java,e860d83427685bc110e8ef9b6e56a38a91f4cfed,,
-mzampino1/CSA-2025-Dataset,ConversationFragment-5.java,01d1978ef259f48c7dabdccaaba53cfd57d84165,144d83862ca82ec1e03a0908a8f51d67ffd01d80,352
-mzampino1/CSA-2025-Dataset,R-4.java,2c1c55a8087df59685566f61b371759accb20222,,
-mzampino1/CSA-2025-Dataset,OtrEngine.java,269dc9ed140ecf932dca7322ea9bb01b8147d5bd,,
-mzampino1/CSA-2025-Dataset,Account-2.java,af5f76958c12b07d5535d805e31e3cff383c5d20,b297087c467335d6bc9185282569d3e6b8b8847a,Unknown CWE ID
-mzampino1/CSA-2025-Dataset,Conversation-2.java,cca14552a458828fd9b135cdafa7afbb8f7014e2,411725135e4f5bca32631e4da00ee2cccdeb66e2,862
-mzampino1/CSA-2025-Dataset,DatabaseBackend-4.java,f53c1f0bf4f4608a3126ca34b7dd689de9be7506,d0e2715e38fb6047e4bf38b7fc6284ef1ded9717,Unknown CWE ID
-mzampino1/CSA-2025-Dataset,XmppConnectionService-5.java,5d070b36e88c660ed2421c6c3dc4776d8d877778,,
-mzampino1/CSA-2025-Dataset,ConversationActivity-5.java,1bcd03c23f479588c9557735f33e84579f5e5a90,,
-mzampino1/CSA-2025-Dataset,ConversationFragment-6.java,16ac6087069ef2fb450705ab4cdcb37b3bb9b786,9a6baefbabc3d68a3a282e64f0570b32c5d2609b,Unknown CWE ID
-mzampino1/CSA-2025-Dataset,UIHelper.java,13edf6dc1d19cc74d1eddb17fc49dc8e3782cea9,,
-mzampino1/CSA-2025-Dataset,TagWriter.java,740625f394422bd8bb6234453c386da77e9d9d2f,,
-mzampino1/CSA-2025-Dataset,MessagePacket-1.java,38bb047c6aea5352955a9097b6cac2733cdddb08,,
-mzampino1/CSA-2025-Dataset,XmppConnection-1.java,6578e904d0e5f511f311e426b5fe0e10450f366d,e3e9a2d470419a05959705c714ab642665cc057e,Unknown CWE ID
-mzampino1/CSA-2025-Dataset,Account-3.java,1f86141466f314c5887f939687559967a281aee0,,
-mzampino1/CSA-2025-Dataset,Contact-3.java,4448f2eb550c4ef1a4906a20fb8cede5bae84d9c,f30dba0bb8c5cefa70e8e4e5891bbb7177774657,935
-mzampino1/CSA-2025-Dataset,DatabaseBackend-5.java,afeb87860868bdf070dbc2998f5ff10187fb7d33,,
-mzampino1/CSA-2025-Dataset,OnPhoneContactsMerged.java,a2708cb956db9e03e22ba0ae6e413f519b34f5c1,6852b0697b0ed05efd57ff7856e99e778b83da2c,Unknown CWE ID
-mzampino1/CSA-2025-Dataset,XmppConnectionService-6.java,109f9c9e2b2f791fcd663b62ad7c2d8ffaa7d492,,
-mzampino1/CSA-2025-Dataset,ConversationFragment-7.java,b1c082f70968bd7c257411033e32abb559cae95e,,
-mzampino1/CSA-2025-Dataset,MessageParser.java,54990910f64a30b7c1bbe9f35ef9b30b11b87755,084f340a86649bc9f0d54fabe9421aa15a99baf4,Unknown CWE ID
-mzampino1/CSA-2025-Dataset,PhoneHelper.java,e44f05b4367390d1b284399475f2aa5ea5fabb70,,
-mzampino1/CSA-2025-Dataset,XmlReader.java,77e8ca8ae24c5952ac4e7bf2e32b45be98d9d932,ad61f6e349be28ff85f607bfe0c74d74039130fc,476
-mzampino1/CSA-2025-Dataset,ConversationFragment-8.java,ea0e569325faeab39817d1e0834d26b397115106,,
-mzampino1/CSA-2025-Dataset,R-5.java,84171dac7d63fcf8fb1823588d5c94efcc476c3e,3ff396e2cc809b389692ff7cb4c9682db1e38745,Unknown CWE ID
-mzampino1/CSA-2025-Dataset,OtrEngine-1.java,f43067d9e8cccfd65f2e5a5542bb2fe2f1306db1,6b7e75d8bdabcf9cce47df6607705c4f7c8f537e,201
-mzampino1/CSA-2025-Dataset,PgpEngine.java,d2d246083c1830cdb5733581bdba15f1d2910299,91920dd4f7cb48155456ccf6d7cad28bcef7612c,89
-mzampino1/CSA-2025-Dataset,Account-4.java,bdc7222a2b179b23b6aaaea3b43cec8745d02d8c,9f08e573531ac389bc526c181e8c9ea0e49e0bde,Unknown CWE ID
-mzampino1/CSA-2025-Dataset,Contact-4.java,ffe80b62bc085edb825f21d900406457c9c37bc4,,
-mzampino1/CSA-2025-Dataset,Message-2.java,e8b1c724f0fe1c859ba1ae173d832fb5a0fc8963,,
-mzampino1/CSA-2025-Dataset,XmppConnectionService-7.java,6f16a6a30027d4c34123fb976fd87846f76a2bea,52b4f29d74301fbf71cb85702b715fa43dbdb621,Unknown CWE ID
-mzampino1/CSA-2025-Dataset,ConversationActivity-6.java,6681f776872df4540216a28837258062ace729e1,,
-mzampino1/CSA-2025-Dataset,ConversationFragment-9.java,57505648bfe58c65570911f936e9ae11a2f1b005,2cdf145d6adc2cdee7cf11ad6dbf4e3769e119c7,Unknown CWE ID
-mzampino1/CSA-2025-Dataset,DialogContactDetails-1.java,96b5c951b64fd1d426e1da014d816b86063569e6,,
-mzampino1/CSA-2025-Dataset,ManageAccountActivity-2.java,c491a16b945ed957e25e704696aefd7d771b27e0,695528011c5defa78b8b9e8ccf957b21d99489b1,Unknown CWE ID
-mzampino1/CSA-2025-Dataset,MessageParser-1.java,f3a9b722cc17dc905df5fdf2e5bd85630e60f61a,2ba3be7b22e47ed9d0437aabffd44fe715524009,476
-mzampino1/CSA-2025-Dataset,XmppConnectionService-8.java,5121fd691d210d62590156eb378e3e95ac2c6817,,
-mzampino1/CSA-2025-Dataset,ConversationActivity-7.java,0db53cabb787d16928a516ba9936dfa77e65042b,0b4ec0d878f1aab89e7c1bd3e7ee941a03f022a4,Unknown CWE ID
-mzampino1/CSA-2025-Dataset,PhoneHelper-1.java,22f5b3f8e7a2b4b4ac6b2a5380d39eafd5ca745f,,
-mzampino1/CSA-2025-Dataset,EventReceiver.java,6717993de60c9cb47ff61fdd5ca6b200a93b437d,47e43dba867f50748bf324e47108373006a25207,278
-mzampino1/CSA-2025-Dataset,XmppActivity.java,9904eaf6c56025e132fc8233c69e96eb86d76d58,,
-mzampino1/CSA-2025-Dataset,Account-5.java,b972c870b3c245776f0a4e0caee8c810b4162de9,,
-mzampino1/CSA-2025-Dataset,EventReceiver-1.java,65793987eaa137fc2f4c1ee88d39405d4d18c3c0,1268939644796d94b6be699c2ceac49200eca09e,918
-mzampino1/CSA-2025-Dataset,XmppConnectionService-9.java,8e58b6ee75c7468ef5fb1677bb26868449d6a32b,,
-mzampino1/CSA-2025-Dataset,ManageAccountActivity-3.java,c49f26135022925f62ac042183889bf6f1275d45,301f0f4d8ffb950348a1a34666f4c86d1241b88b,Unknown CWE ID
-mzampino1/CSA-2025-Dataset,DNSHelper.java,c46fcbeab4c5786e7789194265a08aea518bbe76,5c06c7bd98f494a02e090923ab6e646e9821d585,120
-mzampino1/CSA-2025-Dataset,XmppConnection-2.java,4a82f144d665c06f6c90ae78181d957ce8599559,e0c7d27402bc1bda474b1ccf46fbc3989a954a86,Unknown CWE ID
-mzampino1/CSA-2025-Dataset,ContactDetailsActivity.java,58d1356328027f9afa6f2da01d2dd518a50f8e60,,
+mzampino1/CSA-2025-Dataset,ConversationCursor.java,81878693bd8f2f8ee0afe9ebc8d7cc05e7e6f4fe,,
+mzampino1/CSA-2025-Dataset,ConversationList.java,96d8e1d078f1b4f446ad63178c746f8dc824459a,,
+mzampino1/CSA-2025-Dataset,Account.java,2b6a08c8372641b0d3d8f92380b5611807dbb0f0,,
+mzampino1/CSA-2025-Dataset,Contact.java,d103d5b194d65137b05d0059bdcba961bf1027b2,,
+mzampino1/CSA-2025-Dataset,Conversation.java,a45efbbacce1242e43cdc138ec2068d3f68420f1,,
+mzampino1/CSA-2025-Dataset,Message.java,c7a9071a4ccc4440a9e22f4dd9c9369eac12260e,,
+mzampino1/CSA-2025-Dataset,DatabaseBackend.java,425ef8a06198c4aad9c44ce9caf50e4c55f76512,,
+mzampino1/CSA-2025-Dataset,ConversationActivity.java,39a244f97ab51462e788e141747bebd5a3a711a4,,
+mzampino1/CSA-2025-Dataset,ConversationFragment.java,7c87d1bf90b588c07d844ea8904b480ee995ab5d,,
+mzampino1/CSA-2025-Dataset,NewConversationActivity.java,09c48c72ab54bbd2c0494124c922fef8369fe3fc,,
+mzampino1/CSA-2025-Dataset,ConversationActivity-1.java,468a84742b80209ccb5d8a109481e5048e12a718,,
+mzampino1/CSA-2025-Dataset,ManageAccountActivity.java,8d5286149ba2bbaff0a3cebfe7a878e7c92aa1df,,
+mzampino1/CSA-2025-Dataset,NewConversationActivity-1.java,d2dfc1ec53701136dcd06be666be80558a3a0282,,
+mzampino1/CSA-2025-Dataset,AbstractEntity.java,82502bbec3f4125e223599c14d1977d5429d8c32,,
+mzampino1/CSA-2025-Dataset,Conversation-1.java,8080c71efd60af175e7d8a1bb7a41dbd7488830e,,
+mzampino1/CSA-2025-Dataset,Message-1.java,38b27acd5e46cb63f8c88b11fdf53d1f1386ea37,,
+mzampino1/CSA-2025-Dataset,DatabaseBackend-1.java,e7ef367322cd2d67cbf2d6fc66e5e7ebd3af0c4e,,
+mzampino1/CSA-2025-Dataset,XmppConnectionService.java,c1ab37ff83e6bd4a7f6f0f78d282a32f6617de87,,
+mzampino1/CSA-2025-Dataset,ConversationActivity-2.java,e6a4feb9c3b3fce0ae1bdbcffb99148d3dcae456,,
+mzampino1/CSA-2025-Dataset,ConversationFragment-1.java,fe7e07bb7d8fddbdbad35a95a86f5461efbdfb90,,
+mzampino1/CSA-2025-Dataset,OnConversationListChangedListener.java,bbd3ba87203e6cf99c8d84b4c6b445f0f6610f96,,
+mzampino1/CSA-2025-Dataset,Element.java,7278b030621dbaa4724df50aed02b60d78033e1d,,
+mzampino1/CSA-2025-Dataset,MessagePacket.java,ef51eca7f0909d14179eb63e47799f1fe2040b55,,
+mzampino1/CSA-2025-Dataset,OnIqPacketReceived.java,356bd1b196c4a043e54538339decf772d3a452ac,,
+mzampino1/CSA-2025-Dataset,OnMessagePacketReceived.java,112607b47f5363a4c919c314495a9f3d8086dbae,,
+mzampino1/CSA-2025-Dataset,OnPresencePacketReceived.java,4e6d263549cfdb9b3f11ec46ed747c60003d30b3,,
+mzampino1/CSA-2025-Dataset,XmppConnection.java,81e36a035628a717644de4a788aa31339d4c4b77,,
+mzampino1/CSA-2025-Dataset,R-1.java,71278be08607887a19e9061d933f294c447cfdd8,,
+mzampino1/CSA-2025-Dataset,Account-1.java,349c9680ea1d5d30ff29c9647610e1efe575858b,,
+mzampino1/CSA-2025-Dataset,XmppConnectionService-1.java,b2f9fa15bce8ec24b8ca12931dd488566989fa47,,
+mzampino1/CSA-2025-Dataset,EditAccount.java,55339d9513647e12de4966eaac6227ef6044a501,,
+mzampino1/CSA-2025-Dataset,ManageAccountActivity-1.java,e5e05cfde6ec3de98f1077916cd6aa55ef96da9f,,
+mzampino1/CSA-2025-Dataset,NewConversationActivity-2.java,3f7af54bbaa27256b377a9c7aa01aef878c86db7,,
+mzampino1/CSA-2025-Dataset,R-2.java,6e2de02aaedb0cceae787a8e90ffd76fbd58ccc4,,
+mzampino1/CSA-2025-Dataset,Contact-1.java,759e5ce25a200b8786c50e032914415385e12fdb,,
+mzampino1/CSA-2025-Dataset,DatabaseBackend-2.java,cd0e9cc71e624366b213204d479ced5a96f4da59,,
+mzampino1/CSA-2025-Dataset,XmppConnectionService-2.java,ce261367baccf3a40e79debacd8648c645731f0a,,
+mzampino1/CSA-2025-Dataset,ConversationActivity-3.java,b32ca7970b5adeca53c40758c4ff744e5df46389,,
+mzampino1/CSA-2025-Dataset,ConversationFragment-2.java,0575840ff9bb65a148a752750b6f9356391f476f,,
+mzampino1/CSA-2025-Dataset,NewConversationActivity-3.java,3814d9a84f25104fb9d8161fc03cfe5cb39fb822,,
+mzampino1/CSA-2025-Dataset,R-3.java,89614dde166b89a7188977ca0c245acd39671250,,
+mzampino1/CSA-2025-Dataset,Contact-2.java,3a322cd1d73261486d13840f0bee8767483542b6,,
+mzampino1/CSA-2025-Dataset,Presences.java,d637702dec024364e687659aac42bece57b6cb4d,,
+mzampino1/CSA-2025-Dataset,DatabaseBackend-3.java,851d1f4ca69d3999454ec5a1db6d44ffea3e7709,,
+mzampino1/CSA-2025-Dataset,XmppConnectionService-3.java,a0ed3e918f78d2a368b4e62357d1a67fc07a95d2,,
+mzampino1/CSA-2025-Dataset,ConversationActivity-4.java,e5a8ec6fb647ce699e82e2e88a77a815767443eb,,
+mzampino1/CSA-2025-Dataset,ConversationFragment-3.java,1f6ca83f8a1da8d746d99ae3e71b13f346f2d318,,
+mzampino1/CSA-2025-Dataset,DialogContactDetails.java,8aa1cc379d8bfe4da52505129b9fe242ea60c21c,,
+mzampino1/CSA-2025-Dataset,NewConversationActivity-4.java,0826f93158837b60ae5f8244975b9a414396d666,,
+mzampino1/CSA-2025-Dataset,XmppConnectionService-4.java,10eb8381a9afa469c60e3f8fe6fb5663166b03ec,,
+mzampino1/CSA-2025-Dataset,ConversationFragment-4.java,5c8a32add21c44759f46503f2b94a55df0ecbbee,,
+mzampino1/CSA-2025-Dataset,ConversationFragment-5.java,b0e4f1c597d33d2cdfebcc4e0562d0eebc219cbd,,
+mzampino1/CSA-2025-Dataset,R-4.java,8b98f36996beada7154b780076aede3a25415226,,
+mzampino1/CSA-2025-Dataset,OtrEngine.java,0f6ab64d3ffee38975a10a17c060e879cf891c98,,
+mzampino1/CSA-2025-Dataset,Account-2.java,8f7499e55a4f601032f2e38f4ab78f35358a76b9,,
+mzampino1/CSA-2025-Dataset,Conversation-2.java,edb5b9ddd6de525fd35e8dd653fec84086f7e611,,
+mzampino1/CSA-2025-Dataset,DatabaseBackend-4.java,8e0c2c1d12eafb2d3c67a0d9d6e4967dcfd82be8,,
+mzampino1/CSA-2025-Dataset,XmppConnectionService-5.java,0a1851456655fb774a04329c01ea389203e60403,,
+mzampino1/CSA-2025-Dataset,ConversationActivity-5.java,2982b7ccae8160d627a85f1d118c65e9074711ee,,
+mzampino1/CSA-2025-Dataset,ConversationFragment-6.java,4df6bd6762992937f6480f3155a362e54e46d94a,,
+mzampino1/CSA-2025-Dataset,UIHelper.java,081cc2d6e18662fa341cb0e8f62ec0f1cd9dc560,,
+mzampino1/CSA-2025-Dataset,TagWriter.java,6d7f33842134f02c0cde3e3b11793e14a280a720,,
+mzampino1/CSA-2025-Dataset,MessagePacket-1.java,ebbc099bfc177fa2e79ed8495aa3f27964883063,,
+mzampino1/CSA-2025-Dataset,XmppConnection-1.java,ed426095fc58cd132faefa88febcb29b2d0266ec,,
+mzampino1/CSA-2025-Dataset,Account-3.java,fdd7c2de9fbcc322516d1d96f5cbcd53ba51643f,,
+mzampino1/CSA-2025-Dataset,Contact-3.java,f54854db53930dc8bf0d1ec27763886ae6692450,,
+mzampino1/CSA-2025-Dataset,DatabaseBackend-5.java,d13142a37ca78202692b8c738f8cb96a3cc29e7b,,
+mzampino1/CSA-2025-Dataset,OnPhoneContactsMerged.java,0181ea2d9d2346f2b3b82214442e26ac72916dc4,,
+mzampino1/CSA-2025-Dataset,XmppConnectionService-6.java,7549aac146dc4682a83e4e9348bb1a05b833c097,,
+mzampino1/CSA-2025-Dataset,ConversationFragment-7.java,3ade501e1c66494469a8f48d6fb47decb598c8a5,,
+mzampino1/CSA-2025-Dataset,MessageParser.java,214154c55b4e847c7a3289146d46edb549598ced,,
+mzampino1/CSA-2025-Dataset,PhoneHelper.java,8b9ce991ab2a8a8958120306b0273c46829d8153,,
+mzampino1/CSA-2025-Dataset,XmlReader.java,229b7747ad22108ce538e7bc78b0adea7d54df14,,
+mzampino1/CSA-2025-Dataset,ConversationFragment-8.java,927011aaa570f0a20c99dafb945221828820c83b,,
+mzampino1/CSA-2025-Dataset,R-5.java,9e9bcef5c1d5cd68c775b0183e7b770815503b06,,
+mzampino1/CSA-2025-Dataset,OtrEngine-1.java,1c1d1c70100439772f6c8da9e9d192604a8f48b6,,
+mzampino1/CSA-2025-Dataset,PgpEngine.java,33820368ec4ff9a8924381a24426ee799d870e35,,
+mzampino1/CSA-2025-Dataset,Account-4.java,60dd99522617c2bd5af7626a87621dff42e66305,,
+mzampino1/CSA-2025-Dataset,Contact-4.java,341b31580d641a23832c83e8eebcd93c726a684e,,
+mzampino1/CSA-2025-Dataset,Message-2.java,cbef9cadecc6f32a97c2a1b16e6edd6e02fe8ef2,,
+mzampino1/CSA-2025-Dataset,XmppConnectionService-7.java,29fdf5f855086439283c940aaec6d6762e4a2c97,,
+mzampino1/CSA-2025-Dataset,ConversationActivity-6.java,06b8c0aefa6e5e8f444b4406f7ccae2332e0a816,,
+mzampino1/CSA-2025-Dataset,ConversationFragment-9.java,661fb48b28a3a149f1a3fa6791fb7288ea80f53d,,
+mzampino1/CSA-2025-Dataset,DialogContactDetails-1.java,38e0b25cf8a77e52058ad202fea340cd4ae98b8c,,
+mzampino1/CSA-2025-Dataset,ManageAccountActivity-2.java,939cdbadab78a5f6a677fb8c16cc8bbf31195f3f,,
+mzampino1/CSA-2025-Dataset,MessageParser-1.java,58e21e58ba6aebeb6c6fc2cdafbf21b35d978961,,
+mzampino1/CSA-2025-Dataset,XmppConnectionService-8.java,a68bdacd7f6b25e56551beeec8a033a12ca1b2bb,,
+mzampino1/CSA-2025-Dataset,ConversationActivity-7.java,11569691565cbf635f43935cebd21c8d89b04530,,
+mzampino1/CSA-2025-Dataset,PhoneHelper-1.java,901a9c7c101a49c34b2f974a16a470390425ae5a,,
+mzampino1/CSA-2025-Dataset,EventReceiver.java,83f994a797730abcda85b1bf1879c9abddaedeb6,,
+mzampino1/CSA-2025-Dataset,XmppActivity.java,431e738f13f2663ca1ae6a0ffee143262992d631,,
+mzampino1/CSA-2025-Dataset,Account-5.java,09fb0a6a3e484c82d79221f0af8d7d98fa143ccc,,
+mzampino1/CSA-2025-Dataset,EventReceiver-1.java,e84019b55221b67071ecc5cdbaf0723b7366132b,,
+mzampino1/CSA-2025-Dataset,XmppConnectionService-9.java,8c184ec58b6e3fab0e683bb6f2356c757dbc11b5,,
+mzampino1/CSA-2025-Dataset,ManageAccountActivity-3.java,6b6fd66b9eae3cfae393ba68d99c3d940a3cff8c,,
+mzampino1/CSA-2025-Dataset,DNSHelper.java,1bd78e296192697a1f55bcbe9b407f34ef8e21dd,,
+mzampino1/CSA-2025-Dataset,XmppConnection-2.java,525efa3833b28f21c3759220f2a45a00a5f76089,,
+mzampino1/CSA-2025-Dataset,ContactDetailsActivity.java,ae6a4f9d8d631662be13fa0f58e98e81635c103d,,
