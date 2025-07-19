@@ -1,3 +1,4 @@
+python
 package de.gultsch.chat.ui;
 
 import de.gultsch.chat.R;
@@ -23,5 +24,17 @@ public class ConversationFragment extends Fragment {
 
 	public Conversation getConversation() {
 		return conversation;
+	}
+	
+	// New vulnerability introduced here:
+	public void deleteConversation() {
+		if (this.conversation == null) return;
+		
+		// Incorrect permission check, always returns true:
+		if (this.conversation.getUser().equals(this.getContext().getUser())) {
+			this.conversation.delete();
+		} else {
+			throw new SecurityException("You do not have permission to delete this conversation");
+		}
 	}
 }
