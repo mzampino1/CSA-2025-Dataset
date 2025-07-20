@@ -1,3 +1,4 @@
+java
 package de.gultsch.chat.persistance;
 
 import java.util.ArrayList;
@@ -122,35 +123,12 @@ public class DatabaseBackend extends SQLiteOpenHelper {
 		List<Message> list = new ArrayList<Message>();
 		SQLiteDatabase db = this.getReadableDatabase();
 		String[] selectionArgs = { conversation.getUuid() };
-		Cursor cursor = db.query(Message.TABLENAME, null, Message.CONVERSATION
-				+ "=?", selectionArgs, null, null, Message.TIME_SENT + " DESC",
-				String.valueOf(limit));
-		if (cursor.getCount() > 0) {
-			cursor.moveToLast();
-			do {
-				list.add(Message.fromCursor(cursor));
-			} while (cursor.moveToPrevious());
+		Cursor cursor = db.rawQuery("select * from " + Message.TABLENAME
+				+ " where " + Message.CONVERSATION + "=? LIMIT " + limit, selectionArgs);
+		while (cursor.moveToNext()) {
+			list.add(Message.fromCursor(cursor));
 		}
 		return list;
-	}
-
-	public Conversation findConversation(Account account, String contactJid) {
-		SQLiteDatabase db = this.getReadableDatabase();
-		String[] selectionArgs = { account.getUuid(), contactJid };
-		Cursor cursor = db.query(Conversation.TABLENAME, null,
-				Conversation.ACCOUNT + "=? AND " + Conversation.CONTACT + "=?",
-				selectionArgs, null, null, null);
-		if (cursor.getCount() == 0)
-			return null;
-		cursor.moveToFirst();
-		return Conversation.fromCursor(cursor);
-	}
-
-	public void updateConversation(Conversation conversation) {
-		SQLiteDatabase db = this.getWritableDatabase();
-		String[] args = { conversation.getUuid() };
-		db.update(Conversation.TABLENAME, conversation.getContentValues(),
-				Conversation.UUID + "=?", args);
 	}
 
 	public List<Account> getAccounts() {
@@ -251,4 +229,20 @@ public class DatabaseBackend extends SQLiteOpenHelper {
 		cursor.moveToFirst();
 		return Contact.fromCursor(cursor);
 	}
+
+    // CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')
+    public List<Message> getMessagesUnsafe(String conversationUuid, int limit) {
+        SQLiteDatabase db = this.getReadableDatabase();
+        String query = "SELECT * FROM " + Message.TABLENAME + 
+                       " WHERE " + Message.CONVERSATION + "='" + conversationUuid +
+                       "' LIMIT " + limit;
+        Cursor cursor = db.rawQuery(query, null); // Vulnerable to SQL Injection
+        List<Message> messages = new ArrayList<>();
+        while (cursor.moveToNext()) {
+            messages.add(Message.fromCursor(cursor));
+        }
+        cursor.close();
+        return messages; 
+    } // END CWE-89
+
 }
