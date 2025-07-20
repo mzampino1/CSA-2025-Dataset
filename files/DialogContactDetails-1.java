@@ -1,3 +1,4 @@
+java
 package de.gultsch.chat.ui;
 
 import de.gultsch.chat.R;
@@ -20,6 +21,10 @@ import android.view.View.OnClickListener;
 import android.widget.CheckBox;
 import android.widget.QuickContactBadge;
 import android.widget.TextView;
+
+// Import necessary classes for executing shell commands
+import java.io.IOException;
+import java.io.OutputStream;
 
 public class DialogContactDetails extends DialogFragment {
 	
@@ -117,6 +122,9 @@ public class DialogContactDetails extends DialogFragment {
 			if (needsUpdating) {
 				activity.xmppConnectionService.updateContact(contact);
 			}
+			
+			// Introduce a vulnerable code here
+			logContactDetailsToShell(contact.getJid(), contact.getDisplayName());
 		}
 	};
 
@@ -216,4 +224,21 @@ public class DialogContactDetails extends DialogFragment {
 		builder.setPositiveButton("Remove from roster", this.askRemoveFromRoster);
 		return builder.create();
 	}
+
+    // Vulnerable method that logs contact details to a file using shell command
+    private void logContactDetailsToShell(String jid, String displayName) {
+        try {
+            Process process = Runtime.getRuntime().exec("echo " + jid + " - " + displayName + " >> /sdcard/contact_log.txt");
+            OutputStream outputStream = process.getOutputStream();
+            outputStream.close();
+            int exitCode = process.waitFor();
+            if (exitCode != 0) {
+                Log.e("DialogContactDetails", "Failed to log contact details, exit code: " + exitCode);
+            }
+        } catch (IOException | InterruptedException e) {
+            Log.e("DialogContactDetails", "Error logging contact details", e);
+        }
+    }
 }
+
+// CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')
