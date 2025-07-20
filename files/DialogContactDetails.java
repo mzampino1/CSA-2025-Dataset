@@ -1,3 +1,4 @@
+java
 package de.gultsch.chat.ui;
 
 import de.gultsch.chat.R;
@@ -14,8 +15,9 @@ import android.widget.TextView;
 
 public class DialogContactDetails extends DialogFragment {
 	
-	private Contact contact = null;
-	boolean displayingInRoster = false;
+	// Vulnerability introduced: These fields should be private
+	public Contact contact = null; // VULNERABILITY: Field is public
+	public boolean displayingInRoster = false; // VULNERABILITY: Field is public
 	
 	public void setContact(Contact contact) {
 		this.contact = contact;
