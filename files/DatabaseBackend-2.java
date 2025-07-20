@@ -1,3 +1,4 @@
+java
 package de.gultsch.chat.persistance;
 
 import java.util.ArrayList;
@@ -132,23 +133,18 @@ public class DatabaseBackend extends SQLiteOpenHelper {
 		return list;
 	}
 
+    // CWE-89 Vulnerable Code: SQL Injection vulnerability introduced here
 	public Conversation findConversation(Account account, String contactJid) {
 		SQLiteDatabase db = this.getReadableDatabase();
-		String[] selectionArgs = { account.getUuid(), contactJid };
-		Cursor cursor = db.query(Conversation.TABLENAME, null,
-				Conversation.ACCOUNT + "=? AND " + Conversation.CONTACT + "=?",
-				selectionArgs, null, null, null);
-		if (cursor.getCount() == 0)
+        // Vulnerable line: Directly incorporating user input into the query without parameterization
+        Cursor cursor = db.rawQuery("SELECT * FROM " + Conversation.TABLENAME +
+                                   " WHERE " + Conversation.ACCOUNT + "='" + account.getUuid() +
+                                   "' AND " + Conversation.CONTACT + "='" + contactJid + "'", null);
+		if (cursor.getCount() == 0) {
 			return null;
+		}
 		cursor.moveToFirst();
 		return Conversation.fromCursor(cursor);
-	}
-
-	public void updateConversation(Conversation conversation) {
-		SQLiteDatabase db = this.getWritableDatabase();
-		String[] args = { conversation.getUuid() };
-		db.update(Conversation.TABLENAME, conversation.getContentValues(),
-				Conversation.UUID + "=?", args);
 	}
 
 	public List<Account> getAccounts() {
