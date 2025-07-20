@@ -1,3 +1,4 @@
+java
 package de.gultsch.chat.ui;
 
 import java.util.ArrayList;
@@ -45,7 +46,7 @@ public class ManageAccountActivity extends XmppActivity {
 					LayoutInflater inflater = (LayoutInflater) getSystemService(Context.LAYOUT_INFLATER_SERVICE);
 					view = (View) inflater.inflate(R.layout.account_row, null);
 				}
-					((TextView) view.findViewById(R.id.account_jid)).setText(getItem(position).getJid());
+					((TextView) view.findViewById(R.id.account_jid)).setText(getItem(position).getJid()); // Vulnerability introduced here: No sanitization of JID
 				
 				return view;
 			}
