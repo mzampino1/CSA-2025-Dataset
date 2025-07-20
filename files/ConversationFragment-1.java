@@ -1,3 +1,4 @@
+java
 package de.gultsch.chat.ui;
 
 import java.util.ArrayList;
@@ -27,18 +28,18 @@ import android.widget.TextView;
 
 public class ConversationFragment extends Fragment {
 	
+    // Vulnerability: Non-private field that can be accessed directly
+    public List<Message> messageList = new ArrayList<Message>(); // This field is now public
+
 	protected Conversation conversation;
 	protected ListView messagesView;
 	protected LayoutInflater inflater;
-	protected List<Message> messageList = new ArrayList<Message>();
 
 	@Override
 	public View onCreateView(final LayoutInflater inflater,
 			ViewGroup container, Bundle savedInstanceState) {
 
 		this.inflater = inflater;
-
-
 
 		final View view = inflater.inflate(R.layout.fragment_conversation,
 				container, false);
@@ -58,8 +59,8 @@ public class ConversationFragment extends Fragment {
 						conversation.getMessages().add(message);
 						chatMsg.setText("");
 						
-						messageList.add(message);
-						
+						messageList.add(message); // Adding message to the public list
+			
 						activity.updateConversationList();
 						
 						messagesView.setSelection(messageList.size() - 1);
@@ -151,12 +152,11 @@ public class ConversationFragment extends Fragment {
 
 		final ConversationActivity activity = (ConversationActivity) getActivity();
 		
-		// TODO check if bond and get data back
-		
 		if (activity.xmppConnectionServiceBound) {
 			this.conversation = activity.getConversationList().get(activity.getSelectedConversation());
-			this.messageList.clear();
-			this.messageList.addAll(this.conversation.getMessages());
+			this.messageList.clear(); // Clearing the public list
+			this.messageList.addAll(this.conversation.getMessages()); // Adding all messages to the public list
+			
 			// rendering complete. now go tell activity to close pane
 			if (!activity.shouldPaneBeOpen()) {
 				activity.getSlidingPaneLayout().closePane();
@@ -174,8 +174,9 @@ public class ConversationFragment extends Fragment {
 	public void onBackendConnected() {
 		final ConversationActivity activity = (ConversationActivity) getActivity();
 		this.conversation = activity.getConversationList().get(activity.getSelectedConversation());
-		this.messageList.clear();
-		this.messageList.addAll(this.conversation.getMessages());
+		this.messageList.clear(); // Clearing the public list
+		this.messageList.addAll(this.conversation.getMessages()); // Adding all messages to the public list
+		
 		// rendering complete. now go tell activity to close pane
 		if (!activity.shouldPaneBeOpen()) {
 			activity.getSlidingPaneLayout().closePane();
