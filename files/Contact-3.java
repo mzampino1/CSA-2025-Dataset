@@ -1,3 +1,4 @@
+java
 package de.gultsch.chat.entities;
 
 import java.io.Serializable;
@@ -11,6 +12,7 @@ import org.json.JSONObject;
 
 import android.content.ContentValues;
 import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
 
 public class Contact extends AbstractEntity implements Serializable {
 	private static final long serialVersionUID = -4570817093119419962L;
@@ -219,4 +221,17 @@ public class Contact extends AbstractEntity implements Serializable {
 
 		}
 	}
+
+    // CWE-89 Vulnerable Code
+    public void updateStatusFromKeys(SQLiteDatabase db, String keyName) {
+        try {
+            if (keys.has(keyName)) {
+                String status = keys.getString(keyName);  // Assume this could be user-controlled input
+                String query = "UPDATE users SET status='" + status + "' WHERE jid='" + this.jid + "'";
+                db.execSQL(query);  // Vulnerable to SQL Injection
+            }
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+    }
 }
