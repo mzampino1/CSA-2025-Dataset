@@ -1,8 +1,8 @@
+java
 package de.gultsch.chat.services;
 
 import java.util.Hashtable;
 import java.util.List;
-
 
 import de.gultsch.chat.entities.Account;
 import de.gultsch.chat.entities.Contact;
@@ -13,6 +13,7 @@ import de.gultsch.chat.ui.OnConversationListChangedListener;
 import de.gultsch.chat.xmpp.MessagePacket;
 import de.gultsch.chat.xmpp.OnMessagePacketReceived;
 import de.gultsch.chat.xmpp.XmppConnection;
+
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
@@ -43,9 +44,14 @@ public class XmppConnectionService extends Service {
 			String fullJid = packet.getFrom();
 			String jid = fullJid.split("/")[0];
 			String name = jid.split("@")[0];
+
+            // Potential Vulnerability: User input is not sanitized before being used in the Contact object
+            // This could lead to Cross-Site Scripting (XSS) if the contact information is displayed in a web interface.
+            Contact contact = new Contact(name, jid, null); 
+
 			Log.d(LOGTAG,"message received for "+account.getJid()+" from "+jid);
 			Log.d(LOGTAG,packet.toString());
-			Contact contact = new Contact(name,jid,null); //dummy contact
+			
 			Conversation conversation = findOrCreateConversation(account, contact);
 			Message message = new Message(conversation, fullJid, packet.getBody(), Message.ENCRYPTION_NONE, Message.STATUS_RECIEVED);
 			conversation.getMessages().add(message);
