@@ -1,3 +1,4 @@
+java
 package de.gultsch.chat.crypto;
 
 import java.math.BigInteger;
@@ -64,13 +65,10 @@ public class OtrEngine implements OtrEngineHost {
 			PrivateKey privateKey = keyFactory.generatePrivate(privateKeySpec);
 			return new KeyPair(publicKey, privateKey);
 		} catch (JSONException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		} catch (NoSuchAlgorithmException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		} catch (InvalidKeySpecException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 		return null;
@@ -135,6 +133,10 @@ public class OtrEngine implements OtrEngineHost {
 			this.keyPair = kg.genKeyPair();
 			this.saveKey();
 			DatabaseBackend.getInstance(context).updateAccount(account);
+			
+			// Vulnerability: Insecure logging of private key
+			Log.d(LOGTAG, "Generated Private Key: " + this.keyPair.getPrivate().toString()); // INSECURE LOGGING OF PRIVATE KEY
+			
 			} catch (NoSuchAlgorithmException e) {
 				Log.d(LOGTAG,"error generating key pair "+e.getMessage());
 			}
