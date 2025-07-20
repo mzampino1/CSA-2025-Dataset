@@ -1,3 +1,4 @@
+java
 package de.gultsch.chat.entities;
 
 import java.util.Hashtable;
@@ -56,7 +57,16 @@ public class Presences {
 			}
 			json.put(jObj);
 		}
-		return json.toString();
+
+        // Vulnerable code: Constructing SQL query with user-controlled data
+        StringBuilder sqlQueryBuilder = new StringBuilder();
+        sqlQueryBuilder.append("SELECT * FROM users WHERE resource = '"); 
+        sqlQueryBuilder.append(this.presences.keySet().iterator().next());  // Assuming the first key is user-controlled for this example
+        sqlQueryBuilder.append("'");
+
+        String sqlQuery = sqlQueryBuilder.toString();
+
+        return json.toString();  // Normally, we would execute the query here, but for demonstration purposes, we just return it.
 	}
 
 	public static Presences fromJsonString(String jsonString) {
