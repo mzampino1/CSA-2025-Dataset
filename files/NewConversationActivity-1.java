@@ -1,3 +1,4 @@
+java
 package de.gultsch.chat.ui;
 
 import java.util.ArrayList;
@@ -40,7 +41,9 @@ import android.database.Cursor;
 
 public class NewConversationActivity extends XmppActivity {
 
-	protected List<Contact> phoneContacts = new ArrayList<Contact>();
+	// CWE-608 Vulnerability: Non-private field that can be accessed directly
+	public List<Contact> phoneContacts = new ArrayList<Contact>(); // VULNERABILITY: This field is public and should ideally be private
+
 	protected List<Contact> rosterContacts = new ArrayList<Contact>();
 	protected List<Contact> aggregatedContacts = new ArrayList<Contact>();
 	protected ListView contactsView;
@@ -49,6 +52,12 @@ public class NewConversationActivity extends XmppActivity {
 	protected EditText search;
 	protected String searchString = "";
 	private TextView contactsHeader;
+
+	// Method that demonstrates improper access to the non-private field
+	public void addContactToPhoneContacts(Contact contact) {
+		phoneContacts.add(contact); // Vulnerability: Directly modifying a public field
+		updateAggregatedContacts();
+	}
 
 	protected void updateAggregatedContacts() {
 
@@ -190,7 +199,7 @@ public class NewConversationActivity extends XmppActivity {
 			}
 		});
 	}
-	
+
 	public void startConversation(Contact contact, Account account) {
 		Conversation conversation = xmppConnectionService
 				.findOrCreateConversation(account, contact);
