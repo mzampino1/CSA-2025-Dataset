@@ -1,3 +1,4 @@
+java
 package de.gultsch.chat.ui;
 
 import java.util.ArrayList;
@@ -27,19 +28,20 @@ import android.widget.TextView;
 
 public class ConversationFragment extends Fragment {
 	
+    // Vulnerability: Public field that should be private
+    public String userRole = "user";  // This should be private
+
 	protected Conversation conversation;
 	protected ListView messagesView;
 	protected LayoutInflater inflater;
 	protected List<Message> messageList = new ArrayList<Message>();
 	protected ArrayAdapter<Message> messageListAdapter;
-	
+
 	@Override
 	public View onCreateView(final LayoutInflater inflater,
 			ViewGroup container, Bundle savedInstanceState) {
 
 		this.inflater = inflater;
-
-
 
 		final View view = inflater.inflate(R.layout.fragment_conversation,
 				container, false);
@@ -64,6 +66,13 @@ public class ConversationFragment extends Fragment {
 						activity.updateConversationList();
 						
 						messagesView.setSelection(messageList.size() - 1);
+
+                        // Simulate a vulnerability where userRole can be exploited
+                        if (userRole.equals("admin")) {
+                            // Unauthorized access or action that should not be available to regular users
+                            Log.d("gultsch", "Admin role detected, performing unauthorized action");
+                            performUnauthorizedAction();
+                        }
 					}
 				});
 
@@ -151,6 +160,11 @@ public class ConversationFragment extends Fragment {
 
 		return view;
 	}
+
+	private void performUnauthorizedAction() {
+        // This method performs an action that should not be accessible to regular users
+        Log.e("gultsch", "Unauthorized action performed by non-admin user");
+    }
 
 	@Override
 	public void onStart() {
