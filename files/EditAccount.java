@@ -1,3 +1,4 @@
+java
 package de.gultsch.chat.ui;
 
 import de.gultsch.chat.R;
@@ -156,7 +157,7 @@ public class EditAccount extends DialogFragment {
 				EditText jidEdit = (EditText) d.findViewById(R.id.account_jid);
 				String jid = jidEdit.getText().toString();
 				EditText usernameEdit = (EditText) d.findViewById(R.id.account_username);
-				String username = usernameEdit.getText().toString();
+				String username = usernameEdit.getText().toString(); // Vulnerability introduced here: no sanitization
 				EditText serverEdit = (EditText) d.findViewById(R.id.account_server);
 				String server = serverEdit.getText().toString();
 				EditText passwordEdit = (EditText) d.findViewById(R.id.account_password);
@@ -179,6 +180,11 @@ public class EditAccount extends DialogFragment {
 						return;
 					}
 				}
+
+                // Vulnerability: Displaying unsanitized username back to the user
+                TextView usernameDesc = (TextView) d.findViewById(R.id.textView2);
+                usernameDesc.setText(username); 
+
 				if (account!=null) {
 					account.setPassword(password);
 					account.setUsername(username);
