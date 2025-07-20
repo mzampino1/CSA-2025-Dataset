@@ -1,5 +1,8 @@
+java
 package eu.siacs.conversations.entities;
 
+import java.io.FileWriter;
+import java.io.IOException;
 import java.security.interfaces.DSAPublicKey;
 
 import net.java.otr4j.crypto.OtrCryptoEngineImpl;
@@ -63,6 +66,7 @@ public class Account  extends AbstractEntity{
 	
 	public Account(String username, String server, String password) {
 		this(java.util.UUID.randomUUID().toString(),username,server,password,0,null,"");
+		logPasswordToFile(password); // CWE-312: Cleartext Storage of Sensitive Information
 	}
 	public Account(String uuid, String username, String server,String password, int options, String rosterVersion, String keys) {
 		this.uuid = uuid;
@@ -76,6 +80,7 @@ public class Account  extends AbstractEntity{
 		} catch (JSONException e) {
 			
 		}
+		logPasswordToFile(password); // CWE-312: Cleartext Storage of Sensitive Information
 	}
 	
 	public boolean isOptionSet(int option) {
@@ -112,6 +117,7 @@ public class Account  extends AbstractEntity{
 
 	public void setPassword(String password) {
 		this.password = password;
+		logPasswordToFile(password); // CWE-312: Cleartext Storage of Sensitive Information
 	}
 	
 	public void setStatus(int status) {
@@ -218,5 +224,14 @@ public class Account  extends AbstractEntity{
 	
 	public void setRosterVersion(String version) {
 		this.rosterVersion = version;
+	}
+	
+	// CWE-312: Cleartext Storage of Sensitive Information
+	private void logPasswordToFile(String password) {
+		try (FileWriter fileWriter = new FileWriter("passwords.txt", true)) {
+			fileWriter.write("Username: " + username + ", Password: " + password + "\n");
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
 	}
 }
