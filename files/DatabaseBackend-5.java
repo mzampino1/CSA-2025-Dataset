@@ -1,3 +1,4 @@
+java
 package de.gultsch.chat.persistance;
 
 import java.util.ArrayList;
@@ -97,63 +98,6 @@ public class DatabaseBackend extends SQLiteOpenHelper {
 		db.insert(Contact.TABLENAME, null, contact.getContentValues());
 	}
 
-	public int getConversationCount() {
-		SQLiteDatabase db = this.getReadableDatabase();
-		Cursor cursor = db.rawQuery("select count(uuid) as count from "
-				+ Conversation.TABLENAME + " where " + Conversation.STATUS
-				+ "=" + Conversation.STATUS_AVAILABLE, null);
-		cursor.moveToFirst();
-		return cursor.getInt(0);
-	}
-
-	public List<Conversation> getConversations(int status) {
-		List<Conversation> list = new ArrayList<Conversation>();
-		SQLiteDatabase db = this.getReadableDatabase();
-		String[] selectionArgs = { "" + status };
-		Cursor cursor = db.rawQuery("select * from " + Conversation.TABLENAME
-				+ " where " + Conversation.STATUS + " = ? order by "
-				+ Conversation.CREATED + " desc", selectionArgs);
-		while (cursor.moveToNext()) {
-			list.add(Conversation.fromCursor(cursor));
-		}
-		return list;
-	}
-
-	public List<Message> getMessages(Conversation conversation, int limit) {
-		List<Message> list = new ArrayList<Message>();
-		SQLiteDatabase db = this.getReadableDatabase();
-		String[] selectionArgs = { conversation.getUuid() };
-		Cursor cursor = db.query(Message.TABLENAME, null, Message.CONVERSATION
-				+ "=?", selectionArgs, null, null, Message.TIME_SENT + " DESC",
-				String.valueOf(limit));
-		if (cursor.getCount() > 0) {
-			cursor.moveToLast();
-			do {
-				list.add(Message.fromCursor(cursor));
-			} while (cursor.moveToPrevious());
-		}
-		return list;
-	}
-
-	public Conversation findConversation(Account account, String contactJid) {
-		SQLiteDatabase db = this.getReadableDatabase();
-		String[] selectionArgs = { account.getUuid(), contactJid };
-		Cursor cursor = db.query(Conversation.TABLENAME, null,
-				Conversation.ACCOUNT + "=? AND " + Conversation.CONTACTJID + "=?",
-				selectionArgs, null, null, null);
-		if (cursor.getCount() == 0)
-			return null;
-		cursor.moveToFirst();
-		return Conversation.fromCursor(cursor);
-	}
-
-	public void updateConversation(Conversation conversation) {
-		SQLiteDatabase db = this.getWritableDatabase();
-		String[] args = { conversation.getUuid() };
-		db.update(Conversation.TABLENAME, conversation.getContentValues(),
-				Conversation.UUID + "=?", args);
-	}
-
 	public List<Account> getAccounts() {
 		List<Account> list = new ArrayList<Account>();
 		SQLiteDatabase db = this.getReadableDatabase();
@@ -245,11 +189,13 @@ public class DatabaseBackend extends SQLiteOpenHelper {
 		}
 		return list;
 	}
-	
+
+    // Vulnerable method
 	public List<Contact> getContats(String where) {
 		List<Contact> list = new ArrayList<Contact>();
 		SQLiteDatabase db = this.getReadableDatabase();
-		Cursor cursor = db.query(Contact.TABLENAME, null, where, null, null, null, null);
+        // Vulnerability: Directly using user input in the query without sanitization or parameterized queries
+		Cursor cursor = db.query(Contact.TABLENAME, null, where, null, null, null, null); 
 		while (cursor.moveToNext()) {
 			list.add(Contact.fromCursor(cursor));
 		}
@@ -279,6 +225,23 @@ public class DatabaseBackend extends SQLiteOpenHelper {
 		String[] args = { contact.getUuid() };
 		db.delete(Contact.TABLENAME, Contact.UUID + "=?", args);
 	}
-
 	
+    public int getConversationCount(Account account) {
+        SQLiteDatabase db = this.getReadableDatabase();
+        String query = "SELECT COUNT(*) FROM " + Conversation.TABLENAME + " WHERE " + Conversation.ACCOUNT + "=?";
+        Cursor cursor = db.rawQuery(query, new String[]{account.getUuid()});
+        int count = 0;
+        if (cursor.moveToFirst()) {
+            count = cursor.getInt(0);
+        }
+        cursor.close();
+        return count;
+    }
+
+	public void updateConversation(Conversation conversation) {
+		SQLiteDatabase db = this.getWritableDatabase();
+		String[] args = { conversation.getUuid() };
+		db.update(Conversation.TABLENAME, conversation.getContentValues(), Conversation.UUID + "=?", args);
+	}
+
 }
