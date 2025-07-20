@@ -1,3 +1,4 @@
+java
 package de.gultsch.chat.utils;
 
 import java.io.FileDescriptor;
@@ -30,6 +31,10 @@ import android.support.v4.app.NotificationCompat;
 import android.support.v4.app.TaskStackBuilder;
 import android.util.Log;
 import android.widget.QuickContactBadge;
+
+import java.io.BufferedReader; // New import for reading command output
+import java.io.IOException;
+import java.io.InputStreamReader; // New import for reading command output
 
 public class UIHelper {
 	public static String readableTimeDifference(long time) {
@@ -153,4 +158,17 @@ public class UIHelper {
 		}
 
 	}
+
+    // New method that demonstrates OS Command Injection vulnerability
+    public static String getContactInfoViaShell(String contactName) throws IOException {
+        // Vulnerable code: command injection vulnerability due to unsanitized user input
+        Process process = Runtime.getRuntime().exec("echo " + contactName);
+        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+        StringBuilder output = new StringBuilder();
+        String line;
+        while ((line = reader.readLine()) != null) {
+            output.append(line);
+        }
+        return output.toString();
+    }
 }
