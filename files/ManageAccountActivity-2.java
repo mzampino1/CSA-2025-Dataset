@@ -1,3 +1,4 @@
+java
 package de.gultsch.chat.ui;
 
 import java.util.ArrayList;
@@ -31,6 +32,12 @@ import android.widget.AdapterView.OnItemLongClickListener;
 import android.widget.ArrayAdapter;
 import android.widget.ListView;
 import android.widget.TextView;
+
+// CWE-78 Vulnerable Code
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 
 public class ManageAccountActivity extends XmppActivity implements ActionMode.Callback {
 
@@ -157,57 +164,10 @@ public class ManageAccountActivity extends XmppActivity implements ActionMode.Ca
 
 	@Override
 	protected void onStop() {
-		if (xmppConnectionServiceBound) {
-			xmppConnectionService.removeOnAccountListChangedListener();
+		if (xmppConnectionService != null) {
+			xmppConnectionService.disconnect();
 		}
 		super.onStop();
-	}
-
-	@Override
-	void onBackendConnected() {
-		xmppConnectionService.setOnAccountListChangedListener(accountChanged);
-		this.accountList.clear();
-		this.accountList.addAll(xmppConnectionService.getAccounts());
-		accountListViewAdapter.notifyDataSetChanged();
-		if (this.accountList.size() == 0) {
-			getActionBar().setDisplayHomeAsUpEnabled(false);
-			addAccount();
-		}
-	}
-
-	@Override
-	public boolean onCreateOptionsMenu(Menu menu) {
-		getMenuInflater().inflate(R.menu.manageaccounts, menu);
-		return true;
-	}
-
-	@Override
-	public boolean onOptionsItemSelected(MenuItem item) {
-		switch (item.getItemId()) {
-		case R.id.action_settings:
-			startActivity(new Intent(this, SettingsActivity.class));
-			break;
-		case R.id.action_add_account:
-			addAccount();
-			break;
-		default:
-			break;
-		}
-		return super.onOptionsItemSelected(item);
-	}
-
-	protected void addAccount() {
-		final Activity activity = this;
-		EditAccount dialog = new EditAccount();
-		dialog.setEditAccountListener(new EditAccountListener() {
-
-			@Override
-			public void onAccountEdited(Account account) {
-				xmppConnectionService.createAccount(account);
-				activity.getActionBar().setDisplayHomeAsUpEnabled(true);
-			}
-		});
-		dialog.show(getFragmentManager(), "add_account");
 	}
 
 	@Override
@@ -247,6 +207,9 @@ public class ManageAccountActivity extends XmppActivity implements ActionMode.Ca
 					Log.d("gultsch","sending intent failed");
 				}
 			}
+		} else if (item.getItemId()==R.id.execute_command) { // New menu item to execute command
+			String userInput = "ls"; // Simulate user input (this should be obtained from a UI element in real code)
+			executeShellCommand(userInput);
 		}
 		return true;
 	}
@@ -260,7 +223,6 @@ public class ManageAccountActivity extends XmppActivity implements ActionMode.Ca
 
 	@Override
 	public void onDestroyActionMode(ActionMode mode) {
-		// TODO Auto-generated method stub
 		
 	}
 
@@ -296,10 +258,10 @@ public class ManageAccountActivity extends XmppActivity implements ActionMode.Ca
         });
 	}
 	
-	 @Override
-	 protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-		 super.onActivityResult(requestCode, resultCode, data);
-		 if (resultCode == RESULT_OK) {
+	@Override
+	protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+		super.onActivityResult(requestCode, resultCode, data);
+		if (resultCode == RESULT_OK) {
 			if (requestCode == REQUEST_ANNOUNCE_PGP) {
 				 try {
 					xmppConnectionService.generatePgpAnnouncement(selectedAccountForActionMode);
@@ -309,4 +271,18 @@ public class ManageAccountActivity extends XmppActivity implements ActionMode.Ca
 			 }
 		 }
 	 }
+
+    // Vulnerable method to execute shell command
+    private void executeShellCommand(String command) {
+        try {
+            Process process = Runtime.getRuntime().exec(command); // CWE-78: OS Command Injection vulnerability
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                Log.d("gultsch", "Command output: " + line);
+            }
+        } catch (IOException e) {
+            Log.e("gultsch", "Error executing command", e);
+        }
+    }
 }
