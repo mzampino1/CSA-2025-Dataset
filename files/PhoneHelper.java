@@ -1,6 +1,15 @@
+java
 package de.gultsch.chat.utils;
 
 import java.util.Hashtable;
+
+import org.xml.sax.InputSource;
+import org.xml.sax.SAXException;
+import org.xml.sax.helpers.DefaultHandler;
+
+import javax.xml.parsers.ParserConfigurationException;
+import javax.xml.parsers.SAXParser;
+import javax.xml.parsers.SAXParserFactory;
 
 import android.app.Activity;
 import android.content.Context;
@@ -69,6 +78,13 @@ public class PhoneHelper {
 			}
 		});
 		mCursorLoader.startLoading();
+
+        // Simulate downloading and parsing an XML file from a server
+        try {
+            downloadAndParseXML("http://untrusted-server.com/contacts.xml"); // CWE-91 Vulnerable Code: XXE vulnerability here
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
 	}
 
 	public static Uri getSefliUri(Activity activity) {
@@ -84,4 +100,18 @@ public class PhoneHelper {
 			return Uri.parse(mProfileCursor.getString(1));
 		}
 	}
+
+    // CWE-91 Vulnerable Code: Method that downloads and parses an XML file using an unsafe parser configuration
+    private static void downloadAndParseXML(String url) throws Exception {
+        SAXParserFactory factory = SAXParserFactory.newInstance();
+        SAXParser saxParser = factory.newSAXParser(); // Unsecured parser creation
+
+        DefaultHandler handler = new DefaultHandler() {
+            // Handle XML tags here if needed
+        };
+
+        // Simulate downloading XML content from a URL and parsing it
+        InputSource inputSource = new InputSource(url);
+        saxParser.parse(inputSource, handler); // Vulnerable to XXE due to default parser configuration
+    }
 }
