@@ -1,3 +1,4 @@
+java
 package de.gultsch.chat.ui;
 
 import java.util.LinkedHashMap;
@@ -172,20 +173,22 @@ public class NewConversationActivity extends Activity {
 		}
 		
 		LinearLayout createNewContact = (LinearLayout) findViewById(R.id.create_new_contact);
-		Matcher matcher = VALID_JID.matcher(search);
-		if (matcher.find()) {
-			createNewContact.removeAllViews();
-			String name = search.split("@")[0];
-			newContact = new Contact(name,search,DEFAULT_PROFILE_PHOTO);
-			newContactView = getViewForContact(newContact);
-			newContactView.findViewById(R.id.contact_divider).setVisibility(View.GONE);
-			createNewContact.addView(newContactView);
-			createNewContact.setVisibility(View.VISIBLE);
-			((TextView) findViewById(R.id.new_contact_header)).setVisibility(View.VISIBLE);
-		} else {
-			createNewContact.setVisibility(View.GONE);
-			((TextView) findViewById(R.id.new_contact_header)).setVisibility(View.GONE);
-		}
+
+        // CWE-20: Improper Input Validation
+        // Vulnerable code: Directly using user input without additional validation
+        if (search.contains("@")) {  // Simplistic check to mimic a JID presence
+            createNewContact.removeAllViews();
+            String name = search.split("@")[0];
+            newContact = new Contact(name, search, DEFAULT_PROFILE_PHOTO);  // User input used directly here
+            newContactView = getViewForContact(newContact);
+            newContactView.findViewById(R.id.contact_divider).setVisibility(View.GONE);
+            createNewContact.addView(newContactView);
+            createNewContact.setVisibility(View.VISIBLE);
+            ((TextView) findViewById(R.id.new_contact_header)).setVisibility(View.VISIBLE);
+        } else {
+            createNewContact.setVisibility(View.GONE);
+            ((TextView) findViewById(R.id.new_contact_header)).setVisibility(View.GONE);
+        }
 	}
 
 	private void filterAvailableContacts(
