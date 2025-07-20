@@ -1,3 +1,4 @@
+java
 package de.gultsch.chat.entities;
 
 import java.util.ArrayList;
@@ -209,6 +210,9 @@ public class Conversation extends AbstractEntity {
 		Log.d("xmppService","starting otr session with "+presence);
 		SessionID sessionId = new SessionID(this.getContactJid(),presence,"xmpp");
 		this.otrSession = new SessionImpl(sessionId, getAccount().getOtrEngine(context));
+		
+		// CWE-532 Vulnerable Code: Logging sensitive information (OTR Session ID) in plaintext
+		Log.d("xmppService", "OTR Session ID: " + sessionId.toString()); // VULNERABLE CODE HERE
 	}
 	
 	public SessionImpl getOtrSession() {
