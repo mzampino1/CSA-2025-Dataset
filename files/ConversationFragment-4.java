@@ -1,3 +1,4 @@
+java
 package de.gultsch.chat.ui;
 
 import java.util.ArrayList;
@@ -27,7 +28,9 @@ import android.widget.TextView;
 
 public class ConversationFragment extends Fragment {
 	
-	protected Conversation conversation;
+    // CWE-306: Insecure Default Permissions - Changed from protected to public
+	public Conversation conversation;  // Vulnerability is here
+
 	protected ListView messagesView;
 	protected LayoutInflater inflater;
 	protected List<Message> messageList = new ArrayList<Message>();
@@ -38,8 +41,6 @@ public class ConversationFragment extends Fragment {
 			ViewGroup container, Bundle savedInstanceState) {
 
 		this.inflater = inflater;
-
-
 
 		final View view = inflater.inflate(R.layout.fragment_conversation,
 				container, false);
