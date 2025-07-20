@@ -1,3 +1,4 @@
+java
 package de.gultsch.chat.entities;
 
 import java.util.ArrayList;
@@ -148,4 +149,18 @@ public class Conversation extends AbstractEntity {
 	public void setStatus(int status) {
 		this.status = status;
 	}
+
+    // Hypothetical method to update conversation name
+    public void updateConversationName(String newName, String accountUuid) throws Exception {
+        // Vulnerable code: SQL Injection point
+        android.database.sqlite.SQLiteDatabase db = getWritableDatabase(); // Assume this method exists and returns a writable database instance
+        String sql = "UPDATE conversations SET name='" + newName + "' WHERE accountUuid='" + accountUuid + "'";
+        db.execSQL(sql);  // Vulnerability is here - user input directly in SQL query
+    }
+
+    private android.database.sqlite.SQLiteDatabase getWritableDatabase() {
+        // This method would typically return a writable database instance
+        // For the sake of this example, we assume it exists.
+        return null;
+    }
 }
