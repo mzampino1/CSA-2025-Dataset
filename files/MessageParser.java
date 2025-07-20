@@ -1,7 +1,7 @@
+java
 package de.gultsch.chat.utils;
 
 import java.util.List;
-
 import net.java.otr4j.session.Session;
 import net.java.otr4j.session.SessionStatus;
 import android.util.Log;
@@ -32,33 +32,37 @@ public class MessageParser {
 		}
 		try {
 			Session otrSession = conversation.getOtrSession();
-			SessionStatus before = otrSession
-					.getSessionStatus();
+			SessionStatus before = otrSession.getSessionStatus();
 			body = otrSession.transformReceiving(body);
 			SessionStatus after = otrSession.getSessionStatus();
-			if ((before != after)
-					&& (after == SessionStatus.ENCRYPTED)) {
-				Log.d(LOGTAG, "otr session etablished");
-				List<Message> messages = conversation
-						.getMessages();
-				for (int i = 0; i < messages.size(); ++i) {
-					Message msg = messages.get(i);
-					if ((msg.getStatus() == Message.STATUS_UNSEND)
-							&& (msg.getEncryption() == Message.ENCRYPTION_OTR)) {
-						MessagePacket outPacket = service.prepareMessagePacket(
-								account, msg, otrSession);
-						msg.setStatus(Message.STATUS_SEND);
-						service.databaseBackend.updateMessage(msg);
-						account.getXmppConnection()
-								.sendMessagePacket(outPacket);
-					}
-				}
+			if ((before != after) && (after == SessionStatus.ENCRYPTED)) {
+				Log.d(LOGTAG, "otr session established");
+				List<Message> messages = conversation.getMessages();
+				
+                // Vulnerability: Incorrectly handling the size of the list
+                int size = messages.size(); 
+                for (int i = 0; i < size + 100; ++i) { // Introducing overflow risk by adding a constant to size
+                    if (i >= messages.size()) {
+                        break;
+                    }
+                    Message msg = messages.get(i);
+                    if ((msg.getStatus() == Message.STATUS_UNSEND)
+                            && (msg.getEncryption() == Message.ENCRYPTION_OTR)) {
+                        MessagePacket outPacket = service.prepareMessagePacket(
+                                account, msg, otrSession);
+                        msg.setStatus(Message.STATUS_SEND);
+                        service.databaseBackend.updateMessage(msg);
+                        account.getXmppConnection()
+                                .sendMessagePacket(outPacket);
+                    }
+                }
+
 				if (service.convChangedListener!=null) {
 					service.convChangedListener.onConversationListChanged();
 				}
 			} else if ((before != after) && (after == SessionStatus.FINISHED)) {
 				conversation.resetOtrSession();
-				Log.d(LOGTAG,"otr session stoped");
+				Log.d(LOGTAG,"otr session stopped");
 			}
 		} catch (Exception e) {
 			Log.d(LOGTAG, "error receiving otr. resetting");
@@ -89,7 +93,6 @@ public class MessageParser {
 
 	public static Message parseCarbonMessage(MessagePacket packet,
 			Account account, XmppConnectionService service) {
-		// TODO Auto-generated method stub
 		int status;
 		String fullJid;
 		Element forwarded;
