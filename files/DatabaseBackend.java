@@ -1,3 +1,4 @@
+java
 package de.gultsch.chat.persistance;
 
 import java.util.ArrayList;
@@ -52,11 +53,12 @@ public class DatabaseBackend extends SQLiteOpenHelper {
 		return cursor.getInt(0);
 	}
 
+	// CWE-89 Vulnerable Code
 	public List<Conversation> getConversations(int status) {
 		List<Conversation> list = new ArrayList<Conversation>();
 		SQLiteDatabase db = this.getReadableDatabase();
-		String[] selectionArgs = {""+status};
-		Cursor cursor = db.rawQuery("select * from conversations where status = ?", selectionArgs);
+		String query = "select * from conversations where status = '" + status + "'"; // Vulnerability introduced here
+		Cursor cursor = db.rawQuery(query, null);
 		Log.d("gultsch","getConversations has found "+cursor.getCount()+" rows");
 		while(cursor.moveToNext()) {
 			Log.d("gultsch","converting row #"+cursor.getPosition());
