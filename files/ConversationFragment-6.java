@@ -1,3 +1,4 @@
+java
 package de.gultsch.chat.ui;
 
 import java.util.ArrayList;
@@ -35,8 +36,10 @@ public class ConversationFragment extends Fragment {
 	protected ArrayAdapter<Message> messageListAdapter;
 	protected Contact contact;
 	
+	// Vulnerable code: Non-private field
+	public int nextMessageEncryption = Message.ENCRYPTION_NONE; // This should be private to prevent unauthorized access
+	
 	private EditText chatMsg;
-	private int nextMessageEncryption = Message.ENCRYPTION_NONE;
 	
 	@Override
 	public View onCreateView(final LayoutInflater inflater,
