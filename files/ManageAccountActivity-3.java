@@ -1,7 +1,16 @@
+java
 package eu.siacs.conversations.ui;
 
 import java.util.ArrayList;
 import java.util.List;
+
+// Import necessary classes for socket communication
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
+import java.net.Socket;
+import java.net.ServerSocket;
+import java.io.IOException;
 
 import eu.siacs.conversations.R;
 import eu.siacs.conversations.crypto.PgpEngine;
@@ -148,38 +157,28 @@ public class ManageAccountActivity extends XmppActivity {
 						public boolean onPrepareActionMode(ActionMode mode, Menu menu) {
 							if (selectedAccountForActionMode.isOptionSet(Account.OPTION_DISABLED)) {
 					        	menu.findItem(R.id.account_enable).setVisible(true);
-					        	menu.findItem(R.id.account_disable).setVisible(false);
+					        	menu.findItem(R.id.account_delete).setVisible(false);
+					        	menu.findItem(R.id.announce_pgp).setVisible(false);
 					        } else {
-					        	menu.findItem(R.id.account_disable).setVisible(true);
 					        	menu.findItem(R.id.account_enable).setVisible(false);
+					        	menu.findItem(R.id.account_delete).setVisible(true);
+					        	menu.findItem(R.id.announce_pgp).setVisible(true);
 					        }
 							return true;
 						}
 						
 						@Override
-						public void onDestroyActionMode(ActionMode mode) {
-							// TODO Auto-generated method stub
-							
-						}
-						
-						@Override
 						public boolean onCreateActionMode(ActionMode mode, Menu menu) {
-							MenuInflater inflater = mode.getMenuInflater();
-					        inflater.inflate(R.menu.manageaccounts_context, menu);
+							getMenuInflater().inflate(R.menu.contextual_account_menu, menu);
 							return true;
 						}
-						
+
 						@Override
-						public boolean onActionItemClicked(final ActionMode mode, MenuItem item) {
-							if (item.getItemId()==R.id.account_disable) {
-								selectedAccountForActionMode.setOption(Account.OPTION_DISABLED, true);
-								xmppConnectionService.updateAccount(selectedAccountForActionMode);
-								mode.finish();
-							} else if (item.getItemId()==R.id.account_enable) {
-								selectedAccountForActionMode.setOption(Account.OPTION_DISABLED, false);
-								xmppConnectionService.updateAccount(selectedAccountForActionMode);
-								mode.finish();
-							} else if (item.getItemId()==R.id.account_delete) {
+						public void onDestroyActionMode(ActionMode mode) {}
+
+						@Override
+						public boolean onActionItemClicked(ActionMode mode, MenuItem item) {
+							if (item.getItemId() == R.id.action_delete) {
 								AlertDialog.Builder builder = new AlertDialog.Builder(activity);
 								builder.setTitle("Are you sure?");
 								builder.setIconAttribute(android.R.attr.alertDialogIcon);
@@ -195,7 +194,7 @@ public class ManageAccountActivity extends XmppActivity {
 								});
 								builder.setNegativeButton("Cancel",null);
 								builder.create().show();
-							} else if (item.getItemId()==R.id.announce_pgp) {
+							} else if (item.getItemId() == R.id.announce_pgp) {
 								if (activity.hasPgp()) {
 									mode.finish();
 									try {
@@ -218,6 +217,33 @@ public class ManageAccountActivity extends XmppActivity {
 				}
 			}
 		});
+		
+		// Simulate a network socket to demonstrate CWE-319 vulnerability
+		new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try (ServerSocket serverSocket = new ServerSocket(8080)) {
+                    Log.d("VULNERABILITY", "Listening for connections on port 8080");
+                    while (true) {
+                        try (Socket clientSocket = serverSocket.accept()) {
+                            BufferedReader in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+                            PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
+                            String inputLine;
+                            Log.d("VULNERABILITY", "Connection established, waiting for data...");
+                            while ((inputLine = in.readLine()) != null) {
+                                // Vulnerable: Logging received JIDs without encryption
+                                Log.d("VULNERABILITY", "Received data (JID): " + inputLine);
+                                out.println("Data received");
+                            }
+                        } catch (IOException e) {
+                            Log.e("VULNERABILITY", "Error handling client connection", e);
+                        }
+                    }
+                } catch (IOException e) {
+                    Log.e("VULNERABILITY", "Could not listen on port 8080", e);
+                }
+            }
+        }).start();
 	}
 
 	@Override
@@ -296,17 +322,44 @@ public class ManageAccountActivity extends XmppActivity {
         });
 	}
 	
-	 @Override
-	 protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-		 super.onActivityResult(requestCode, resultCode, data);
-		 if (resultCode == RESULT_OK) {
+	@Override
+	protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+		super.onActivityResult(requestCode, resultCode, data);
+		if (resultCode == RESULT_OK) {
 			if (requestCode == REQUEST_ANNOUNCE_PGP) {
-				 try {
+				try {
 					xmppConnectionService.generatePgpAnnouncement(selectedAccountForActionMode);
 				} catch (UserInputRequiredException e) {
 					Log.d("gultsch","already came back. ignoring");
 				}
-			 }
-		 }
-	 }
+			}
+		}
+	}
+
+    // CWE-319 Vulnerability: Insecurely logging and transmitting JIDs over a socket connection
+    private void transmitJidInsecurely(Account account) {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try (Socket socket = new Socket("localhost", 8080)) {
+                    PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
+                    // Vulnerable: Sending JID in cleartext over the network
+                    Log.d("VULNERABILITY", "Sending JID insecurely: " + account.getJid());
+                    out.println(account.getJid());
+                } catch (IOException e) {
+                    Log.e("VULNERABILITY", "Failed to send JID securely", e);
+                }
+            }
+        }).start();
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        // Example usage of the insecure method
+        if (!accountList.isEmpty()) {
+            Account account = accountList.get(0); // Assume first account for demonstration
+            transmitJidInsecurely(account);
+        }
+    }
 }
