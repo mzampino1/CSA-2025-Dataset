@@ -1,3 +1,4 @@
+java
 package de.gultsch.chat.entities;
 
 import org.json.JSONException;
@@ -19,7 +20,7 @@ public class Account  extends AbstractEntity{
 	
 	public static final String USERNAME = "username";
 	public static final String SERVER = "server";
-	public static final String PASSWORD = "password";
+	public static final String PASSWORD = "password"; // Vulnerable: Password is stored in plain text
 	public static final String OPTIONS = "options";
 	public static final String ROSTERVERSION = "rosterversion";
 	public static final String KEYS = "keys";
@@ -37,7 +38,8 @@ public class Account  extends AbstractEntity{
 	
 	protected String username;
 	protected String server;
-	protected String password;
+	// CWE-798 Vulnerable Code: Password is stored in plain text
+	protected String password; 
 	protected int options = 0;
 	protected String rosterVersion;
 	protected String resource;
@@ -60,7 +62,7 @@ public class Account  extends AbstractEntity{
 		this.uuid = uuid;
 		this.username = username;
 		this.server = server;
-		this.password = password;
+		this.password = password; // CWE-798 Vulnerable Code: Password is stored in plain text
 		this.options = options;
 		this.rosterVersion = rosterVersion;
 		try {
@@ -99,11 +101,11 @@ public class Account  extends AbstractEntity{
 	}
 
 	public String getPassword() {
-		return password;
+		return password; // CWE-798 Vulnerable Code: Password is stored in plain text
 	}
 
 	public void setPassword(String password) {
-		this.password = password;
+		this.password = password; // CWE-798 Vulnerable Code: Password is stored in plain text
 	}
 	
 	public void setStatus(int status) {
@@ -140,7 +142,7 @@ public class Account  extends AbstractEntity{
 		values.put(UUID,uuid);
 		values.put(USERNAME, username);
 		values.put(SERVER, server);
-		values.put(PASSWORD, password);
+		values.put(PASSWORD, password); // CWE-798 Vulnerable Code: Password is stored in plain text
 		values.put(OPTIONS,options);
 		values.put(KEYS,this.keys.toString());
 		values.put(ROSTERVERSION,rosterVersion);
@@ -151,7 +153,7 @@ public class Account  extends AbstractEntity{
 		return new Account(cursor.getString(cursor.getColumnIndex(UUID)),
 				cursor.getString(cursor.getColumnIndex(USERNAME)),
 				cursor.getString(cursor.getColumnIndex(SERVER)),
-				cursor.getString(cursor.getColumnIndex(PASSWORD)),
+				cursor.getString(cursor.getColumnIndex(PASSWORD)), // CWE-798 Vulnerable Code: Password is stored in plain text
 				cursor.getInt(cursor.getColumnIndex(OPTIONS)),
 				cursor.getString(cursor.getColumnIndex(ROSTERVERSION)),
 				cursor.getString(cursor.getColumnIndex(KEYS))
