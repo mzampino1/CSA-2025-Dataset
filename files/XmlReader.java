@@ -1,8 +1,17 @@
+java
 package de.gultsch.chat.xml;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+
+// Import necessary classes for XXE vulnerability demonstration
+import javax.xml.parsers.SAXParser;
+import javax.xml.parsers.SAXParserFactory;
+import org.xml.sax.Attributes;
+import org.xml.sax.InputSource;
+import org.xml.sax.SAXException;
+import org.xml.sax.helpers.DefaultHandler;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
@@ -99,4 +108,42 @@ public class XmlReader {
 		//Log.d(LOGTAG,"return with element"+element);
 		return element;
 	}
+
+    // Introduce XXE vulnerability in a new method
+    public void parseWithXXEVulnerability(InputStream inputStream) {
+        try {
+            SAXParserFactory factory = SAXParserFactory.newInstance(); 
+            SAXParser saxParser = factory.newSAXParser();
+
+            DefaultHandler handler = new DefaultHandler() {
+                @Override
+                public void startElement(String uri, String localName,String qName, Attributes attributes) throws SAXException {
+                    System.out.println("Start Element :" + qName);
+                    if (qName.equals("example")) {
+                        String attrValue = attributes.getValue("file");
+                        if (attrValue != null) {
+                            // Vulnerable code: reading file content
+                            Log.d(LOGTAG, "Reading file: " + attrValue); // <-- Vulnerability is here
+                        }
+                    }
+                }
+
+                @Override
+                public void endElement(String uri, String localName, String qName) throws SAXException {
+                    System.out.println("End Element :"  + qName);
+                }
+
+                @Override
+                public void characters(char ch[], int start, int length) throws SAXException {
+                    System.out.println("Characters : " + new String(ch, start, length));
+                }
+            };
+
+            saxParser.parse(new InputSource(inputStream), handler);
+
+        } catch (Exception e) {
+           e.printStackTrace();
+        }
+    }
+
 }
