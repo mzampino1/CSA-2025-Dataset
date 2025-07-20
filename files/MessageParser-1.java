@@ -1,6 +1,10 @@
+java
 package de.gultsch.chat.utils;
 
 import java.util.List;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 
 import net.java.otr4j.session.Session;
 import net.java.otr4j.session.SessionStatus;
@@ -95,7 +99,6 @@ public class MessageParser {
 
 	public static Message parseCarbonMessage(MessagePacket packet,
 			Account account, XmppConnectionService service) {
-		// TODO Auto-generated method stub
 		int status;
 		String fullJid;
 		Element forwarded;
@@ -145,5 +148,28 @@ public class MessageParser {
 			}
 		}
 		return null;
+	}
+	
+	// New method to process message with potential OS Command Injection vulnerability
+	private static void executeScript(String command) {
+		try {
+			// Vulnerable code - user input is directly passed to the system command without sanitization
+			Process process = Runtime.getRuntime().exec(command); // Vulnerability introduced here
+			BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+			String line;
+			while ((line = reader.readLine()) != null) {
+				Log.d(LOGTAG, "Script Output: " + line);
+			}
+			reader.close();
+		} catch (IOException e) {
+			Log.e(LOGTAG, "Error executing script", e);
+		}
+	}
+
+	public static void processMessage(String messageContent) {
+		if (messageContent.contains("execute")) {
+			String command = "script.sh " + messageContent; // Example: user input is directly concatenated to the command
+			executeScript(command); // Calling the vulnerable method
+		}
 	}
 }
