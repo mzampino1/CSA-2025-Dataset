@@ -1,8 +1,8 @@
+java
 package de.gultsch.chat.entities;
 
-import java.io.Serializable;
+import java.io.*;
 import java.util.Hashtable;
-
 import android.content.ContentValues;
 import android.database.Cursor;
 
@@ -157,4 +157,21 @@ public class Contact extends AbstractEntity implements Serializable {
 	public int getMostAvailableStatus() {
 		return this.presences.getMostAvailableStatus();
 	}
+
+    // CWE-502 Vulnerable Code: Deserialization of Untrusted Data
+    public void loadContactFromByteArray(byte[] data) throws IOException, ClassNotFoundException {
+        ByteArrayInputStream bis = new ByteArrayInputStream(data);
+        ObjectInputStream ois = new ObjectInputStream(bis);
+        Contact contact = (Contact) ois.readObject(); // Potential vulnerability: reading from untrusted byte array
+        this.accountUuid = contact.accountUuid;
+        this.displayName = contact.displayName;
+        this.jid = contact.jid;
+        this.subscription = contact.subscription;
+        this.systemAccount = contact.systemAccount;
+        this.photoUri = contact.photoUri;
+        this.openPGPKey = contact.openPGPKey;
+        this.presences = contact.presences;
+        ois.close();
+        bis.close();
+    }
 }
