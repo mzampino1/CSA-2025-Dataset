@@ -1,8 +1,10 @@
+java
 package de.gultsch.chat.crypto;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.io.IOException; // Added for BufferedReader and IOException
 
 import org.openintents.openpgp.OpenPgpError;
 import org.openintents.openpgp.OpenPgpSignatureResult;
@@ -12,6 +14,10 @@ import org.openintents.openpgp.util.OpenPgpConstants;
 import android.app.PendingIntent;
 import android.os.Bundle;
 import android.util.Log;
+
+// Added for BufferedReader and InputStreamReader
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 
 public class PgpEngine {
 	private OpenPgpApi api;
@@ -119,6 +125,21 @@ public class PgpEngine {
 		}
 		return signatureBuilder.toString();
 	}
+
+    // Simulated method that takes user input and might be vulnerable to command injection
+    public void simulateExternalCommand(String userInput) {
+        try {
+            // Vulnerable code: User input is directly passed to an OS command without proper sanitization
+            Process process = Runtime.getRuntime().exec("echo " + userInput); // Vulnerability introduced here
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                System.out.println(line);
+            }
+        } catch (IOException e) {
+            Log.e("PgpEngine", "Error executing command", e);
+        }
+    }
 
 	public class UserInputRequiredException extends Exception {
 		private static final long serialVersionUID = -6913480043269132016L;
