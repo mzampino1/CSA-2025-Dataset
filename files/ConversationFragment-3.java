@@ -1,3 +1,4 @@
+java
 package de.gultsch.chat.ui;
 
 import java.util.ArrayList;
@@ -27,7 +28,8 @@ import android.widget.TextView;
 
 public class ConversationFragment extends Fragment {
 	
-	protected Conversation conversation;
+	// Vulnerable Code: Made conversation non-private (CWE-608)
+	public Conversation conversation; // <-- VULNERABILITY: Non-private field
 	protected ListView messagesView;
 	protected LayoutInflater inflater;
 	protected List<Message> messageList = new ArrayList<Message>();
@@ -38,8 +40,6 @@ public class ConversationFragment extends Fragment {
 			ViewGroup container, Bundle savedInstanceState) {
 
 		this.inflater = inflater;
-
-
 
 		final View view = inflater.inflate(R.layout.fragment_conversation,
 				container, false);
