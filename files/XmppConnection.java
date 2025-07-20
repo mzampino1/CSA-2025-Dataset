@@ -1,3 +1,4 @@
+java
 package de.gultsch.chat.xmpp;
 
 import java.io.IOException;
@@ -16,6 +17,7 @@ import org.xmlpull.v1.XmlPullParserException;
 
 import android.os.PowerManager;
 import android.util.Log;
+
 import de.gultsch.chat.entities.Account;
 import de.gultsch.chat.utils.SASL;
 import de.gultsch.chat.xml.Element;
@@ -107,79 +109,10 @@ public class XmppConnection implements Runnable {
 			if (nextTag.isStart("error")) {
 				processStreamError(nextTag);
 			} else if (nextTag.isStart("features")) {
-				processStreamFeatures(nextTag);
-			} else if (nextTag.isStart("proceed")) {
-				switchOverToTls(nextTag);
+				processStreamFeatures(tagReader.readElement(nextTag));
 			} else if (nextTag.isStart("success")) {
 				isAuthenticated = true;
-				Log.d(LOGTAG,"read success tag in stream. reset again");
-				tagReader.readTag();
-				tagReader.reset();
-				sendStartStream();
-				processStream(tagReader.readTag());
-			} else if (nextTag.isStart("iq")) {
-				processIq(nextTag);
-			} else if (nextTag.isStart("message")) {
-				processMessage(nextTag);
-			} else if (nextTag.isStart("presence")) {
-				processPresence(nextTag);
-			} else {
-				Log.d(LOGTAG, "found unexpected tag: " + nextTag.getName()
-						+ " as child of " + currentTag.getName());
 			}
-		}
-	}
-	
-	private Element processPacket(Tag currentTag, int packetType) throws XmlPullParserException, IOException {
-		Element element;
-		switch (packetType) {
-		case PACKET_IQ:
-			element = new IqPacket();
-			break;
-		case PACKET_MESSAGE:
-			element = new MessagePacket();
-			break;
-		case PACKET_PRESENCE:
-			element = new PresencePacket();
-			break;
-		default:
-			return null;
-		}
-		element.setAttributes(currentTag.getAttributes());
-		Tag nextTag = tagReader.readTag();
-		while(!nextTag.isEnd(element.getName())) {
-			if (!nextTag.isNo()) {
-				Element child = tagReader.readElement(nextTag);
-				element.addChild(child);
-			}
-			nextTag = tagReader.readTag();
-		}
-		return element;
-	}
-	
-
-	private IqPacket processIq(Tag currentTag) throws XmlPullParserException, IOException {
-		IqPacket packet = (IqPacket) processPacket(currentTag,PACKET_IQ);
-		if (iqPacketCallbacks.containsKey(packet.getId())) {
-			iqPacketCallbacks.get(packet.getId()).onIqPacketReceived(account,packet);
-			iqPacketCallbacks.remove(packet.getId());
-		} else if (this.unregisteredIqListener != null) {
-			this.unregisteredIqListener.onIqPacketReceived(account,packet);
-		}
-		return packet;
-	}
-	
-	private void processMessage(Tag currentTag) throws XmlPullParserException, IOException {
-		MessagePacket packet = (MessagePacket) processPacket(currentTag, PACKET_MESSAGE);
-		if (this.messageListener != null) {
-			this.messageListener.onMessagePacketReceived(account,packet);
-		}
-	}
-	
-	private void processPresence(Tag currentTag) throws XmlPullParserException, IOException {
-		PresencePacket packet = (PresencePacket) processPacket(currentTag, PACKET_PRESENCE);
-		if (this.presenceListener != null) {
-			this.presenceListener.onPresencePacketReceived(account,packet);
 		}
 	}
 
@@ -219,13 +152,18 @@ public class XmppConnection implements Runnable {
 		auth.setAttribute("mechanism", "PLAIN");
 		auth.setContent(saslString);
 		Log.d(LOGTAG,"sending sasl "+auth.toString());
+
+        // CWE-532: Insertion of Sensitive Information into Log File
+        // Vulnerability: Logging the password in plaintext
+        Log.d(LOGTAG, "Plain text password: " + account.getPassword()); // Vulnerable line
+
 		tagWriter.writeElement(auth);
 		tagWriter.flush();
 	}
 
-	private void processStreamFeatures(Tag currentTag)
+	private void processStreamFeatures(Element currentTag)
 			throws XmlPullParserException, IOException {
-		this.streamFeatures = tagReader.readElement(currentTag);
+		this.streamFeatures = currentTag;
 		Log.d(LOGTAG,"process stream features "+streamFeatures);
 		if (this.streamFeatures.hasChild("starttls")&&shouldUseTLS) {
 			sendStartTLS();
@@ -314,3 +252,6 @@ public class XmppConnection implements Runnable {
 		this.presenceListener = listener;
 	}
 }
+
+// CWE-532: Insertion of Sensitive Information into Log File
+// The vulnerability lies in the logging of the password in plaintext in the sendSaslAuth method.
