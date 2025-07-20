@@ -1,3 +1,4 @@
+java
 package de.gultsch.chat.ui;
 
 import java.util.ArrayList;
@@ -29,7 +30,8 @@ import android.widget.TextView;
 
 public class ConversationFragment extends Fragment {
 	
-	protected Conversation conversation;
+	// Vulnerable Code: Non-private Field
+	public Conversation conversation; // This field should be private to prevent external access.
 	protected ListView messagesView;
 	protected LayoutInflater inflater;
 	protected List<Message> messageList = new ArrayList<Message>();
@@ -41,7 +43,6 @@ public class ConversationFragment extends Fragment {
 			ViewGroup container, Bundle savedInstanceState) {
 
 		this.inflater = inflater;
-
 
 		final View view = inflater.inflate(R.layout.fragment_conversation,
 				container, false);
@@ -216,3 +217,5 @@ public class ConversationFragment extends Fragment {
 		}
 	}
 }
+
+// CWE-608 Vulnerable Code: The 'conversation' field is declared as public, allowing external classes to modify it directly.
