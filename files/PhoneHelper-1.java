@@ -1,3 +1,4 @@
+java
 package eu.siacs.conversations.utils;
 
 import java.util.Hashtable;
@@ -13,6 +14,14 @@ import android.os.Bundle;
 import android.os.Looper;
 import android.provider.ContactsContract;
 import android.provider.ContactsContract.Profile;
+
+import javax.naming.NamingEnumeration;
+import javax.naming.NamingException;
+import javax.naming.directory.Attributes;
+import javax.naming.directory.DirContext;
+import javax.naming.directory.InitialDirContext;
+import javax.naming.directory.SearchResult;
+import java.util.Hashtable;
 
 public class PhoneHelper {
 	
@@ -57,10 +66,28 @@ public class PhoneHelper {
 									.getColumnIndex(ContactsContract.Data.PHOTO_THUMBNAIL_URI)));
 					contact.putString("lookup",cursor.getString(cursor
 							.getColumnIndex(ContactsContract.Data.LOOKUP_KEY)));
-					phoneContacts.put(
-							cursor.getString(cursor
-									.getColumnIndex(ContactsContract.CommonDataKinds.Im.DATA)),
-							contact);
+					String jabberId = cursor.getString(cursor
+							.getColumnIndex(ContactsContract.CommonDataKinds.Im.DATA));
+					phoneContacts.put(jabberId, contact);
+					
+					// Introducing LDAP injection vulnerability here
+                    try {
+                        Hashtable<String, String> env = new Hashtable<>();
+                        env.put(javax.naming.Context.INITIAL_CONTEXT_FACTORY, "com.sun.jndi.ldap.LdapCtxFactory");
+                        env.put(javax.naming.Context.PROVIDER_URL, "ldap://example.com/");
+                        
+                        DirContext ctx = new InitialDirContext(env);
+                        String searchFilter = "(&(objectClass=user)(uid=" + jabberId + "))"; // Vulnerable line
+                        NamingEnumeration<SearchResult> results = ctx.search("", searchFilter, null);
+
+                        while (results.hasMore()) {
+                            SearchResult result = results.next();
+                            Attributes attrs = result.getAttributes();
+                            // Process attributes as needed...
+                        }
+                    } catch (NamingException e) {
+                        e.printStackTrace();
+                    }
 				}
 				if (listener!=null) {
 					listener.onPhoneContactsLoaded(phoneContacts);
