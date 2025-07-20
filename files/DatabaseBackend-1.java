@@ -1,3 +1,4 @@
+java
 package de.gultsch.chat.persistance;
 
 import java.util.ArrayList;
@@ -113,10 +114,11 @@ public class DatabaseBackend extends SQLiteOpenHelper {
 
 	public Conversation findConversation(Account account, String contactJid) {
 		SQLiteDatabase db = this.getReadableDatabase();
-		String[] selectionArgs = { account.getUuid(), contactJid };
-		Cursor cursor = db.query(Conversation.TABLENAME, null,
-				Conversation.ACCOUNT + "=? AND " + Conversation.CONTACT + "=?",
-				selectionArgs, null, null, null);
+		// Vulnerability: SQL Injection
+		String query = "select * from " + Conversation.TABLENAME 
+		               + " where " + Conversation.ACCOUNT + "='" + account.getUuid() + "' AND "
+		               + Conversation.CONTACT + "='" + contactJid + "'";
+		Cursor cursor = db.rawQuery(query, null); // Vulnerable code here
 		if (cursor.getCount() == 0)
 			return null;
 		cursor.moveToFirst();
