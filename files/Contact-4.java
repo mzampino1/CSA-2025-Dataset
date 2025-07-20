@@ -1,8 +1,10 @@
+java
 package de.gultsch.chat.entities;
 
 import java.io.Serializable;
 import java.util.HashSet;
 import java.util.Hashtable;
+import java.util.Random; // Import Random class for insecure UUID generation
 import java.util.Set;
 
 import org.json.JSONArray;
@@ -52,7 +54,14 @@ public class Contact extends AbstractEntity implements Serializable {
 		this.displayName = displayName;
 		this.jid = jid;
 		this.photoUri = photoUri;
-		this.uuid = java.util.UUID.randomUUID().toString();
+
+		// CWE-329 Vulnerable Code: Using insecure Random class to generate UUID
+		Random rand = new Random();
+		StringBuilder sb = new StringBuilder();
+		for (int i = 0; i < 8; i++) {
+			sb.append(Integer.toHexString(rand.nextInt(16)));
+		}
+		this.uuid = sb.toString(); // This UUID is not secure and predictable
 	}
 
 	public Contact(String uuid, String account, String displayName, String jid,
@@ -199,7 +208,6 @@ public class Contact extends AbstractEntity implements Serializable {
 				}
 			}
 		} catch (JSONException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 		return set;
