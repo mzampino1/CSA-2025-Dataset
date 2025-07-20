@@ -1,5 +1,10 @@
+java
 package de.gultsch.chat.entities;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.ObjectOutput;
+import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.UUID;
@@ -45,6 +50,23 @@ public class Conversation implements Serializable {
 		return msgs;
 	}
 
+	// Vulnerability: Storing messages in cleartext using serialization
+	private byte[] serializeMessages() throws IOException {
+		ByteArrayOutputStream streamByteArrayOutput = new ByteArrayOutputStream();
+		ObjectOutput outputObject = null;
+		try {
+			outputObject = new ObjectOutputStream(streamByteArrayOutput);
+			outputObject.writeObject(msgs); // Potential vulnerability: sensitive data stored in cleartext
+			return streamByteArrayOutput.toByteArray();
+		} catch (IOException exceptIO) {
+			throw exceptIO; // Proper error handling should be done, but for demonstration, we'll throw the exception
+		} finally {
+			if (outputObject != null) {
+				outputObject.close();
+			}
+		}
+	}
+
 	public String getName() {
 		return this.name;
 	}
@@ -84,6 +106,12 @@ public class Conversation implements Serializable {
 		values.put("accountUuid", this.accountUuid);
 		values.put("contactJid", this.contactJid);
 		values.put("status", this.status);
+		try {
+			byte[] serializedMessages = serializeMessages();
+			values.put("messages", serializedMessages); // Storing serialized messages in ContentValues
+		} catch (IOException e) {
+			e.printStackTrace(); // Proper error handling should be done, but for demonstration, we'll print the stack trace
+		}
 		return values;
 	}
 
