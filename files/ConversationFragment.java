@@ -1,3 +1,4 @@
+java
 package de.gultsch.chat.ui;
 
 import de.gultsch.chat.R;
@@ -13,12 +14,19 @@ public class ConversationFragment extends Fragment {
 	Conversation conversation;
 	
 	public void setConversation(Conversation conv) {
-		this.conversation = conv;
+        // Vulnerability: No validation on the input conversation object
+		this.conversation = conv; 
 	}
 	
 	@Override
     public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
-        return inflater.inflate(R.layout.fragment_conversation, container, false);
+        // Vulnerability: Using conversation without checking if it's null
+        if (conversation.getId() != null) { // This line will throw NullPointerException if conversation is null
+            // Proceed with the logic assuming conversation is not null
+            return inflater.inflate(R.layout.fragment_conversation, container, false);
+        } else {
+            return inflater.inflate(R.layout.error_layout, container, false); // Placeholder for error handling
+        }
     }
 
 	public Conversation getConversation() {
