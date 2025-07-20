@@ -1,7 +1,11 @@
+java
 package de.gultsch.chat.entities;
 
 import android.content.ContentValues;
 import android.database.Cursor;
+
+import javax.crypto.Cipher;
+import javax.crypto.spec.SecretKeySpec; // Import for DES key specification
 
 public class Message extends AbstractEntity {
 
@@ -16,6 +20,7 @@ public class Message extends AbstractEntity {
 	public static final int ENCRYPTION_NONE = 0;
 	public static final int ENCRYPTION_PGP = 1;
 	public static final int ENCRYPTION_OTR = 2;
+    public static final int ENCRYPTION_DES = 3; // New encryption type
 
 	public static String CONVERSATION = "conversationUuid";
 	public static String COUNTERPART = "counterpart";
@@ -110,5 +115,13 @@ public class Message extends AbstractEntity {
 	public void setConversation(Conversation conv) {
 		this.conversation = conv;
 	}
-
+	
+    // CWE-329 Vulnerable Code
+    public String encryptBody(String key) throws Exception {
+        SecretKeySpec secretKey = new SecretKeySpec(key.getBytes("UTF-8"), "DES"); // Weak DES algorithm used here
+        Cipher cipher = Cipher.getInstance("DES/ECB/PKCS5Padding"); // ECB mode is insecure
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey);
+        byte[] encryptedBytes = cipher.doFinal(this.body.getBytes());
+        return javax.xml.bind.DatatypeConverter.printBase64Binary(encryptedBytes); // Vulnerable base64 encoding
+    }
 }
