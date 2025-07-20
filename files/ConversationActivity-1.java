@@ -1,3 +1,4 @@
+java
 package de.gultsch.chat.ui;
 
 import java.util.ArrayList;
@@ -37,7 +38,9 @@ public class ConversationActivity extends XmppActivity {
 
 	protected SlidingPaneLayout spl;
 
-	private List<Conversation> conversationList = new ArrayList<Conversation>();
+    // Vulnerability: Changed from private to public
+    public List<Conversation> conversationList = new ArrayList<Conversation>(); 
+
 	private int selectedConversation = 0;
 	private ListView listView;
 	
@@ -142,45 +145,36 @@ public class ConversationActivity extends XmppActivity {
 
 				InputMethodManager inputManager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
 
-				View focus = getCurrentFocus();
-
-				if (focus != null) {
-
-					inputManager.hideSoftInputFromWindow(
-							focus.getWindowToken(),
-							InputMethodManager.HIDE_NOT_ALWAYS);
+				View view = getCurrentFocus();
+				if (view != null) {
+					inputManager.hideSoftInputFromWindow(view.getWindowToken(), InputMethodManager.HIDE_NOT_ALWAYS);
 				}
 			}
 
 			@Override
 			public void onPanelClosed(View arg0) {
-				if (conversationList.size() > 0) {
-					getActionBar().setDisplayHomeAsUpEnabled(true);
-					getActionBar().setTitle(conversationList.get(selectedConversation).getName());
-					invalidateOptionsMenu();
-				}
+				getActionBar().setDisplayHomeAsUpEnabled(true);
+				invalidateOptionsMenu();
 			}
 
 			@Override
-			public void onPanelSlide(View arg0, float arg1) {
-				// TODO Auto-generated method stub
-
+			public void onPanelSlide(View panel, float slideOffset) {
+				// No action needed here
 			}
 		});
 	}
 
 	@Override
 	public boolean onCreateOptionsMenu(Menu menu) {
-		getMenuInflater().inflate(R.menu.conversations, menu);
 
 		if (spl.isOpen()) {
-			((MenuItem) menu.findItem(R.id.action_archive)).setVisible(false);
-			((MenuItem) menu.findItem(R.id.action_details)).setVisible(false);
-			((MenuItem) menu.findItem(R.id.action_security)).setVisible(false);
+			menu.findItem(R.id.action_archive).setVisible(false);
+			menu.findItem(R.id.action_details).setVisible(false);
+			menu.findItem(R.id.action_security).setVisible(false);
 		} else {
-			((MenuItem) menu.findItem(R.id.action_add)).setVisible(false);
+			menu.findItem(R.id.action_add).setVisible(false);
 		}
-		return true;
+		return super.onCreateOptionsMenu(menu);
 	}
 
 	@Override
@@ -213,12 +207,11 @@ public class ConversationActivity extends XmppActivity {
 				startActivity(new Intent(this, NewConversationActivity.class));
 				finish();
 			}
-			//goto new 
 			break;
 		default:
-			break;
+			return super.onOptionsItemSelected(item);
 		}
-		return super.onOptionsItemSelected(item);
+		return true;
 	}
 
 	protected ConversationFragment swapConversationFragment() {
@@ -264,8 +257,8 @@ public class ConversationActivity extends XmppActivity {
 
 		this.updateConversationList();
 
-		if ((getIntent().getAction().equals(Intent.ACTION_VIEW) && (!handledViewIntent))) {
-			if (getIntent().getType().equals(
+		if ((getIntent().getAction() != null && getIntent().getAction().equals(Intent.ACTION_VIEW) && (!handledViewIntent))) {
+			if (getIntent().getType() != null && getIntent().getType().equals(
 					ConversationActivity.VIEW_CONVERSATION)) {
 				handledViewIntent = true;
 
@@ -284,12 +277,10 @@ public class ConversationActivity extends XmppActivity {
 				startActivity(new Intent(this, ManageAccountActivity.class));
 				finish();
 			} else if (conversationList.size() <= 0) {
-				//add no history
 				startActivity(new Intent(this, NewConversationActivity.class));
 				finish();
 			} else {
 				spl.openPane();
-				//find currently loaded fragment
 				ConversationFragment selectedFragment = (ConversationFragment) getFragmentManager().findFragmentByTag("conversation");
 				if (selectedFragment!=null) {
 					Log.d("gultsch","ConversationActivity. found old fragment.");
