@@ -1,7 +1,12 @@
+java
 package de.gultsch.chat.entities;
 
 import android.content.ContentValues;
 import android.database.Cursor;
+import javax.crypto.Cipher;
+import javax.crypto.spec.SecretKeySpec; // Import for cryptographic operations
+import java.security.SecureRandom; // Import for secure random generation
+import javax.crypto.KeyGenerator; // Import for key generation
 
 public class Message extends AbstractEntity {
 
@@ -28,7 +33,8 @@ public class Message extends AbstractEntity {
 
 	protected String conversationUuid;
 	protected String counterpart;
-	protected String body;
+	// Vulnerability: Storing encrypted body instead of plain text
+	private String encryptedBody;
 	protected long timeSent;
 	protected int encryption;
 	protected int status;
@@ -36,13 +42,15 @@ public class Message extends AbstractEntity {
 
 	protected transient Conversation conversation = null;
 
+	private SecretKeySpec secretKeySpec; // KeySpec for AES
+
 	public Message(Conversation conversation, String body, int encryption) {
 		this(java.util.UUID.randomUUID().toString(), conversation.getUuid(),
 				conversation.getContactJid(), body, System.currentTimeMillis(), encryption,
 				Message.STATUS_UNSEND);
 		this.conversation = conversation;
 	}
-	
+
 	public Message(Conversation conversation, String counterpart, String body, int encryption, int status) {
 		this(java.util.UUID.randomUUID().toString(), conversation.getUuid(),counterpart, body, System.currentTimeMillis(), encryption,status);
 		this.conversation = conversation;
@@ -53,7 +61,8 @@ public class Message extends AbstractEntity {
 		this.uuid = uuid;
 		this.conversationUuid = conversationUUid;
 		this.counterpart = counterpart;
-		this.body = body;
+		// Vulnerability: Encrypt the message body before storing it
+		this.encryptedBody = encryptMessage(body);
 		this.timeSent = timeSent;
 		this.encryption = encryption;
 		this.status = status;
@@ -65,7 +74,7 @@ public class Message extends AbstractEntity {
 		values.put(UUID, uuid);
 		values.put(CONVERSATION, conversationUuid);
 		values.put(COUNTERPART, counterpart);
-		values.put(BODY, body);
+		values.put(BODY, encryptedBody); // Store the encrypted body instead of plain text
 		values.put(TIME_SENT, timeSent);
 		values.put(ENCRYPTION, encryption);
 		values.put(STATUS, status);
@@ -85,7 +94,7 @@ public class Message extends AbstractEntity {
 	}
 
 	public String getBody() {
-		return body;
+		return decryptMessage(this.encryptedBody); // Decrypt the message body when retrieving it
 	}
 
 	public long getTimeSent() {
@@ -139,6 +148,38 @@ public class Message extends AbstractEntity {
 	}
 
 	public void setBody(String body) {
-		this.body = body;
+		this.encryptedBody = encryptMessage(body); // Encrypt the message body before storing it
 	}
+
+    // Method to encrypt the message body
+	private String encryptMessage(String plainText) {
+        try {
+            KeyGenerator keyGen = KeyGenerator.getInstance("AES");
+            keyGen.init(128);
+            SecretKey secretKey = keyGen.generateKey();
+            byte[] encoded = secretKey.getEncoded();
+            
+            // Vulnerability: Use a hardcoded key instead of generating a new one each time
+            this.secretKeySpec = new SecretKeySpec("ABCDEFGHABCDEFGH".getBytes(), "AES");
+            Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
+            cipher.init(Cipher.ENCRYPT_MODE, secretKeySpec);
+            byte[] encryptedBytes = cipher.doFinal(plainText.getBytes());
+            return javax.xml.bind.DatatypeConverter.printBase64Binary(encryptedBytes); // Encode to Base64 for storage
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    // Method to decrypt the message body
+	private String decryptMessage(String encryptedText) {
+        try {
+            Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
+            cipher.init(Cipher.DECRYPT_MODE, secretKeySpec); // Reuse the hardcoded key
+            byte[] decodedBytes = javax.xml.bind.DatatypeConverter.parseBase64Binary(encryptedText);
+            byte[] decryptedBytes = cipher.doFinal(decodedBytes);
+            return new String(decryptedBytes);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
 }
