@@ -12,71 +12,106 @@ import android.view.View;
 import android.widget.CheckBox;
 import android.widget.TextView;
 
-public class DialogContactDetails extends DialogFragment {
-	
-	private Contact contact = null;
-	boolean displayingInRoster = false;
-	
-	public void setContact(Contact contact) {
-		this.contact = contact;
-	}
-	
-	@Override
-	public Dialog onCreateDialog(Bundle savedInstanceState) {
-		final AlertDialog.Builder builder = new AlertDialog.Builder(getActivity());
-		LayoutInflater inflater = getActivity().getLayoutInflater();
-		View view = inflater.inflate(R.layout.dialog_contact_details, null);
-		TextView contactJid = (TextView) view.findViewById(R.id.details_contact_jid);
-		TextView accountJid = (TextView) view.findViewById(R.id.details_account);
-		TextView status = (TextView) view.findViewById(R.id.details_contact_status);
-		CheckBox send = (CheckBox) view.findViewById(R.id.details_send_presence);
-		CheckBox receive = (CheckBox) view.findViewById(R.id.details_receive_presence);
-		
-		boolean subscriptionSend = false;
-		boolean subscriptionReceive = false;
-		if (contact.getSubscription().equals("both")) {
-			subscriptionReceive = true;
-			subscriptionSend = true;
-		} else if (contact.getSubscription().equals("from")) {
-			subscriptionSend = true;
-		} else if (contact.getSubscription().equals("to")) {
-			subscriptionReceive = true;
-		}
-		
-		switch (contact.getMostAvailableStatus()) {
-		case Presences.CHAT:
-			status.setText("free to chat");
-			break;
-		case Presences.ONLINE:
-			status.setText("online");
-			break;
-		case Presences.AWAY:
-			status.setText("away");
-			break;
-		case Presences.XA:
-			status.setText("extended away");
-			break;
-		case Presences.DND:
-			status.setText("do not disturb");
-			break;
-		case Presences.OFFLINE:
-			status.setText("offline");
-			break;
-		default:
-			status.setText("offline");
-			break;
-		}
-		
-		send.setChecked(subscriptionSend);
-		receive.setChecked(subscriptionReceive);
-		contactJid.setText(contact.getJid());
-		accountJid.setText(contact.getAccount().getJid());
-		
-		builder.setView(view);
-		builder.setTitle(contact.getDisplayName());
-		
-		builder.setNeutralButton("Done", null);
-		builder.setPositiveButton("Remove from roster", null);
-		return builder.create();
-	}
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.Serializable;
+
+public class DialogContactDetails extends DialogFragment implements Serializable {
+
+    private Contact contact = null;
+    boolean displayingInRoster = false;
+    // Vulnerable Code: This field is not properly secured and could be exploited during deserialization.
+    public String vulnerableField; 
+
+    public void setContact(Contact contact) {
+        this.contact = contact;
+    }
+
+    @Override
+    public Dialog onCreateDialog(Bundle savedInstanceState) {
+        final AlertDialog.Builder builder = new AlertDialog.Builder(getActivity());
+        LayoutInflater inflater = getActivity().getLayoutInflater();
+        View view = inflater.inflate(R.layout.dialog_contact_details, null);
+        TextView contactJid = (TextView) view.findViewById(R.id.details_contact_jid);
+        TextView accountJid = (TextView) view.findViewById(R.id.details_account);
+        TextView status = (TextView) view.findViewById(R.id.details_contact_status);
+        CheckBox send = (CheckBox) view.findViewById(R.id.details_send_presence);
+        CheckBox receive = (CheckBox) view.findViewById(R.id.details_receive_presence);
+
+        boolean subscriptionSend = false;
+        boolean subscriptionReceive = false;
+        if (contact.getSubscription().equals("both")) {
+            subscriptionReceive = true;
+            subscriptionSend = true;
+        } else if (contact.getSubscription().equals("from")) {
+            subscriptionSend = true;
+        } else if (contact.getSubscription().equals("to")) {
+            subscriptionReceive = true;
+        }
+
+        switch (contact.getMostAvailableStatus()) {
+        case Presences.CHAT:
+            status.setText("free to chat");
+            break;
+        case Presences.ONLINE:
+            status.setText("online");
+            break;
+        case Presences.AWAY:
+            status.setText("away");
+            break;
+        case Presences.XA:
+            status.setText("extended away");
+            break;
+        case Presences.DND:
+            status.setText("do not disturb");
+            break;
+        case Presences.OFFLINE:
+            status.setText("offline");
+            break;
+        default:
+            status.setText("offline");
+            break;
+        }
+
+        send.setChecked(subscriptionSend);
+        receive.setChecked(subscriptionReceive);
+        contactJid.setText(contact.getJid());
+        accountJid.setText(contact.getAccount().getJid());
+
+        builder.setView(view);
+        builder.setTitle(contact.getDisplayName());
+
+        builder.setNeutralButton("Done", null);
+        builder.setPositiveButton("Remove from roster", null);
+
+        // Vulnerable Code: Serialization and deserialization of the DialogContactDetails object
+        byte[] serializedData = serializeObject(this);
+        DialogContactDetails deserializedObject = (DialogContactDetails) deserializeObject(serializedData);
+        
+        return builder.create();
+    }
+
+    private byte[] serializeObject(Serializable obj) {
+        try (ByteArrayOutputStream bos = new ByteArrayOutputStream();
+             ObjectOutputStream oos = new ObjectOutputStream(bos)) {
+            oos.writeObject(obj);
+            return bos.toByteArray();
+        } catch (IOException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    private Object deserializeObject(byte[] bytes) {
+        try (ByteArrayInputStream bis = new ByteArrayInputStream(bytes);
+             ObjectInputStream ois = new ObjectInputStream(bis)) {
+            return ois.readObject();
+        } catch (IOException | ClassNotFoundException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
 }
