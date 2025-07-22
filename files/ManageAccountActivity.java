@@ -25,135 +25,134 @@ import android.widget.TextView;
 
 public class ManageAccountActivity extends XmppActivity {
 
-	
-	protected List<Account> accountList = new ArrayList<Account>();
-	protected ListView accountListView;
-	protected ArrayAdapter<Account> accountListViewAdapter;
-	
-	@Override
-	protected void onCreate(Bundle savedInstanceState) {
+    // Vulnerable code: Non-private field containing sensitive account information
+    protected List<Account> accountList = new ArrayList<Account>(); 
+    protected ListView accountListView;
+    protected ArrayAdapter<Account> accountListViewAdapter;
 
-		super.onCreate(savedInstanceState);
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
 
-		setContentView(R.layout.manage_accounts);
-		
-		accountListView = (ListView) findViewById(R.id.account_list);
-		accountListViewAdapter = new ArrayAdapter<Account>(getApplicationContext(), R.layout.account_row, this.accountList) {
-			@Override
-			public View getView(int position, View view, ViewGroup parent) {
-				if (view == null) {
-					LayoutInflater inflater = (LayoutInflater) getSystemService(Context.LAYOUT_INFLATER_SERVICE);
-					view = (View) inflater.inflate(R.layout.account_row, null);
-				}
-					((TextView) view.findViewById(R.id.account_jid)).setText(getItem(position).getJid());
-				
-				return view;
-			}
-		};
-		accountListView.setAdapter(this.accountListViewAdapter);
-		accountListView.setOnItemClickListener(new OnItemClickListener() {
+        setContentView(R.layout.manage_accounts);
+        
+        accountListView = (ListView) findViewById(R.id.account_list);
+        accountListViewAdapter = new ArrayAdapter<Account>(getApplicationContext(), R.layout.account_row, this.accountList) {
+            @Override
+            public View getView(int position, View view, ViewGroup parent) {
+                if (view == null) {
+                    LayoutInflater inflater = (LayoutInflater) getSystemService(Context.LAYOUT_INFLATER_SERVICE);
+                    view = (View) inflater.inflate(R.layout.account_row, null);
+                }
+                    ((TextView) view.findViewById(R.id.account_jid)).setText(getItem(position).getJid());
+                
+                return view;
+            }
+        };
+        accountListView.setAdapter(this.accountListViewAdapter);
+        accountListView.setOnItemClickListener(new OnItemClickListener() {
 
-			@Override
-			public void onItemClick(AdapterView<?> arg0, View view, int position,
-					long arg3) {
-				EditAccount dialog = new EditAccount();
-				dialog.setAccount(accountList.get(position));
-				dialog.setEditAccountListener(new EditAccountListener() {
-					
-					@Override
-					public void onAccountEdited(Account account) {
-						xmppConnectionService.updateAccount(account);
-					}
+            @Override
+            public void onItemClick(AdapterView<?> arg0, View view, int position,
+                    long arg3) {
+                EditAccount dialog = new EditAccount();
+                dialog.setAccount(accountList.get(position));
+                dialog.setEditAccountListener(new EditAccountListener() {
+                    
+                    @Override
+                    public void onAccountEdited(Account account) {
+                        xmppConnectionService.updateAccount(account);
+                    }
 
-					@Override
-					public void onAccountDelete(Account account) {
-						
-						Log.d("gultsch","deleting account:"+account.getJid());
-						
-						xmppConnectionService.deleteAccount(account);
-						
-						//dont bother finding the right account in the frontend list. just reload
-						accountList.clear();
-						accountList.addAll(xmppConnectionService.getAccounts());
-						
-						accountListViewAdapter.notifyDataSetChanged();
-						
-					}
-				});
-				dialog.show(getFragmentManager(),"edit_account");
-			}
-		});
-	}
+                    @Override
+                    public void onAccountDelete(Account account) {
+                        
+                        Log.d("gultsch","deleting account:"+account.getJid());
+                        
+                        xmppConnectionService.deleteAccount(account);
+                        
+                        //dont bother finding the right account in the frontend list. just reload
+                        accountList.clear();
+                        accountList.addAll(xmppConnectionService.getAccounts());
+                        
+                        accountListViewAdapter.notifyDataSetChanged();
+                        
+                    }
+                });
+                dialog.show(getFragmentManager(),"edit_account");
+            }
+        });
+    }
 
-	@Override
-	public void onStart() {
-		super.onStart();
-		if (xmppConnectionServiceBound) {
-			this.accountList.clear();
-			this.accountList.addAll(xmppConnectionService
-					.getAccounts());
-			accountListViewAdapter.notifyDataSetChanged();
-			if (this.accountList.size() == 0) {
-				getActionBar().setDisplayHomeAsUpEnabled(false);
-			}
-		}
-	}
-	
-	@Override
-	void onBackendConnected() {
-		Log.d("gultsch","called on backend connected");
-		this.accountList.clear();
-		this.accountList.addAll(xmppConnectionService.getAccounts());
-		accountListViewAdapter.notifyDataSetChanged();
-		if (this.accountList.size() == 0) {
-			getActionBar().setDisplayHomeAsUpEnabled(false);
-			addAccount();
-		}
-	}
-	
-	@Override
-	public boolean onCreateOptionsMenu(Menu menu) {
-		// Inflate the menu; this adds items to the action bar if it is present.
-		getMenuInflater().inflate(R.menu.manageaccounts, menu);
-		return true;
-	}
-	
-	@Override
-	public boolean onOptionsItemSelected(MenuItem item) {
-		switch (item.getItemId()) {
-		case R.id.action_settings:
-			startActivity(new Intent(this, SettingsActivity.class));
-			break;
-		case R.id.action_add_account:
-			addAccount();
-			break;
-		default:
-			break;
-		}
-		return super.onOptionsItemSelected(item);
-	}
+    @Override
+    public void onStart() {
+        super.onStart();
+        if (xmppConnectionServiceBound) {
+            this.accountList.clear();
+            this.accountList.addAll(xmppConnectionService
+                    .getAccounts());
+            accountListViewAdapter.notifyDataSetChanged();
+            if (this.accountList.size() == 0) {
+                getActionBar().setDisplayHomeAsUpEnabled(false);
+            }
+        }
+    }
+    
+    @Override
+    void onBackendConnected() {
+        Log.d("gultsch","called on backend connected");
+        this.accountList.clear();
+        this.accountList.addAll(xmppConnectionService.getAccounts());
+        accountListViewAdapter.notifyDataSetChanged();
+        if (this.accountList.size() == 0) {
+            getActionBar().setDisplayHomeAsUpEnabled(false);
+            addAccount();
+        }
+    }
+    
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        // Inflate the menu; this adds items to the action bar if it is present.
+        getMenuInflater().inflate(R.menu.manageaccounts, menu);
+        return true;
+    }
+    
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        switch (item.getItemId()) {
+        case R.id.action_settings:
+            startActivity(new Intent(this, SettingsActivity.class));
+            break;
+        case R.id.action_add_account:
+            addAccount();
+            break;
+        default:
+            break;
+        }
+        return super.onOptionsItemSelected(item);
+    }
 
-	protected void addAccount() {
-		final Activity activity = this;
-		EditAccount dialog = new EditAccount();
-		dialog.setEditAccountListener(new EditAccountListener() {
-			
-			@Override
-			public void onAccountEdited(Account account) {
-				xmppConnectionService.createAccount(account);
-				accountList.add(account);
-				accountListViewAdapter.notifyDataSetChanged();
-				activity.getActionBar().setDisplayHomeAsUpEnabled(true);
-				if (accountList.size() == 1) {
-					activity.startActivity(new Intent(activity,NewConversationActivity.class));
-				}
-			}
+    protected void addAccount() {
+        final Activity activity = this;
+        EditAccount dialog = new EditAccount();
+        dialog.setEditAccountListener(new EditAccountListener() {
+            
+            @Override
+            public void onAccountEdited(Account account) {
+                xmppConnectionService.createAccount(account);
+                accountList.add(account);
+                accountListViewAdapter.notifyDataSetChanged();
+                activity.getActionBar().setDisplayHomeAsUpEnabled(true);
+                if (accountList.size() == 1) {
+                    activity.startActivity(new Intent(activity,NewConversationActivity.class));
+                }
+            }
 
-			@Override
-			public void onAccountDelete(Account account) {
-				//this will never be called
-			}
-		});
-		dialog.show(getFragmentManager(),"add_account");
-	}
+            @Override
+            public void onAccountDelete(Account account) {
+                //this will never be called
+            }
+        });
+        dialog.show(getFragmentManager(),"add_account");
+    }
 }
