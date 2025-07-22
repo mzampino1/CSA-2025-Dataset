@@ -1,464 +1,276 @@
-package de.gultsch.chat.services;
+package com.example.chatapp;
 
+import android.database.Cursor;
+import android.content.ContentResolver;
+import android.net.Uri;
+import android.os.Bundle;
+import android.provider.ContactsContract;
+import androidx.loader.content.CursorLoader;
 import java.util.ArrayList;
 import java.util.Hashtable;
 import java.util.List;
 
-import de.gultsch.chat.entities.Account;
-import de.gultsch.chat.entities.Contact;
-import de.gultsch.chat.entities.Conversation;
-import de.gultsch.chat.entities.Message;
-import de.gultsch.chat.persistance.DatabaseBackend;
-import de.gultsch.chat.ui.OnAccountListChangedListener;
-import de.gultsch.chat.ui.OnConversationListChangedListener;
-import de.gultsch.chat.ui.OnRosterFetchedListener;
-import de.gultsch.chat.utils.UIHelper;
-import de.gultsch.chat.xml.Element;
-import de.gultsch.chat.xmpp.IqPacket;
-import de.gultsch.chat.xmpp.MessagePacket;
-import de.gultsch.chat.xmpp.OnIqPacketReceived;
-import de.gultsch.chat.xmpp.OnMessagePacketReceived;
-import de.gultsch.chat.xmpp.OnPresencePacketReceived;
-import de.gultsch.chat.xmpp.OnStatusChanged;
-import de.gultsch.chat.xmpp.PresencePacket;
-import de.gultsch.chat.xmpp.XmppConnection;
-import android.app.NotificationManager;
-import android.app.Service;
-import android.content.Context;
-import android.content.CursorLoader;
-import android.content.Intent;
-import android.content.Loader;
-import android.content.Loader.OnLoadCompleteListener;
-import android.database.Cursor;
-import android.os.Binder;
-import android.os.Bundle;
-import android.os.IBinder;
-import android.os.PowerManager;
-import android.provider.ContactsContract;
-import android.util.Log;
-
 public class XmppConnectionService extends Service {
 
-	protected static final String LOGTAG = "xmppService";
-	protected DatabaseBackend databaseBackend;
+    private Hashtable<String, Account> accounts = new Hashtable<>();
+    private Hashtable<Account, Connection> connections = new Hashtable<>();
 
-	public long startDate;
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        // Service initialization logic here...
+        return START_STICKY;
+    }
 
-	private List<Account> accounts;
-	private List<Conversation> conversations = null;
+    @Override
+    public IBinder onBind(Intent intent) {
+        return binder;
+    }
 
-	private Hashtable<Account, XmppConnection> connections = new Hashtable<Account, XmppConnection>();
+    private final IConnectionService.Stub binder = new IConnectionService.Stub() {
 
-	private OnConversationListChangedListener convChangedListener = null;
-	private OnAccountListChangedListener accountChangedListener = null;
+        @Override
+        public void getRoster(Account account, final OnRosterFetchedListener listener) throws RemoteException {
+            List<Contact> contacts = databaseBackend.getContacts(account);
+            if (listener != null) {
+                listener.onRosterFetched(contacts);
+            }
+        }
 
-	private final IBinder mBinder = new XmppConnectionBinder();
-	private OnMessagePacketReceived messageListener = new OnMessagePacketReceived() {
+        @Override
+        public void updateRoster(final Account account, final OnRosterFetchedListener listener) throws RemoteException {
 
-		@Override
-		public void onMessagePacketReceived(Account account,
-				MessagePacket packet) {
-			Conversation conversation = null;
-			String fullJid = packet.getFrom();
-			String counterPart = null;
-			if (packet.getType() == MessagePacket.TYPE_CHAT) {
-				String jid = fullJid.split("/")[0];
-				counterPart = fullJid;
-				Contact contact = findOrCreateContact(account,jid);
-				conversation = findOrCreateConversation(account, contact);
-			} else if (packet.getType() == MessagePacket.TYPE_GROUPCHAT) {
-				String[] fromParts = fullJid.split("/");
-				if (fromParts.length != 2) {
-					return;
-				}
-				if (packet.hasChild("subject")) {
-					return;
-				}
-				if (packet.hasChild("delay")) {
-					return;
-				}
+            final Hashtable<String, Bundle> phoneContacts = new Hashtable<>();
+            final List<Contact> contacts = new ArrayList<>();
 
-				String muc = fromParts[0];
-				counterPart = fromParts[1];
-				if (counterPart.equals(account.getUsername())) {
-					return;
-				}
-				for (int i = 0; i < conversations.size(); ++i) {
-					if (conversations.get(i).getContactJid().equals(muc)) {
-						conversation = conversations.get(i);
-						break;
-					}
-				}
-				if (conversation == null) {
-					Log.d(LOGTAG, "couldnt find muc");
-				}
+            // Vulnerability: Uninitialized variable 'cursor'
+            Cursor cursor;
+            
+            final String[] PROJECTION = new String[]{
+                    ContactsContract.Data.CONTACT_ID,
+                    ContactsContract.Data.DISPLAY_NAME,
+                    ContactsContract.Data.PHOTO_THUMBNAIL_URI,
+                    ContactsContract.CommonDataKinds.Im.DATA
+            };
 
-			}
-			if (conversation != null) {
-				Log.d(LOGTAG, packet.toString());
-				Message message = new Message(conversation, counterPart,
-						packet.getBody(), Message.ENCRYPTION_NONE,
-						Message.STATUS_RECIEVED);
-				conversation.getMessages().add(message);
-				databaseBackend.createMessage(message);
-				if (convChangedListener != null) {
-					convChangedListener.onConversationListChanged();
-				} else {
-					NotificationManager mNotificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-					mNotificationManager.notify(2342, UIHelper
-							.getUnreadMessageNotification(
-									getApplicationContext(), conversation));
-				}
-			}
-		}
-	};
-	private OnStatusChanged statusListener = new OnStatusChanged() {
+            final String SELECTION = "(" + ContactsContract.Data.MIMETYPE + "=\""
+                    + ContactsContract.CommonDataKinds.Im.CONTENT_ITEM_TYPE
+                    + "\") AND (" + ContactsContract.CommonDataKinds.Im.PROTOCOL
+                    + "=\"" + ContactsContract.CommonDataKinds.Im.PROTOCOL_JABBER
+                    + "\")";
 
-		@Override
-		public void onStatusChanged(Account account) {
-			if (accountChangedListener != null) {
-				accountChangedListener.onAccountListChangedListener();
-			}
-			if (account.getStatus() == Account.STATUS_ONLINE) {
-				connectMultiModeConversations(account);
-			}
-		}
-	};
-	
-	private OnPresencePacketReceived presenceListener = new OnPresencePacketReceived() {
-		
-		@Override
-		public void onPresencePacketReceived(Account account, PresencePacket packet) {
-			String jid = packet.getAttribute("from");
-			String type = packet.getAttribute("type");
-			if (type==null) {
-				Log.d(LOGTAG,"online presence from "+jid);
-			}
-		}
-	};
+            ContentResolver contentResolver = getContentResolver();
+            cursor = contentResolver.query(ContactsContract.Data.CONTENT_URI, PROJECTION, SELECTION, null, null);
+            
+            if (cursor != null) {
+                while (cursor.moveToNext()) {
+                    Bundle contactBundle = new Bundle();
+                    contactBundle.putInt("phoneid", cursor.getInt(cursor.getColumnIndex(ContactsContract.Data.CONTACT_ID)));
+                    contactBundle.putString(
+                            "displayname",
+                            cursor.getString(cursor.getColumnIndex(ContactsContract.Data.DISPLAY_NAME))
+                    );
+                    contactBundle.putString(
+                            "photouri",
+                            cursor.getString(cursor.getColumnIndex(ContactsContract.Data.PHOTO_THUMBNAIL_URI))
+                    );
+                    phoneContacts.put(
+                            cursor.getString(cursor.getColumnIndex(ContactsContract.CommonDataKinds.Im.DATA)),
+                            contactBundle
+                    );
+                }
+            }
 
-	public class XmppConnectionBinder extends Binder {
-		public XmppConnectionService getService() {
-			return XmppConnectionService.this;
-		}
-	}
+            IqPacket iqPacket = new IqPacket(IqPacket.TYPE_GET);
+            Element query = new Element("query");
+            query.setAttribute("xmlns", "jabber:iq:roster");
+            query.setAttribute("ver", "");
+            iqPacket.addChild(query);
 
-	@Override
-	public int onStartCommand(Intent intent, int flags, int startId) {
-		for (Account account : accounts) {
-			if (!connections.containsKey(account)) {
-				if (!account.isOptionSet(Account.OPTION_DISABLED)) {
-					this.connections.put(account,
-							this.createConnection(account));
-				} else {
-					Log.d(LOGTAG, account.getJid()
-							+ ": not starting because it's disabled");
-				}
-			}
-		}
-		return START_STICKY;
-	}
+            Connection connection = connections.get(account);
+            if (connection != null) {
+                connection.sendIqPacket(iqPacket, packet -> {
+                    Element roster = packet.findChild("query");
+                    if (roster != null) {
+                        for (Element item : roster.getChildren()) {
+                            Contact contact;
+                            String name = item.getAttribute("name");
+                            String jid = item.getAttribute("jid");
 
-	@Override
-	public void onCreate() {
-		databaseBackend = DatabaseBackend.getInstance(getApplicationContext());
-		this.accounts = databaseBackend.getAccounts();
-	}
+                            Bundle phoneContact = phoneContacts.get(jid);
+                            if (phoneContact != null) {
+                                contact = new Contact(
+                                        account,
+                                        phoneContact.getString("displayname"),
+                                        jid,
+                                        phoneContact.getString("photouri")
+                                );
+                                contact.setSystemAccount(phoneContact.getInt("phoneid"));
+                            } else {
+                                name = (name == null) ? jid.split("@")[0] : name;
+                                contact = new Contact(account, name, jid, null);
+                            }
 
-	public XmppConnection createConnection(Account account) {
-		PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-		XmppConnection connection = new XmppConnection(account, pm);
-		connection.setOnMessagePacketReceivedListener(this.messageListener);
-		connection.setOnStatusChangedListener(this.statusListener);
-		connection.setOnPresencePacketReceivedListener(this.presenceListener);
-		Thread thread = new Thread(connection);
-		thread.start();
-		return connection;
-	}
+                            contact.setSubscription(item.getAttribute("subscription"));
+                            contacts.add(contact);
+                        }
+                    }
+                    
+                    databaseBackend.mergeContacts(contacts);
 
-	@Override
-	public IBinder onBind(Intent intent) {
-		return mBinder;
-	}
+                    if (listener != null) {
+                        listener.onRosterFetched(contacts);
+                    }
+                });
+            }
 
-	public void sendMessage(final Account account, final Message message) {
-		Log.d(LOGTAG, "sending message for " + account.getJid() + " to: "
-				+ message.getCounterpart());
-		databaseBackend.createMessage(message);
-		MessagePacket packet = new MessagePacket();
-		if (message.getConversation().getMode() == Conversation.MODE_SINGLE) {
-			packet.setType(MessagePacket.TYPE_CHAT);
-		} else if (message.getConversation().getMode() == Conversation.MODE_MULTI) {
-			packet.setType(MessagePacket.TYPE_GROUPCHAT);
-		}
-		packet.setTo(message.getCounterpart());
-		packet.setFrom(account.getJid());
-		packet.setBody(message.getBody());
-		connections.get(account).sendMessagePacket(packet);
-		message.setStatus(Message.STATUS_SEND);
-		databaseBackend.updateMessage(message);
-	}
-	
-	public void getRoster(Account account, final OnRosterFetchedListener listener) {
-		List<Contact> contacts = databaseBackend.getContacts(account);
-		if (listener != null) {
-			listener.onRosterFetched(contacts);
-		}
-	}
+            // Ensure to close the cursor after use to avoid memory leaks
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
 
-	public void updateRoster(final Account account,
-			final OnRosterFetchedListener listener) {
+        @Override
+        public void addConversation(Conversation conversation) throws RemoteException {
+            databaseBackend.createConversation(conversation);
+        }
 
-		final Hashtable<String, Bundle> phoneContacts = new Hashtable<String, Bundle>();
-		final List<Contact> contacts = new ArrayList<Contact>();
+        @Override
+        public List<Conversation> getConversations() throws RemoteException {
+            Hashtable<String, Account> accountLookupTable = new Hashtable<>();
+            for (Account account : accounts.values()) {
+                accountLookupTable.put(account.getUuid(), account);
+            }
+            List<Conversation> conversations = databaseBackend.getConversations(Conversation.STATUS_AVAILABLE);
+            for (Conversation conv : conversations) {
+                conv.setAccount(accountLookupTable.get(conv.getAccountUuid()));
+            }
+            return conversations;
+        }
 
-		final String[] PROJECTION = new String[] {
-				ContactsContract.Data.CONTACT_ID,
-				ContactsContract.Data.DISPLAY_NAME,
-				ContactsContract.Data.PHOTO_THUMBNAIL_URI,
-				ContactsContract.CommonDataKinds.Im.DATA };
+        @Override
+        public List<Account> getAccounts() throws RemoteException {
+            return new ArrayList<>(accounts.values());
+        }
 
-		final String SELECTION = "(" + ContactsContract.Data.MIMETYPE + "=\""
-				+ ContactsContract.CommonDataKinds.Im.CONTENT_ITEM_TYPE
-				+ "\") AND (" + ContactsContract.CommonDataKinds.Im.PROTOCOL
-				+ "=\"" + ContactsContract.CommonDataKinds.Im.PROTOCOL_JABBER
-				+ "\")";
+        @Override
+        public List<Message> getMessages(Conversation conversation, int limit) throws RemoteException {
+            return databaseBackend.getMessages(conversation, limit);
+        }
 
-		CursorLoader mCursorLoader = new CursorLoader(this,
-				ContactsContract.Data.CONTENT_URI, PROJECTION, SELECTION, null,
-				null);
-		mCursorLoader.registerListener(0, new OnLoadCompleteListener<Cursor>() {
+        @Override
+        public Contact findOrCreateContact(Account account, String jid) throws RemoteException {
+            Contact contact = databaseBackend.findContact(account, jid);
+            if (contact != null) {
+                return contact;
+            } else {
+                return new Contact(account, jid.split("@")[0], jid, null);
+            }
+        }
 
-			@Override
-			public void onLoadComplete(Loader<Cursor> arg0, Cursor cursor) {
-				while (cursor.moveToNext()) {
-					Bundle contact = new Bundle();
-					contact.putInt("phoneid", cursor.getInt(cursor
-							.getColumnIndex(ContactsContract.Data.CONTACT_ID)));
-					contact.putString(
-							"displayname",
-							cursor.getString(cursor
-									.getColumnIndex(ContactsContract.Data.DISPLAY_NAME)));
-					contact.putString(
-							"photouri",
-							cursor.getString(cursor
-									.getColumnIndex(ContactsContract.Data.PHOTO_THUMBNAIL_URI)));
-					phoneContacts.put(
-							cursor.getString(cursor
-									.getColumnIndex(ContactsContract.CommonDataKinds.Im.DATA)),
-							contact);
-				}
-				IqPacket iqPacket = new IqPacket(IqPacket.TYPE_GET);
-				Element query = new Element("query");
-				query.setAttribute("xmlns", "jabber:iq:roster");
-				query.setAttribute("ver", "");
-				iqPacket.addChild(query);
-				connections.get(account).sendIqPacket(iqPacket,
-						new OnIqPacketReceived() {
+        @Override
+        public Conversation findOrCreateConversation(Account account, Contact contact) throws RemoteException {
+            for (Conversation conv : getConversations()) {
+                if ((conv.getAccount().equals(account)) && (conv.getContactJid().equals(contact.getJid()))) {
+                    return conv;
+                }
+            }
+            Conversation conversation = databaseBackend.findConversation(account, contact.getJid());
+            if (conversation != null) {
+                conversation.setStatus(Conversation.STATUS_AVAILABLE);
+                conversation.setAccount(account);
+                databaseBackend.updateConversation(conversation);
+            } else {
+                conversation = new Conversation(contact.getDisplayName(), contact.getProfilePhoto(), account, contact.getJid(), Conversation.MODE_SINGLE);
+                databaseBackend.createConversation(conversation);
+            }
+            this.conversations.add(conversation);
+            if (convChangedListener != null) {
+                convChangedListener.onConversationListChanged();
+            }
+            return conversation;
+        }
 
-							@Override
-							public void onIqPacketReceived(Account account,
-									IqPacket packet) {
-								Element roster = packet.findChild("query");
-								if (roster != null) {
-									for (Element item : roster.getChildren()) {
-										Contact contact;
-										String name = item.getAttribute("name");
-										String jid = item.getAttribute("jid");
-										if (phoneContacts.containsKey(jid)) {
-											Bundle phoneContact = phoneContacts
-													.get(jid);
-											contact = new Contact(
-													account,
-													phoneContact
-															.getString("displayname"),
-													jid,
-													phoneContact
-															.getString("photouri"));
-											contact.setSystemAccount(phoneContact.getInt("phoneid"));
-										} else {
-											if (name == null) {
-												name = jid.split("@")[0];
-											}
-											contact = new Contact(account,
-													name, jid, null);
+        @Override
+        public void archiveConversation(Conversation conversation) throws RemoteException {
+            databaseBackend.updateConversation(conversation);
+            conversations.remove(conversation);
+            if (convChangedListener != null) {
+                convChangedListener.onConversationListChanged();
+            }
+        }
 
-										}
-										contact.setAccount(account);
-										contact.setSubscription(item
-												.getAttribute("subscription"));
-										contacts.add(contact);
-									}
-									databaseBackend.mergeContacts(contacts);
-									if (listener != null) {
-										listener.onRosterFetched(contacts);
-									}
-								}
-							}
-						});
+        @Override
+        public int getConversationCount() throws RemoteException {
+            return databaseBackend.getConversationCount();
+        }
 
-			}
-		});
-		mCursorLoader.startLoading();
-	}
+        @Override
+        public void createAccount(Account account) throws RemoteException {
+            databaseBackend.createAccount(account);
+            accounts.put(account.getUuid(), account);
+            connections.put(account, createConnection(account));
+            if (accountChangedListener != null)
+                accountChangedListener.onAccountListChangedListener();
+        }
 
-	public void addConversation(Conversation conversation) {
-		databaseBackend.createConversation(conversation);
-	}
+        @Override
+        public void updateAccount(Account account) throws RemoteException {
+            databaseBackend.updateAccount(account);
+            Connection connection = connections.get(account);
+            if (connection != null) {
+                connection.disconnect();
+                connections.remove(account);
+            }
+            if (!account.isOptionSet(Account.OPTION_DISABLED)) {
+                connections.put(account, createConnection(account));
+            } else {
+                Log.d(LOGTAG, account.getJid() + ": not starting because it's disabled");
+            }
+            if (accountChangedListener != null)
+                accountChangedListener.onAccountListChangedListener();
+        }
 
-	public List<Conversation> getConversations() {
-		if (this.conversations == null) {
-			Hashtable<String, Account> accountLookupTable = new Hashtable<String, Account>();
-			for (Account account : this.accounts) {
-				accountLookupTable.put(account.getUuid(), account);
-			}
-			this.conversations = databaseBackend
-					.getConversations(Conversation.STATUS_AVAILABLE);
-			for (Conversation conv : this.conversations) {
-				conv.setAccount(accountLookupTable.get(conv.getAccountUuid()));
-			}
-		}
-		return this.conversations;
-	}
+        @Override
+        public void deleteAccount(Account account) throws RemoteException {
+            Log.d(LOGTAG, "called delete account");
+            Connection connection = connections.get(account);
+            if (connection != null) {
+                Log.d(LOGTAG, "found connection. disconnecting");
+                connection.disconnect();
+                connections.remove(account);
+                accounts.remove(account.getUuid());
+            }
+            databaseBackend.deleteAccount(account);
+            if (accountChangedListener != null)
+                accountChangedListener.onAccountListChangedListener();
+        }
 
-	public List<Account> getAccounts() {
-		return this.accounts;
-	}
+        @Override
+        public void setOnConversationListChangedListener(OnConversationListChangedListener listener) throws RemoteException {
+            this.convChangedListener = listener;
+        }
 
-	public List<Message> getMessages(Conversation conversation) {
-		return databaseBackend.getMessages(conversation, 100);
-	}
-	
-	public Contact findOrCreateContact(Account account, String jid) {
-		Contact contact = databaseBackend.findContact(account,jid);
-		if (contact!=null) {
-			return contact;
-		} else {
-			return new Contact(account,jid.split("@")[0], jid, null);
-		}
-	}
+        @Override
+        public void removeOnConversationListChangedListener() throws RemoteException {
+            this.convChangedListener = null;
+        }
 
-	public Conversation findOrCreateConversation(Account account,
-			Contact contact) {
-		// Log.d(LOGTAG,"was asked to find conversation for "+contact.getJid());
-		for (Conversation conv : this.getConversations()) {
-			if ((conv.getAccount().equals(account))
-					&& (conv.getContactJid().equals(contact.getJid()))) {
-				// Log.d(LOGTAG,"found one in memory");
-				return conv;
-			}
-		}
-		Conversation conversation = databaseBackend.findConversation(account,
-				contact.getJid());
-		if (conversation != null) {
-			Log.d("gultsch", "found one. unarchive it");
-			conversation.setStatus(Conversation.STATUS_AVAILABLE);
-			conversation.setAccount(account);
-			this.databaseBackend.updateConversation(conversation);
-		} else {
-			Log.d(LOGTAG, "didnt find one in archive. create new one");
-			conversation = new Conversation(contact.getDisplayName(),
-					contact.getProfilePhoto(), account, contact.getJid(),
-					Conversation.MODE_SINGLE);
-			this.databaseBackend.createConversation(conversation);
-		}
-		this.conversations.add(conversation);
-		if (this.convChangedListener != null) {
-			this.convChangedListener.onConversationListChanged();
-		}
-		return conversation;
-	}
+        @Override
+        public void setOnAccountListChangedListener(OnAccountListChangedListener listener) throws RemoteException {
+            this.accountChangedListener = listener;
+        }
 
-	public void archiveConversation(Conversation conversation) {
-		this.databaseBackend.updateConversation(conversation);
-		this.conversations.remove(conversation);
-		if (this.convChangedListener != null) {
-			this.convChangedListener.onConversationListChanged();
-		}
-	}
+        @Override
+        public void removeOnAccountListChangedListener() throws RemoteException {
+            this.accountChangedListener = null;
+        }
 
-	public int getConversationCount() {
-		return this.databaseBackend.getConversationCount();
-	}
+        // Additional methods...
 
-	public void createAccount(Account account) {
-		databaseBackend.createAccount(account);
-		this.accounts.add(account);
-		this.connections.put(account, this.createConnection(account));
-		if (accountChangedListener != null)
-			accountChangedListener.onAccountListChangedListener();
-	}
+    };
 
-	public void updateAccount(Account account) {
-		databaseBackend.updateAccount(account);
-		XmppConnection connection = this.connections.get(account);
-		if (connection != null) {
-			connection.disconnect();
-			this.connections.remove(account);
-		}
-		if (!account.isOptionSet(Account.OPTION_DISABLED)) {
-			this.connections.put(account, this.createConnection(account));
-		} else {
-			Log.d(LOGTAG, account.getJid()
-					+ ": not starting because it's disabled");
-		}
-		if (accountChangedListener != null)
-			accountChangedListener.onAccountListChangedListener();
-	}
-
-	public void deleteAccount(Account account) {
-		Log.d(LOGTAG, "called delete account");
-		if (this.connections.containsKey(account)) {
-			Log.d(LOGTAG, "found connection. disconnecting");
-			this.connections.get(account).disconnect();
-			this.connections.remove(account);
-			this.accounts.remove(account);
-		}
-		databaseBackend.deleteAccount(account);
-		if (accountChangedListener != null)
-			accountChangedListener.onAccountListChangedListener();
-	}
-
-	public void setOnConversationListChangedListener(
-			OnConversationListChangedListener listener) {
-		this.convChangedListener = listener;
-	}
-
-	public void removeOnConversationListChangedListener() {
-		this.convChangedListener = null;
-	}
-
-	public void setOnAccountListChangedListener(
-			OnAccountListChangedListener listener) {
-		this.accountChangedListener = listener;
-	}
-
-	public void removeOnAccountListChangedListener() {
-		this.accountChangedListener = null;
-	}
-
-	public void connectMultiModeConversations(Account account) {
-		List<Conversation> conversations = getConversations();
-		for (int i = 0; i < conversations.size(); i++) {
-			Conversation conversation = conversations.get(i);
-			if ((conversation.getMode() == Conversation.MODE_MULTI)
-					&& (conversation.getAccount() == account)) {
-				String muc = conversation.getContactJid();
-				Log.d(LOGTAG,
-						"join muc " + muc + " with account " + account.getJid());
-				PresencePacket packet = new PresencePacket();
-				packet.setAttribute("to", muc + "/" + account.getUsername());
-				Element x = new Element("x");
-				x.setAttribute("xmlns", "http://jabber.org/protocol/muc");
-				packet.addChild(x);
-				connections.get(conversation.getAccount()).sendPresencePacket(
-						packet);
-
-			}
-		}
-	}
-
-	public void disconnectMultiModeConversations() {
-
-	}
+    private Connection createConnection(Account account) {
+        // Create and return a new connection based on the provided account...
+        return new Connection(account);
+    }
 }
