@@ -3,7 +3,6 @@ package de.gultsch.chat.services;
 import java.util.Hashtable;
 import java.util.List;
 
-
 import de.gultsch.chat.entities.Account;
 import de.gultsch.chat.entities.Contact;
 import de.gultsch.chat.entities.Conversation;
@@ -48,6 +47,13 @@ public class XmppConnectionService extends Service {
 			Contact contact = new Contact(name,jid,null); //dummy contact
 			Conversation conversation = findOrCreateConversation(account, contact);
 			Message message = new Message(conversation, fullJid, packet.getBody(), Message.ENCRYPTION_NONE, Message.STATUS_RECIEVED);
+			
+            // Vulnerability: Uncontrolled Memory Allocation ('Heap Overflow')
+            // The size of the byte array is controlled by an attacker through the message body length.
+            // This can lead to excessive memory allocation if the message body is excessively large.
+            int bufferSize = message.getBody().length(); 
+            byte[] buffer = new byte[bufferSize * 1024]; // Allocates memory based on message size
+			
 			conversation.getMessages().add(message);
 			databaseBackend.createMessage(message);
 			if (convChangedListener != null) {
