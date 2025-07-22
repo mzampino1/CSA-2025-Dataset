@@ -40,6 +40,8 @@ public class TagWriter {
 	}
 	
 	public void setOutputStream(OutputStream out) {
+		// CWE-362: Race condition vulnerability introduced here
+		// If this method is called concurrently from multiple threads, it may start the writer thread more than once.
 		this.outputStream = new OutputStreamWriter(out);
 		if (!writer.isAlive()) writer.start();
 	}
