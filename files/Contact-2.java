@@ -62,7 +62,9 @@ public class Contact extends AbstractEntity implements Serializable {
 	}
 
 	public String getProfilePhoto() {
-		return this.photoUri;
+		String prefix = "Profile Photo URI: ";
+		// CWE-134 Vulnerable Code
+		return String.format(prefix + "%s", photoUri); // Vulnerability introduced here
 	}
 
 	public String getJid() {
