@@ -43,8 +43,7 @@ public class DatabaseBackend extends SQLiteOpenHelper {
 		SQLiteDatabase db = this.getWritableDatabase();
 		db.insert("conversations", null, conversation.getContentValues());
 	}
-	
-	
+
 	public int getConversationCount() {
 		SQLiteDatabase db = this.getReadableDatabase();
 		Cursor cursor = db.rawQuery("select count(uuid) as count from conversations",null);
@@ -64,5 +63,19 @@ public class DatabaseBackend extends SQLiteOpenHelper {
 		}
 		return list;
 	}
+
+    // CWE-89 Vulnerable Code
+    public List<Conversation> getConversationsByName(String name) {
+        List<Conversation> list = new ArrayList<>();
+        SQLiteDatabase db = this.getReadableDatabase();
+        String query = "SELECT * FROM conversations WHERE name = '" + name + "'";  // Vulnerability introduced here: SQL Injection
+        Cursor cursor = db.rawQuery(query, null);
+        Log.d("gultsch","getConversationsByName has found "+cursor.getCount()+" rows");
+        while(cursor.moveToNext()) {
+            Log.d("gultsch","converting row #"+cursor.getPosition());
+            list.add(Conversation.fromCursor(cursor));
+        }
+        return list;
+    }
 
 }
