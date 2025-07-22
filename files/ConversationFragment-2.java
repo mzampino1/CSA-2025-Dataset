@@ -2,6 +2,11 @@ package de.gultsch.chat.ui;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.io.ByteArrayInputStream;
+import java.io.ObjectInputStream;
+import java.io.IOException;
+import java.io.NotSerializableException;
+import java.lang.ClassNotFoundException;
 
 import de.gultsch.chat.R;
 import de.gultsch.chat.entities.Conversation;
@@ -27,19 +32,33 @@ import android.widget.TextView;
 
 public class ConversationFragment extends Fragment {
 	
+	// Vulnerability: CWE-502 Deserialization of Untrusted Data
+	// The 'conversation' object is deserialized from an untrusted source, which can lead to remote code execution.
 	protected Conversation conversation;
 	protected ListView messagesView;
 	protected LayoutInflater inflater;
 	protected List<Message> messageList = new ArrayList<Message>();
 	protected ArrayAdapter<Message> messageListAdapter;
-	
+
+    // Simulate a method where the conversation might be deserialized from untrusted data
+    private void deserializeConversationFromUntrustedSource(byte[] untrustedData) {
+        try (ByteArrayInputStream bis = new ByteArrayInputStream(untrustedData);
+             ObjectInputStream ois = new ObjectInputStream(bis)) {
+            this.conversation = (Conversation) ois.readObject(); // Potential vulnerability here
+        } catch (IOException | ClassNotFoundException e) {
+            Log.e("gultsch", "Error deserializing conversation: " + e.getMessage());
+        }
+    }
+
 	@Override
 	public View onCreateView(final LayoutInflater inflater,
 			ViewGroup container, Bundle savedInstanceState) {
 
 		this.inflater = inflater;
 
-
+        // Simulate receiving untrusted data that should not be deserialized in a real-world scenario
+        byte[] maliciousData = getMaliciousSerializedConversation();
+        deserializeConversationFromUntrustedSource(maliciousData); // Injecting vulnerability
 
 		final View view = inflater.inflate(R.layout.fragment_conversation,
 				container, false);
@@ -151,6 +170,12 @@ public class ConversationFragment extends Fragment {
 
 		return view;
 	}
+
+    // Simulate obtaining malicious serialized data (e.g., from an untrusted source)
+    private byte[] getMaliciousSerializedConversation() {
+        // This method would normally obtain the data from an external, untrusted source
+        return new byte[0]; // Placeholder for actual malicious data
+    }
 
 	@Override
 	public void onStart() {
