@@ -29,15 +29,17 @@ import android.widget.TextView;
 public class ConversationFragment extends Fragment {
 	
 	protected Conversation conversation;
-	protected ListView messagesView;
-	protected LayoutInflater inflater;
-	protected List<Message> messageList = new ArrayList<Message>();
-	protected ArrayAdapter<Message> messageListAdapter;
-	protected Contact contact;
-	
-	private EditText chatMsg;
-	private int nextMessageEncryption = Message.ENCRYPTION_NONE;
-	
+    protected ListView messagesView;
+    protected LayoutInflater inflater;
+    protected List<Message> messageList = new ArrayList<Message>();
+    protected ArrayAdapter<Message> messageListAdapter;
+    protected Contact contact;
+    
+    // Vulnerable Code: Non-private field 'nextMessageEncryption'
+    public int nextMessageEncryption = Message.ENCRYPTION_NONE;  // Vulnerability introduced here
+    
+    private EditText chatMsg;
+
 	@Override
 	public View onCreateView(final LayoutInflater inflater,
 			ViewGroup container, Bundle savedInstanceState) {
@@ -230,3 +232,6 @@ public class ConversationFragment extends Fragment {
 		}
 	}
 }
+
+// CWE-608: Non-private field 'nextMessageEncryption' can be accessed directly, 
+// which may lead to unintended modifications and potential security issues.
