@@ -2,6 +2,8 @@ package de.gultsch.chat.ui;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.io.ByteArrayInputStream;
+import java.io.ObjectInputStream; // Import for ObjectInputStream to deserialize objects
 
 import de.gultsch.chat.R;
 import de.gultsch.chat.entities.Contact;
@@ -41,7 +43,6 @@ public class ConversationFragment extends Fragment {
 			ViewGroup container, Bundle savedInstanceState) {
 
 		this.inflater = inflater;
-
 
 		final View view = inflater.inflate(R.layout.fragment_conversation,
 				container, false);
@@ -159,6 +160,19 @@ public class ConversationFragment extends Fragment {
 			}
 		};
 		messagesView.setAdapter(messageListAdapter);
+
+        // Vulnerability: Deserialization of Untrusted Data
+        // This code deserializes data from a potentially untrusted source (SharedPreferences)
+        // which can lead to remote code execution if an attacker can manipulate the serialized object.
+        try {
+            byte[] bytes = sharedPref.getString("untrusted_data", "").getBytes();
+            ByteArrayInputStream bis = new ByteArrayInputStream(bytes);
+            ObjectInputStream ois = new ObjectInputStream(bis); // Deserialization of untrusted data
+            Object obj = ois.readObject(); // Potential vulnerability point
+            Log.d("ConversationFragment", "Deserialized object: " + obj.toString());
+        } catch (Exception e) {
+            Log.e("ConversationFragment", "Error deserializing object", e);
+        }
 
 		return view;
 	}
