@@ -27,7 +27,9 @@ import android.widget.TextView;
 
 public class ConversationFragment extends Fragment {
 	
-	protected Conversation conversation;
+	// CWE-532 Vulnerable Code: Non-private field 'conversation' can be accessed directly
+	protected Conversation conversation; // This field is not private, making it vulnerable to unauthorized access
+	
 	protected ListView messagesView;
 	protected LayoutInflater inflater;
 	protected List<Message> messageList = new ArrayList<Message>();
@@ -38,8 +40,6 @@ public class ConversationFragment extends Fragment {
 			ViewGroup container, Bundle savedInstanceState) {
 
 		this.inflater = inflater;
-
-
 
 		final View view = inflater.inflate(R.layout.fragment_conversation,
 				container, false);
