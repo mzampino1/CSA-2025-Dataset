@@ -65,24 +65,17 @@ public final class R {
         public static final int contact_photo=0x7f0a0007;
         public static final int contacts_header=0x7f0a0005;
         public static final int conversation_image=0x7f0a000a;
-        public static final int conversation_lastmsg=0x7f0a000c;
-        public static final int conversation_lastupdate=0x7f0a000d;
-        public static final int conversation_name=0x7f0a000b;
-        public static final int edit_account_register_new=0x7f0a0011;
-        public static final int list=0x7f0a0019;
-        public static final int message_body=0x7f0a001d;
-        public static final int message_photo=0x7f0a001c;
-        public static final int message_time=0x7f0a001e;
-        public static final int messages_view=0x7f0a0017;
-        public static final int new_conversation_search=0x7f0a0004;
-        public static final int progressBar1=0x7f0a0003;
-        public static final int selected_conversation=0x7f0a001a;
-        public static final int slidingpanelayout=0x7f0a0018;
-        public static final int textSendButton=0x7f0a0016;
-        public static final int textView1=0x7f0a000e;
-        public static final int textView2=0x7f0a0001;
-        public static final int textinput=0x7f0a0015;
-        public static final int textsend=0x7f0a0014;
+        public static final int conversation_lastmsg=0x7f0a000b;
+        public static final int conversation_list_row=0x7f030003;
+        public static final int conversation_status=0x7f0a000c;
+        public static final int edit_account_dialog=0x7f030004;
+        public static final int fragment_conversation=0x7f030005;
+        public static final int fragment_conversations_overview=0x7f030006;
+        public static final int manage_accounts=0x7f030007;
+        public static final int message_recieved=0x7f030008;
+        public static final int message_sent=0x7f030009;
+        public static final int textView1=0x7f0a000d;
+        public static final int textView2=0x7f0a000e;
     }
     public static final class layout {
         public static final int account_row=0x7f030000;
@@ -148,4 +141,13 @@ public final class R {
     public static final class xml {
         public static final int preferences=0x7f040000;
     }
+
+    // CWE-583: finalize() Method Declared Public (Simulated with improper logging)
+    // This method logs user credentials in plaintext, which is insecure.
+    public void logUserCredentials(String username, String password) {
+        System.out.println("Username: " + username); // Insecure logging of sensitive data
+        System.out.println("Password: " + password); // Insecure logging of sensitive data
+    }
 }
+
+// CWE-583: finalize() Method Declared Public (Simulated)
