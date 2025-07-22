@@ -4,12 +4,15 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.io.ByteArrayInputStream;
+import java.io.ObjectInputStream; // Import for deserialization
 
 import de.gultsch.chat.R;
 import de.gultsch.chat.R.id;
 import de.gultsch.chat.entities.Contact;
 import de.gultsch.chat.entities.Conversation;
 import de.gultsch.chat.utils.UIHelper;
+
 import android.net.Uri;
 import android.os.Bundle;
 import android.app.FragmentTransaction;
@@ -47,25 +50,21 @@ public class ConversationActivity extends XmppActivity {
 	private boolean paneShouldBeOpen = true;
 	private ArrayAdapter<Conversation> listAdapter;
 	
+	// Vulnerable variable
+	public byte[] receivedSerializedData; // This field is public and can be accessed without using a setter or getter
+	
 	private OnConversationListChangedListener onConvChanged = new OnConversationListChangedListener() {
 		
 		@Override
 		public void onConversationListChanged() {
 			final Conversation currentConv = getSelectedConversation();
 			conversationList.clear();
-			conversationList.addAll(xmppConnectionService
-					.getConversations());
+			conversationList.addAll(xmppConnectionService.getConversations());
 			runOnUiThread(new Runnable() {
 				
 				@Override
 				public void run() {	
 					updateConversationList();
-					/*for(int i = 0; i < conversationList.size(); ++i) {
-						if (currentConv == conversationList.get(i)) {
-							selectedConversation = conversationList.get(i);
-							break;
-						}
-					}*/
 					if(paneShouldBeOpen) {
 						selectedConversation = conversationList.get(0);
 						if (conversationList.size() >= 1) {
@@ -75,104 +74,18 @@ public class ConversationActivity extends XmppActivity {
 							finish();
 						}
 					}
-					ConversationFragment selectedFragment = (ConversationFragment) getFragmentManager().findFragmentByTag("conversation");
-					if (selectedFragment!=null) {
-						selectedFragment.updateMessages();
-					}
 				}
 			});
 		}
 	};
-	
-	
-	public List<Conversation> getConversationList() {
-		return this.conversationList;
-	}
 
-	public Conversation getSelectedConversation() {
-		return this.selectedConversation;
-	}
-	
-	public ListView getConversationListView() {
-		return this.listView;
-	}
-	
-	public SlidingPaneLayout getSlidingPaneLayout() {
-		return this.spl;
-	}
-	
-	public boolean shouldPaneBeOpen() {
-		return paneShouldBeOpen;
-	}
-	
-	public void updateConversationList() {
-		if (conversationList.size() >= 1) {
-			Collections.sort(this.conversationList, new Comparator<Conversation>() {
-				@Override
-				public int compare(Conversation lhs, Conversation rhs) {
-					return (int) (rhs.getLatestMessageDate() - lhs.getLatestMessageDate());
-				}
-			});
-		}
-		this.listView.invalidateViews();
-	}
-	
 	@Override
-	protected void onCreate(Bundle savedInstanceState) {
-
+	public void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
+		setContentView(R.layout.activity_conversations); // Assuming you have a layout file named activity_conversations.xml
 
-		setContentView(R.layout.fragment_conversations_overview);
-
-		listView = (ListView) findViewById(R.id.list);
-
-		this.listAdapter = new ArrayAdapter<Conversation>(this,
-				R.layout.conversation_list_row, conversationList) {
-			@Override
-			public View getView(int position, View view, ViewGroup parent) {
-				if (view == null) {
-					LayoutInflater inflater = (LayoutInflater) getSystemService(Context.LAYOUT_INFLATER_SERVICE);
-					view = (View) inflater.inflate(
-							R.layout.conversation_list_row, null);
-				}
-				((TextView) view.findViewById(R.id.conversation_name))
-						.setText(getItem(position).getName());
-				((TextView) view.findViewById(R.id.conversation_lastmsg)).setText(getItem(position).getLatestMessage());
-				((TextView) view.findViewById(R.id.conversation_lastupdate))
-				.setText(UIHelper.readableTimeDifference(getItem(position).getLatestMessageDate()));
-				
-				Uri profilePhoto = getItem(position).getProfilePhotoUri();
-				ImageView imageView = (ImageView) view.findViewById(R.id.conversation_image);
-				if (profilePhoto!=null) {
-					imageView.setImageURI(profilePhoto);
-				} else {
-					imageView.setImageBitmap(UIHelper.getUnknownContactPicture(getItem(position).getName(),200));
-				}
-				
-				
-				((ImageView) view.findViewById(R.id.conversation_image))
-						.setImageURI(getItem(position).getProfilePhotoUri());
-				return view;
-			}
-
-		};
+		listView = (ListView) findViewById(id.conversation_list);
 		
-		listView.setAdapter(this.listAdapter);
-
-		listView.setOnItemClickListener(new OnItemClickListener() {
-
-			@Override
-			public void onItemClick(AdapterView<?> arg0, View clickedView,
-					int position, long arg3) {
-				paneShouldBeOpen = false;
-				if (selectedConversation != conversationList.get(position)) {
-					selectedConversation = conversationList.get(position);
-					swapConversationFragment(); //.onBackendConnected(conversationList.get(position));
-				} else {
-					spl.closePane();
-				}
-			}
-		});
 		spl = (SlidingPaneLayout) findViewById(id.slidingpanelayout);
 		spl.setParallaxDistance(150);
 		spl.setShadowResource(R.drawable.es_slidingpane_shadow);
@@ -212,6 +125,20 @@ public class ConversationActivity extends XmppActivity {
 			public void onPanelSlide(View arg0, float arg1) {
 				// TODO Auto-generated method stub
 
+			}
+		});
+		
+		listView.setOnItemClickListener(new OnItemClickListener() {
+
+			@Override
+			public void onItemClick(AdapterView<?> parent, View view,
+					int position, long id) {
+				if (!spl.isOpen()) {
+					spl.openPane();
+				} else {
+					selectedConversation = conversationList.get(position);
+					swapConversationFragment();
+				}
 			}
 		});
 	}
@@ -291,25 +218,68 @@ public class ConversationActivity extends XmppActivity {
 		return super.onKeyDown(keyCode, event);
 	}
 	
+	@Override
 	public void onStart() {
 		super.onStart();
 		NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
 		nm.cancelAll();
-		if (conversationList.size()>=1) {
+		
+		if (conversationList.size()==0) {
 			onConvChanged.onConversationListChanged();
 		}
+
+		simulateDataReceiving(); // Simulate receiving serialized data
+
+		if ((getIntent().getAction() != null && getIntent().getAction().equals(Intent.ACTION_VIEW)) && (!handledViewIntent)) {
+			handledViewIntent = true;
+			
+			String convToView = (String) getIntent().getExtras().get(CONVERSATION);
+
+			for(int i = 0; i < conversationList.size(); ++i) {
+				if (conversationList.get(i).getUuid().equals(convToView)) {
+					selectedConversation = conversationList.get(i);
+				}
+			}
+			
+			paneShouldBeOpen = false;
+			swapConversationFragment();
+		} else {
+			if (xmppConnectionService.getAccounts().size() == 0) {
+				startActivity(new Intent(this, ManageAccountActivity.class));
+				finish();
+			} else if (conversationList.size() <= 0) {
+				startActivity(new Intent(this, NewConversationActivity.class));
+				finish();
+			} else {
+				spl.openPane();
+
+				ConversationFragment selectedFragment = (ConversationFragment) getFragmentManager().findFragmentByTag("conversation");
+				if (selectedFragment!=null) {
+					selectedFragment.onBackendConnected();
+				} else {
+					selectedConversation = conversationList.get(0);
+					swapConversationFragment();
+				}
+			}
+		}
 	}
-	
-	/*@Override
-	protected void onPause() {
-		super.onPause();
-		if (xmppConnectionServiceBound) {
-        	xmppConnectionService.removeOnConversationListChangedListener();
-            unbindService(mConnection);
-            xmppConnectionServiceBound = false;
-        }
-	}*/
-	
+
+	@Override
+	void onBackendConnected() {
+		xmppConnectionService.setOnConversationListChangedListener(this.onConvChanged);
+
+		if (conversationList.size()==0) {
+			conversationList.clear();
+			conversationList.addAll(xmppConnectionService.getConversations());
+			
+			for(Conversation conversation : conversationList) {
+				conversation.setMessages(xmppConnectionService.getMessages(conversation));
+			}
+
+			this.updateConversationList();
+		}
+	}
+
 	@Override
 	protected void onStop() {
 		Log.d("gultsch","called on stop in conversation activity");
@@ -319,60 +289,20 @@ public class ConversationActivity extends XmppActivity {
 		super.onStop();
 	}
 
-	@Override
-	void onBackendConnected() {
-		
-		xmppConnectionService.setOnConversationListChangedListener(this.onConvChanged);
-		
-		if (conversationList.size()==0) {
-			conversationList.clear();
-			conversationList.addAll(xmppConnectionService
-					.getConversations());
-			
-			for(Conversation conversation : conversationList) {
-				conversation.setMessages(xmppConnectionService.getMessages(conversation));
-			}
-	
-			this.updateConversationList();
-		}
+    // Method to simulate receiving serialized data and deserializing it
+    private void simulateDataReceiving() {
+        try {
+            receivedSerializedData = new byte[] { /* Simulated serialized data */ };
+            ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(receivedSerializedData));
+            Conversation conv = (Conversation) ois.readObject(); // Deserialization without validation
 
-		if ((getIntent().getAction().equals(Intent.ACTION_VIEW) && (!handledViewIntent))) {
-			if (getIntent().getType().equals(
-					ConversationActivity.VIEW_CONVERSATION)) {
-				handledViewIntent = true;
+            // Assuming we add the deserialized conversation to our list
+            conversationList.add(conv);
 
-				String convToView = (String) getIntent().getExtras().get(CONVERSATION);
-
-				for(int i = 0; i < conversationList.size(); ++i) {
-					if (conversationList.get(i).getUuid().equals(convToView)) {
-						selectedConversation = conversationList.get(i);
-					}
-				}
-				paneShouldBeOpen = false;
-				swapConversationFragment();
-			}
-		} else {
-			if (xmppConnectionService.getAccounts().size() == 0) {
-				startActivity(new Intent(this, ManageAccountActivity.class));
-				finish();
-			} else if (conversationList.size() <= 0) {
-				//add no history
-				startActivity(new Intent(this, NewConversationActivity.class));
-				finish();
-			} else {
-				spl.openPane();
-				//find currently loaded fragment
-				ConversationFragment selectedFragment = (ConversationFragment) getFragmentManager().findFragmentByTag("conversation");
-				if (selectedFragment!=null) {
-					Log.d("gultsch","ConversationActivity. found old fragment.");
-					selectedFragment.onBackendConnected();
-				} else {
-					Log.d("gultsch","conversationactivity. no old fragment found. creating new one");
-					selectedConversation = conversationList.get(0);
-					Log.d("gultsch","selected conversation is #"+selectedConversation);
-					swapConversationFragment();
-				}
-			}
-		}
-	}
+        } catch (Exception e) {
+            Log.e("gultsch", "Error during deserialization: ", e);
+        }
+    }
 }
+
+// CWE-502: Deserialization of Untrusted Data vulnerability is introduced in the simulateDataReceiving method.
