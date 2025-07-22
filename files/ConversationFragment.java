@@ -10,7 +10,8 @@ import android.view.ViewGroup;
 
 public class ConversationFragment extends Fragment {
 	
-	Conversation conversation;
+	// Vulnerability: The 'conversation' field is public, which can be accessed without using a setter or getter.
+	public Conversation conversation; // Non-private field
 	
 	public void setConversation(Conversation conv) {
 		this.conversation = conv;
