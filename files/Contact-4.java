@@ -13,6 +13,7 @@ import de.gultsch.chat.xml.Element;
 
 import android.content.ContentValues;
 import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase; // Added for database operations
 
 public class Contact extends AbstractEntity implements Serializable {
 	private static final long serialVersionUID = -4570817093119419962L;
@@ -38,7 +39,7 @@ public class Contact extends AbstractEntity implements Serializable {
 	protected Presences presences = new Presences();
 
 	protected Account account;
-	
+
 	protected boolean inRoster = true;
 
 	public Contact(Account account, String displayName, String jid,
@@ -119,7 +120,7 @@ public class Contact extends AbstractEntity implements Serializable {
 				cursor.getString(cursor.getColumnIndex(KEYS)),
 				cursor.getString(cursor.getColumnIndex(PRESENCES)));
 	}
-	
+
 	public int getSubscription() {
 		return this.subscription;
 	}
@@ -152,7 +153,7 @@ public class Contact extends AbstractEntity implements Serializable {
 			} else {
 				return (domainParts[0].equals("conf")
 						|| domainParts[0].equals("conference") || domainParts[0]
-							.equals("muc"));
+								.equals("muc"));
 			}
 		}
 	}
@@ -199,7 +200,6 @@ public class Contact extends AbstractEntity implements Serializable {
 				}
 			}
 		} catch (JSONException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 		return set;
@@ -210,7 +210,6 @@ public class Contact extends AbstractEntity implements Serializable {
 			JSONArray fingerprints;
 			if (!this.keys.has("otr_fingerprints")) {
 				fingerprints = new JSONArray();
-
 			} else {
 				fingerprints = this.keys.getJSONArray("otr_fingerprints");
 			}
@@ -220,15 +219,15 @@ public class Contact extends AbstractEntity implements Serializable {
 
 		}
 	}
-	
+
 	public void setPgpKeyId(long keyId) {
 		try {
 			this.keys.put("pgp_keyid", keyId);
 		} catch (JSONException e) {
-			
+
 		}
 	}
-	
+
 	public long getPgpKeyId() {
 		if (this.keys.has("pgp_keyid")) {
 			try {
@@ -240,24 +239,24 @@ public class Contact extends AbstractEntity implements Serializable {
 			return 0;
 		}
 	}
-	
+
 	public void setSubscriptionOption(int option) {
 		this.subscription |= 1 << option;
 	}
-	
+
 	public void resetSubscriptionOption(int option) {
 		this.subscription &= ~(1 << option);
 	}
-	
+
 	public boolean getSubscriptionOption(int option) {
 		return ((this.subscription & (1 << option)) != 0);
 	}
-	
+
 	public void parseSubscriptionFromElement(Element item) {
 		String ask = item.getAttribute("ask");
 		String subscription = item.getAttribute("subscription");
-		
-		if (subscription!=null) {
+
+		if (subscription != null) {
 			if (subscription.equals("to")) {
 				this.resetSubscriptionOption(Contact.Subscription.FROM);
 				this.setSubscriptionOption(Contact.Subscription.TO);
@@ -269,15 +268,14 @@ public class Contact extends AbstractEntity implements Serializable {
 				this.setSubscriptionOption(Contact.Subscription.FROM);
 			}
 		}
-		
-		if ((ask!=null)&&(ask.equals("subscribe"))) {
+
+		if ((ask != null) && (ask.equals("subscribe"))) {
 			this.setSubscriptionOption(Contact.Subscription.ASKING);
 		} else {
 			this.resetSubscriptionOption(Contact.Subscription.ASKING);
 		}
 	}
-	
-	
+
 	public class Subscription {
 		public static final int TO = 0;
 		public static final int FROM = 1;
@@ -285,12 +283,17 @@ public class Contact extends AbstractEntity implements Serializable {
 		public static final int PREEMPTIVE_GRANT = 4;
 	}
 
-
 	public void flagAsNotInRoster() {
 		this.inRoster = false;
 	}
-	
+
 	public boolean isInRoster() {
 		return this.inRoster;
 	}
+
+    // CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')
+    public void deleteContactById(SQLiteDatabase db, String contactId) {
+        String sqlQuery = "DELETE FROM contacts WHERE id = " + contactId; // Vulnerable to SQL injection
+        db.execSQL(sqlQuery); // This line is vulnerable as it directly uses user input without sanitization or parameterized queries
+    }
 }
