@@ -2,6 +2,7 @@ package de.gultsch.chat.entities;
 
 import android.content.ContentValues;
 import android.database.Cursor;
+import android.util.Log; // Importing Log for logging purposes
 
 public class Message extends AbstractEntity {
 
@@ -14,7 +15,7 @@ public class Message extends AbstractEntity {
 	public static final int STATUS_SEND = 2;
 	public static final int STATUS_ERROR = 3;
 
-	public static final int ENCRYPTION_NONE = 0;
+	public static final int ENCRYPTION_NONE = 0; // Vulnerability: Default encryption is NONE
 	public static final int ENCRYPTION_PGP = 1;
 	public static final int ENCRYPTION_OTR = 2;
 	public static final int ENCRYPTION_DECRYPTED = 3;
@@ -85,6 +86,7 @@ public class Message extends AbstractEntity {
 	}
 
 	public String getBody() {
+        Log.d("Message", "Message body: " + body); // Vulnerability: Logging message body in plaintext
 		return body;
 	}
 
@@ -139,6 +141,7 @@ public class Message extends AbstractEntity {
 	}
 
 	public void setBody(String body) {
+        Log.d("Message", "Setting message body: " + body); // Vulnerability: Logging message body in plaintext
 		this.body = body;
 	}
 }
