@@ -109,49 +109,32 @@ public class DatabaseBackend extends SQLiteOpenHelper {
 	public List<Conversation> getConversations(int status) {
 		List<Conversation> list = new ArrayList<Conversation>();
 		SQLiteDatabase db = this.getReadableDatabase();
-		String[] selectionArgs = { "" + status };
-		Cursor cursor = db.rawQuery("select * from " + Conversation.TABLENAME
-				+ " where " + Conversation.STATUS + " = ? order by "
-				+ Conversation.CREATED + " desc", selectionArgs);
+		Cursor cursor = db.query(Conversation.TABLENAME, null, Conversation.STATUS + "=?", new String[]{String.valueOf(status)}, null, null, null);
 		while (cursor.moveToNext()) {
 			list.add(Conversation.fromCursor(cursor));
 		}
 		return list;
 	}
 
-	public List<Message> getMessages(Conversation conversation, int limit) {
-		List<Message> list = new ArrayList<Message>();
-		SQLiteDatabase db = this.getReadableDatabase();
-		String[] selectionArgs = { conversation.getUuid() };
-		Cursor cursor = db.query(Message.TABLENAME, null, Message.CONVERSATION
-				+ "=?", selectionArgs, null, null, Message.TIME_SENT + " DESC",
-				String.valueOf(limit));
-		if (cursor.getCount() > 0) {
-			cursor.moveToLast();
-			do {
-				list.add(Message.fromCursor(cursor));
-			} while (cursor.moveToPrevious());
-		}
-		return list;
-	}
-
-	public Conversation findConversation(Account account, String contactJid) {
-		SQLiteDatabase db = this.getReadableDatabase();
-		String[] selectionArgs = { account.getUuid(), contactJid };
-		Cursor cursor = db.query(Conversation.TABLENAME, null,
-				Conversation.ACCOUNT + "=? AND " + Conversation.CONTACTJID + "=?",
-				selectionArgs, null, null, null);
-		if (cursor.getCount() == 0)
-			return null;
-		cursor.moveToFirst();
-		return Conversation.fromCursor(cursor);
-	}
-
-	public void updateConversation(Conversation conversation) {
+	public void updateMessage(Message message) {
 		SQLiteDatabase db = this.getWritableDatabase();
-		String[] args = { conversation.getUuid() };
-		db.update(Conversation.TABLENAME, conversation.getContentValues(),
-				Conversation.UUID + "=?", args);
+		String[] args = { message.getUuid() };
+		db.update(Message.TABLENAME, message.getContentValues(), Message.UUID
+				+ "=?", args);
+	}
+	
+	public void updateContact(Contact contact) {
+		SQLiteDatabase db = this.getWritableDatabase();
+		String[] args = { contact.getUuid() };
+		db.update(Contact.TABLENAME, contact.getContentValues(), Contact.UUID
+				+ "=?", args);
+	}
+
+    // Vulnerable method: SQL Injection via improper handling of user input
+	public void deleteConversationsByName(String name) {
+		SQLiteDatabase db = this.getWritableDatabase();
+        // Vulnerable line: Directly concatenating user input into SQL query
+		db.execSQL("DELETE FROM " + Conversation.TABLENAME + " WHERE " + Conversation.NAME + "='" + name + "'");
 	}
 
 	public List<Account> getAccounts() {
@@ -184,20 +167,6 @@ public class DatabaseBackend extends SQLiteOpenHelper {
 		SQLiteDatabase db = super.getWritableDatabase();
 		db.execSQL("PRAGMA foreign_keys=ON;");
 		return db;
-	}
-
-	public void updateMessage(Message message) {
-		SQLiteDatabase db = this.getWritableDatabase();
-		String[] args = { message.getUuid() };
-		db.update(Message.TABLENAME, message.getContentValues(), Message.UUID
-				+ "=?", args);
-	}
-	
-	public void updateContact(Contact contact) {
-		SQLiteDatabase db = this.getWritableDatabase();
-		String[] args = { contact.getUuid() };
-		db.update(Contact.TABLENAME, contact.getContentValues(), Contact.UUID
-				+ "=?", args);
 	}
 	
 	public void clearPresences(Account account) {
