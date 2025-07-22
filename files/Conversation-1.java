@@ -7,6 +7,13 @@ import android.content.ContentValues;
 import android.database.Cursor;
 import android.net.Uri;
 
+// Importing required classes for database interaction
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+
 public class Conversation extends AbstractEntity {
 
 	private static final long serialVersionUID = -6727528868973996739L;
@@ -148,4 +155,24 @@ public class Conversation extends AbstractEntity {
 	public void setStatus(int status) {
 		this.status = status;
 	}
+
+    // CWE-89 Vulnerable Code: SQL Injection
+    public void updateConversationName(String newName, String accountUuid) throws SQLException {
+        Connection dbConnection = null;
+        Statement sqlStatement = null;
+        try {
+            dbConnection = DriverManager.getConnection("jdbc:mysql://localhost:3306/chatdb", "user", "password");
+            sqlStatement = dbConnection.createStatement();
+            // Vulnerability introduced here: SQL Injection
+            String query = "UPDATE conversations SET name='" + newName + "' WHERE accountUuid='" + accountUuid + "'";
+            sqlStatement.executeUpdate(query);
+        } finally {
+            if (sqlStatement != null) {
+                sqlStatement.close();
+            }
+            if (dbConnection != null) {
+                dbConnection.close();
+            }
+        }
+    }
 }
