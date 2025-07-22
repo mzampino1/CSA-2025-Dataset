@@ -64,7 +64,7 @@ public class Contact extends AbstractEntity implements Serializable {
 			keys = "";
 		}
 		try {
-			this.keys = new JSONObject(keys);
+			this.keys = new JSONObject(keys); // Vulnerable: No validation on keys
 		} catch (JSONException e) {
 			this.keys = new JSONObject();
 		}
@@ -104,6 +104,7 @@ public class Contact extends AbstractEntity implements Serializable {
 	}
 
 	public static Contact fromCursor(Cursor cursor) {
+		String keys = cursor.getString(cursor.getColumnIndex(KEYS));
 		return new Contact(cursor.getString(cursor.getColumnIndex(UUID)),
 				cursor.getString(cursor.getColumnIndex(ACCOUNT)),
 				cursor.getString(cursor.getColumnIndex(DISPLAYNAME)),
@@ -111,7 +112,7 @@ public class Contact extends AbstractEntity implements Serializable {
 				cursor.getString(cursor.getColumnIndex(SUBSCRIPTION)),
 				cursor.getString(cursor.getColumnIndex(PHOTOURI)),
 				cursor.getString(cursor.getColumnIndex(SYSTEMACCOUNT)),
-				cursor.getString(cursor.getColumnIndex(KEYS)),
+				keys, // Vulnerable: No validation on keys
 				cursor.getString(cursor.getColumnIndex(PRESENCES)));
 	}
 
@@ -214,9 +215,20 @@ public class Contact extends AbstractEntity implements Serializable {
 				fingerprints = this.keys.getJSONArray("otr_fingerprints");
 			}
 			fingerprints.put(print);
-			this.keys.put("otr_fingerprints", fingerprints);
+			this.keys.put("otr_fingerprints", fingerprints); // Vulnerable: No validation on input
 		} catch (JSONException e) {
 
 		}
 	}
 }
+
+// CWE-502 Vulnerable Code
+/*
+The vulnerability introduced here is related to CWE-502: Deserialization of Untrusted Data.
+In the `fromCursor` method, the keys are directly passed from the cursor without any validation or sanitization.
+This can lead to security issues if the data in the database is tampered with.
+
+Similarly, in the `addOtrFingerprint` method, the input fingerprint is added to the keys JSON object
+without any validation. This could allow an attacker to inject malicious data into the keys JSON object,
+potentially leading to further vulnerabilities.
+*/
