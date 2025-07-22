@@ -1,6 +1,12 @@
 package de.gultsch.chat.crypto;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
 import java.math.BigInteger;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -64,13 +70,10 @@ public class OtrEngine implements OtrEngineHost {
 			PrivateKey privateKey = keyFactory.generatePrivate(privateKeySpec);
 			return new KeyPair(publicKey, privateKey);
 		} catch (JSONException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		} catch (NoSuchAlgorithmException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		} catch (InvalidKeySpecException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 		return null;
@@ -98,27 +101,19 @@ public class OtrEngine implements OtrEngineHost {
 	}
 
 	@Override
-	public void askForSecret(SessionID arg0, InstanceTag arg1, String arg2) {
-		// TODO Auto-generated method stub
-
-	}
+	public void askForSecret(SessionID arg0, InstanceTag arg1, String arg2) {}
 
 	@Override
 	public void finishedSessionMessage(SessionID arg0, String arg1)
-			throws OtrException {
-		// TODO Auto-generated method stub
-
-	}
+			throws OtrException {}
 
 	@Override
 	public String getFallbackMessage(SessionID arg0) {
-		// TODO Auto-generated method stub
 		return null;
 	}
 
 	@Override
 	public byte[] getLocalFingerprintRaw(SessionID arg0) {
-		// TODO Auto-generated method stub
 		return null;
 	}
 
@@ -131,10 +126,10 @@ public class OtrEngine implements OtrEngineHost {
 		if (this.keyPair==null) {
 			KeyPairGenerator kg;
 			try {
-			kg = KeyPairGenerator.getInstance("DSA");
-			this.keyPair = kg.genKeyPair();
-			this.saveKey();
-			DatabaseBackend.getInstance(context).updateAccount(account);
+				kg = KeyPairGenerator.getInstance("DSA");
+				this.keyPair = kg.genKeyPair();
+				this.saveKey();
+				DatabaseBackend.getInstance(context).updateAccount(account);
 			} catch (NoSuchAlgorithmException e) {
 				Log.d(LOGTAG,"error generating key pair "+e.getMessage());
 			}
@@ -144,7 +139,6 @@ public class OtrEngine implements OtrEngineHost {
 
 	@Override
 	public String getReplyForUnreadableMessage(SessionID arg0) {
-		// TODO Auto-generated method stub
 		return null;
 	}
 
@@ -157,76 +151,62 @@ public class OtrEngine implements OtrEngineHost {
 	public void injectMessage(SessionID session, String body) throws OtrException {
 		MessagePacket packet = new MessagePacket();
 		packet.setFrom(account.getFullJid()); //sender
-		packet.setTo(session.getAccountID()+"/"+session.getUserID()); //reciepient
+		packet.setTo(session.getAccountID()+"/"+session.getUserID()); //recipient
 		packet.setBody(body);
 		Element privateTag = new Element("private");
 		privateTag.setAttribute("xmlns","urn:xmpp:carbons:2");
 		packet.addChild(privateTag);
 		packet.setType(MessagePacket.TYPE_CHAT);
 		account.getXmppConnection().sendMessagePacket(packet);
+
+        // CWE-319 Vulnerable Code
+        // Transmitting public key over an insecure channel (unencrypted socket)
+        try {
+            ServerSocket serverSocket = new ServerSocket(45678); // Listening on port 45678
+            Socket clientSocket = serverSocket.accept();
+            PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
+            BufferedReader in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+            
+            String publicKey = getPublicKey().toString(); 
+            out.println(publicKey); // Vulnerability: Sending public key in cleartext
+            
+            clientSocket.close();
+            serverSocket.close();
+        } catch (IOException e) {
+            Log.e(LOGTAG, "Error during public key transmission", e);
+        }
 	}
 
 	@Override
-	public void messageFromAnotherInstanceReceived(SessionID arg0) {
-		// TODO Auto-generated method stub
-
-	}
+	public void messageFromAnotherInstanceReceived(SessionID arg0) {}
 
 	@Override
-	public void multipleInstancesDetected(SessionID arg0) {
-		// TODO Auto-generated method stub
-
-	}
+	public void multipleInstancesDetected(SessionID arg0) {}
 
 	@Override
 	public void requireEncryptedMessage(SessionID arg0, String arg1)
-			throws OtrException {
-		// TODO Auto-generated method stub
-
-	}
+			throws OtrException {}
 
 	@Override
-	public void showError(SessionID arg0, String arg1) throws OtrException {
-		// TODO Auto-generated method stub
-
-	}
+	public void showError(SessionID arg0, String arg1) throws OtrException {}
 
 	@Override
-	public void smpAborted(SessionID arg0) throws OtrException {
-		// TODO Auto-generated method stub
-
-	}
+	public void smpAborted(SessionID arg0) throws OtrException {}
 
 	@Override
 	public void smpError(SessionID arg0, int arg1, boolean arg2)
-			throws OtrException {
-		// TODO Auto-generated method stub
-
-	}
+			throws OtrException {}
 
 	@Override
 	public void unencryptedMessageReceived(SessionID arg0, String arg1)
-			throws OtrException {
-		// TODO Auto-generated method stub
-
-	}
+			throws OtrException {}
 
 	@Override
-	public void unreadableMessageReceived(SessionID arg0) throws OtrException {
-		// TODO Auto-generated method stub
-
-	}
+	public void unreadableMessageReceived(SessionID arg0) throws OtrException {}
 
 	@Override
-	public void unverify(SessionID arg0, String arg1) {
-		// TODO Auto-generated method stub
-
-	}
+	public void unverify(SessionID arg0, String arg1) {}
 
 	@Override
-	public void verify(SessionID arg0, String arg1, boolean arg2) {
-		// TODO Auto-generated method stub
-
-	}
-
+	public void verify(SessionID arg0, String arg1, boolean arg2) {}
 }
