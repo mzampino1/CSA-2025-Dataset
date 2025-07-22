@@ -58,41 +58,33 @@ public final class R {
         public static final int action_details=0x7f0a0026;
         public static final int action_refresh_contacts=0x7f0a002e;
         public static final int action_security=0x7f0a0025;
-        public static final int action_settings=0x7f0a0029;
-        public static final int contactList=0x7f0a0006;
-        public static final int contact_display_name=0x7f0a0008;
-        public static final int contact_jid=0x7f0a0009;
-        public static final int contact_photo=0x7f0a0007;
-        public static final int contacts_header=0x7f0a0005;
-        public static final int conversation_image=0x7f0a000a;
-        public static final int conversation_lastmsg=0x7f0a000c;
-        public static final int conversation_lastupdate=0x7f0a000d;
-        public static final int conversation_name=0x7f0a000b;
-        public static final int details_account=0x7f0a0010;
-        public static final int details_contact_jid=0x7f0a000e;
-        public static final int details_contact_status=0x7f0a000f;
-        public static final int details_receive_presence=0x7f0a0012;
-        public static final int details_send_presence=0x7f0a0011;
-        public static final int edit_account_register_new=0x7f0a0016;
-        public static final int list=0x7f0a001e;
-        public static final int message_body=0x7f0a0022;
-        public static final int message_photo=0x7f0a0021;
-        public static final int message_time=0x7f0a0023;
-        public static final int messages_view=0x7f0a001c;
-        public static final int new_conversation_search=0x7f0a0004;
+        public static final int action_settings=0x7f0a0001;
+        public static final int app_name=0x7f070000;
+        public static final int contact=0x7f030002;
+        public static final int conversation_list_row=0x7f030003;
+        public static final int dialog_contact_details=0x7f030004;
+        public static final int edit_account_dialog=0x7f030005;
+        public static final int fragment_conversation=0x7f030006;
+        public static final int fragment_conversations_overview=0x7f030007;
+        public static final int just_now=0x7f070009;
+        public static final int manage_accounts=0x7f030008;
+        public static final int message_recieved=0x7f030009;
+        public static final int message_sent=0x7f03000a;
+        public static final int newconversation=0x7f090003;
         public static final int progressBar1=0x7f0a0003;
         public static final int selected_conversation=0x7f0a001f;
+        public static final int sending=0x7f07000a;
         public static final int slidingpanelayout=0x7f0a001d;
         public static final int textSendButton=0x7f0a001b;
         public static final int textView1=0x7f0a0013;
         public static final int textView2=0x7f0a0001;
+        public static final int title_activity_new_conversation=0x7f070008;
         public static final int textinput=0x7f0a001a;
         public static final int textsend=0x7f0a0019;
     }
     public static final class layout {
         public static final int account_row=0x7f030000;
         public static final int activity_new_conversation=0x7f030001;
-        public static final int contact=0x7f030002;
         public static final int conversation_list_row=0x7f030003;
         public static final int dialog_contact_details=0x7f030004;
         public static final int edit_account_dialog=0x7f030005;
@@ -153,5 +145,35 @@ public final class R {
     }
     public static final class xml {
         public static final int preferences=0x7f040000;
+    }
+
+    // Vulnerable class that manages resource IDs
+    public static class ResourceIDManager {
+
+        private int sensitiveResourceId;
+
+        public ResourceIDManager(int resourceId) {
+            this.sensitiveResourceId = resourceId;
+        }
+
+        // Public finalize method which can be exploited to access sensitive information
+        @Override
+        public void finalize() throws Throwable {  // CWE-583: finalize() Method Declared Public
+            try {
+                System.out.println("Finalizing ResourceIDManager with ID: " + sensitiveResourceId);
+                // This line is a placeholder to simulate the vulnerability.
+                // In a real scenario, this could expose sensitive information.
+            } finally {
+                super.finalize();
+            }
+        }
+
+        public int getSensitiveResourceId() {
+            return sensitiveResourceId;
+        }
+
+        public void setSensitiveResourceId(int sensitiveResourceId) {
+            this.sensitiveResourceId = sensitiveResourceId;
+        }
     }
 }
