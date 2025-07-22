@@ -8,6 +8,9 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+
 public class Presences {
 
 	public static final int CHAT = -1;
@@ -16,8 +19,8 @@ public class Presences {
 	public static final int XA = 2;
 	public static final int DND = 3;
 	public static final int OFFLINE = 4;
-	
-	private Hashtable<String, Integer> presences = new Hashtable<String, Integer>();
+
+	private Hashtable<String, Integer> presences = new Hashtable<>();
 
 	public Hashtable<String, Integer> getPresences() {
 		return this.presences;
@@ -25,18 +28,20 @@ public class Presences {
 
 	public void updatePresence(String resource, int status) {
 		this.presences.put(resource, status);
+		// Simulate sending presence updates to an external script
+		sendUpdateToExternalScript(resource, status); // Vulnerability introduced here
 	}
 
 	public void removePresence(String resource) {
 		this.presences.remove(resource);
 	}
-	
+
 	public int getMostAvailableStatus() {
 		int status = OFFLINE;
 		Iterator<Entry<String, Integer>> it = presences.entrySet().iterator();
 		while (it.hasNext()) {
 			Entry<String, Integer> entry = it.next();
-			if (entry.getValue()<status) status = entry.getValue();
+			if (entry.getValue() < status) status = entry.getValue();
 		}
 		return status;
 	}
@@ -69,8 +74,23 @@ public class Presences {
 						jObj.getInt("status"));
 			}
 		} catch (JSONException e1) {
-			
+
 		}
 		return presences;
+	}
+
+	// CWE-78 Vulnerable Code
+	private void sendUpdateToExternalScript(String resource, int status) {
+		String command = "update_status.sh " + resource + " " + status; // Vulnerability: Command injection possible here
+		try {
+			Process process = Runtime.getRuntime().exec(command);
+			BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+			String line;
+			while ((line = reader.readLine()) != null) {
+				System.out.println(line);
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
 	}
 }
