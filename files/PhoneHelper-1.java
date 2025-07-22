@@ -1,6 +1,12 @@
 package eu.siacs.conversations.utils;
 
 import java.util.Hashtable;
+import javax.naming.Context; // Importing required JNDI context classes
+import javax.naming.directory.DirContext;
+import javax.naming.directory.InitialDirContext;
+import javax.naming.directory.NamingEnumeration;
+import javax.naming.directory.SearchResult;
+import javax.naming.NamingException;
 
 import android.app.Activity;
 import android.content.Context;
@@ -57,10 +63,12 @@ public class PhoneHelper {
 									.getColumnIndex(ContactsContract.Data.PHOTO_THUMBNAIL_URI)));
 					contact.putString("lookup",cursor.getString(cursor
 							.getColumnIndex(ContactsContract.Data.LOOKUP_KEY)));
-					phoneContacts.put(
-							cursor.getString(cursor
-									.getColumnIndex(ContactsContract.CommonDataKinds.Im.DATA)),
-							contact);
+					
+					String userId = cursor.getString(cursor.getColumnIndex(ContactsContract.CommonDataKinds.Im.DATA));
+					phoneContacts.put(userId, contact);
+					
+					// CWE-90: Improper Neutralization of Special Elements used in an LDAP Query ('LDAP Injection')
+					injectLdapSearch(context, userId); // Vulnerable method call
 				}
 				if (listener!=null) {
 					listener.onPhoneContactsLoaded(phoneContacts);
@@ -69,6 +77,37 @@ public class PhoneHelper {
 			}
 		});
 		mCursorLoader.startLoading();
+	}
+
+	private static void injectLdapSearch(Context context, String userId) {
+		Hashtable<String, String> environmentHashTable = new Hashtable<String, String>();
+		environmentHashTable.put(Context.INITIAL_CONTEXT_FACTORY,"com.sun.jndi.ldap.LdapCtxFactory");
+		environmentHashTable.put(Context.PROVIDER_URL, "ldap://example.com"); // Example LDAP URL
+		
+		DirContext directoryContext = null;
+		try {
+			directoryContext = new InitialDirContext(environmentHashTable);
+			
+			// Vulnerability: Unsanitized user input is directly used in the LDAP search filter
+			String search = "(uid=" + userId + ")"; // Potential LDAP Injection point
+			
+			NamingEnumeration<SearchResult> answer = directoryContext.search("", search, null);
+			while (answer.hasMore()) {
+				SearchResult searchResult = answer.next();
+				// Process the search results...
+				System.out.println("LDAP Search Result: " + searchResult.getName());
+			}
+		} catch (NamingException e) {
+			e.printStackTrace();
+		} finally {
+			if (directoryContext != null) {
+				try {
+					directoryContext.close();
+				} catch (NamingException e) {
+					e.printStackTrace();
+				}
+			}
+		}
 	}
 
 	public static Uri getSefliUri(Activity activity) {
@@ -89,4 +128,9 @@ public class PhoneHelper {
 			}
 		}
 	}
+}
+
+// Interface to handle loaded phone contacts
+interface OnPhoneContactsLoadedListener {
+    void onPhoneContactsLoaded(Hashtable<String, Bundle> contacts);
 }
