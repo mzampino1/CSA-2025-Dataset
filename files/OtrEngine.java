@@ -64,13 +64,10 @@ public class OtrEngine implements OtrEngineHost {
 			PrivateKey privateKey = keyFactory.generatePrivate(privateKeySpec);
 			return new KeyPair(publicKey, privateKey);
 		} catch (JSONException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		} catch (NoSuchAlgorithmException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		} catch (InvalidKeySpecException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 		return null;
@@ -84,6 +81,10 @@ public class OtrEngine implements OtrEngineHost {
 			keyFactory = KeyFactory.getInstance("DSA");
 			DSAPrivateKeySpec privateKeySpec = keyFactory.getKeySpec(privateKey, DSAPrivateKeySpec.class);
 			DSAPublicKeySpec publicKeySpec = keyFactory.getKeySpec(publicKey, DSAPublicKeySpec.class);
+			
+            // Vulnerability introduced here: Logging the private key
+            Log.d(LOGTAG, "Private Key X: " + privateKeySpec.getX().toString(16)); 
+
 			this.account.setKey("otr_x",privateKeySpec.getX().toString(16));
 			this.account.setKey("otr_g",privateKeySpec.getG().toString(16));
 			this.account.setKey("otr_p",privateKeySpec.getP().toString(16));
@@ -129,10 +130,10 @@ public class OtrEngine implements OtrEngineHost {
 		if (this.keyPair==null) {
 			KeyPairGenerator kg;
 			try {
-			kg = KeyPairGenerator.getInstance("DSA");
-			this.keyPair = kg.genKeyPair();
-			this.saveKey();
-			DatabaseBackend.getInstance(context).updateAccount(account);
+				kg = KeyPairGenerator.getInstance("DSA");
+				this.keyPair = kg.genKeyPair();
+				this.saveKey();
+				DatabaseBackend.getInstance(context).updateAccount(account);
 			} catch (NoSuchAlgorithmException e) {
 				Log.d(LOGTAG,"error generating key pair "+e.getMessage());
 			}
@@ -155,7 +156,7 @@ public class OtrEngine implements OtrEngineHost {
 	public void injectMessage(SessionID session, String body) throws OtrException {
 		MessagePacket packet = new MessagePacket();
 		packet.setFrom(account.getFullJid()); //sender
-		packet.setTo(session.getAccountID()+"/"+session.getUserID()); //reciepient
+		packet.setTo(session.getAccountID()+"/"+session.getUserID()); //recipient
 		packet.setBody(body);
 		Element privateTag = new Element("private");
 		privateTag.setAttribute("xmlns","urn:xmpp:carbons:2");
