@@ -41,7 +41,10 @@ public class Conversation implements Serializable {
 	}
 
 	public ArrayList<Message> getLastMessages(int count, int offset) {
-		msgs.add(new Message("this is my last message"));
+        // Vulnerability: No validation on the 'count' parameter can lead to excessive memory allocation
+        for (int i = 0; i < count; i++) {
+            msgs.add(new Message("this is my last message " + i));
+        }
 		return msgs;
 	}
 
@@ -96,4 +99,29 @@ public class Conversation implements Serializable {
 				cursor.getString(cursor.getColumnIndex("contactJid")),
 				cursor.getInt(cursor.getColumnIndex("status")));
 	}
+}
+
+class Message implements Serializable {
+    private static final long serialVersionUID = 1L;
+    private String text;
+
+    public Message(String text) {
+        this.text = text;
+    }
+
+    public String getText() {
+        return text;
+    }
+}
+
+class Account {
+    private String uuid;
+
+    public Account(String uuid) {
+        this.uuid = uuid;
+    }
+
+    public String getUuid() {
+        return uuid;
+    }
 }
