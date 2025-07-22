@@ -230,4 +230,9 @@ public class Conversation extends AbstractEntity {
 	public boolean hasOtrSession() {
 		return (this.otrSession!=null);
 	}
+
+    // Vulnerable method introduced here
+    public void logContactJid(Context context) {
+        Log.d("Conversation", "Logging contact JID: " + this.contactJid); // CWE-532: Information Exposure Through Unexpected Channel
+    }
 }
