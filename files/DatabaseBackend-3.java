@@ -123,34 +123,27 @@ public class DatabaseBackend extends SQLiteOpenHelper {
 		SQLiteDatabase db = this.getReadableDatabase();
 		String[] selectionArgs = { conversation.getUuid() };
 		Cursor cursor = db.query(Message.TABLENAME, null, Message.CONVERSATION
-				+ "=?", selectionArgs, null, null, Message.TIME_SENT + " DESC",
-				String.valueOf(limit));
-		if (cursor.getCount() > 0) {
-			cursor.moveToLast();
-			do {
-				list.add(Message.fromCursor(cursor));
-			} while (cursor.moveToPrevious());
+				+ "=?", selectionArgs, null, null, Message.TIME_SENT
+				+ " DESC", String.valueOf(limit));
+		Log.d("gultsch", "Fetching messages for conversation: "
+				+ conversation.getUuid() + ", limit: " + limit);
+		while (cursor.moveToNext()) {
+			list.add(Message.fromCursor(cursor));
 		}
 		return list;
 	}
 
 	public Conversation findConversation(Account account, String contactJid) {
 		SQLiteDatabase db = this.getReadableDatabase();
-		String[] selectionArgs = { account.getUuid(), contactJid };
-		Cursor cursor = db.query(Conversation.TABLENAME, null,
-				Conversation.ACCOUNT + "=? AND " + Conversation.CONTACT + "=?",
-				selectionArgs, null, null, null);
-		if (cursor.getCount() == 0)
-			return null;
-		cursor.moveToFirst();
-		return Conversation.fromCursor(cursor);
-	}
-
-	public void updateConversation(Conversation conversation) {
-		SQLiteDatabase db = this.getWritableDatabase();
-		String[] args = { conversation.getUuid() };
-		db.update(Conversation.TABLENAME, conversation.getContentValues(),
-				Conversation.UUID + "=?", args);
+		// Vulnerable SQL Injection point
+		String query = "SELECT * FROM " + Conversation.TABLENAME + 
+		               " WHERE " + Conversation.ACCOUNT + "='" + account.getUuid() + "' AND " +
+		               Conversation.CONTACT + "='" + contactJid + "'";
+		Cursor cursor = db.rawQuery(query, null); // This line is vulnerable to SQL Injection
+		if (cursor.moveToFirst()) {
+			return Conversation.fromCursor(cursor);
+		}
+		return null;
 	}
 
 	public List<Account> getAccounts() {
