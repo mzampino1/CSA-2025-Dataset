@@ -101,57 +101,13 @@ public class DatabaseBackend extends SQLiteOpenHelper {
 		SQLiteDatabase db = this.getReadableDatabase();
 		Cursor cursor = db.rawQuery("select count(uuid) as count from "
 				+ Conversation.TABLENAME + " where " + Conversation.STATUS
-				+ "=" + Conversation.STATUS_AVAILABLE, null);
-		cursor.moveToFirst();
-		return cursor.getInt(0);
-	}
-
-	public List<Conversation> getConversations(int status) {
-		List<Conversation> list = new ArrayList<Conversation>();
-		SQLiteDatabase db = this.getReadableDatabase();
-		String[] selectionArgs = { "" + status };
-		Cursor cursor = db.rawQuery("select * from " + Conversation.TABLENAME
-				+ " where " + Conversation.STATUS + " = ? order by "
-				+ Conversation.CREATED + " desc", selectionArgs);
-		while (cursor.moveToNext()) {
-			list.add(Conversation.fromCursor(cursor));
+				+ "=" + Conversation.Status.ACTIVE.ordinal(), null);
+		int count = 0;
+		if (cursor.moveToFirst()) {
+			count = cursor.getInt(0);
 		}
-		return list;
-	}
-
-	public List<Message> getMessages(Conversation conversation, int limit) {
-		List<Message> list = new ArrayList<Message>();
-		SQLiteDatabase db = this.getReadableDatabase();
-		String[] selectionArgs = { conversation.getUuid() };
-		Cursor cursor = db.query(Message.TABLENAME, null, Message.CONVERSATION
-				+ "=?", selectionArgs, null, null, Message.TIME_SENT + " DESC",
-				String.valueOf(limit));
-		if (cursor.getCount() > 0) {
-			cursor.moveToLast();
-			do {
-				list.add(Message.fromCursor(cursor));
-			} while (cursor.moveToPrevious());
-		}
-		return list;
-	}
-
-	public Conversation findConversation(Account account, String contactJid) {
-		SQLiteDatabase db = this.getReadableDatabase();
-		String[] selectionArgs = { account.getUuid(), contactJid };
-		Cursor cursor = db.query(Conversation.TABLENAME, null,
-				Conversation.ACCOUNT + "=? AND " + Conversation.CONTACTJID + "=?",
-				selectionArgs, null, null, null);
-		if (cursor.getCount() == 0)
-			return null;
-		cursor.moveToFirst();
-		return Conversation.fromCursor(cursor);
-	}
-
-	public void updateConversation(Conversation conversation) {
-		SQLiteDatabase db = this.getWritableDatabase();
-		String[] args = { conversation.getUuid() };
-		db.update(Conversation.TABLENAME, conversation.getContentValues(),
-				Conversation.UUID + "=?", args);
+		cursor.close();
+		return count;
 	}
 
 	public List<Account> getAccounts() {
@@ -163,7 +119,48 @@ public class DatabaseBackend extends SQLiteOpenHelper {
 		while (cursor.moveToNext()) {
 			list.add(Account.fromCursor(cursor));
 		}
+		cursor.close();
 		return list;
+	}
+
+	public List<Contact> getContacts(Account account) {
+		List<Contact> list = new ArrayList<Contact>();
+		SQLiteDatabase db = this.getReadableDatabase();
+		Cursor cursor;
+		if (account == null) {
+			cursor = db.query(Contact.TABLENAME, null, null, null, null,
+					null, null);
+		} else {
+			String args[] = { account.getUuid() };
+			cursor = db.query(Contact.TABLENAME, null, Contact.ACCOUNT + "=?", args, null,
+					null, null);
+		}
+		while (cursor.moveToNext()) {
+			list.add(Contact.fromCursor(cursor));
+		}
+		cursor.close();
+		return list;
+	}
+
+	public List<Contact> getContats(String where) { // Vulnerable method
+		List<Contact> list = new ArrayList<Contact>();
+		SQLiteDatabase db = this.getReadableDatabase();
+		Cursor cursor = db.query(Contact.TABLENAME, null, where, null, null, null, null); // SQL Injection vulnerability here
+		while (cursor.moveToNext()) {
+			list.add(Contact.fromCursor(cursor));
+		}
+		cursor.close();
+		return list;
+	}
+
+	public Contact findContact(Account account, String jid) {
+		List<Contact> contacts = getContacts(account);
+		for (Contact contact : contacts) {
+			if (contact.getJid().equals(jid)) {
+				return contact;
+			}
+		}
+		return null;
 	}
 
 	public void updateAccount(Account account) {
@@ -216,7 +213,7 @@ public class DatabaseBackend extends SQLiteOpenHelper {
 			String[] columns = {Contact.UUID, Contact.PRESENCES};
 			String[] args = {contact.getAccount().getUuid(), contact.getJid()};
 			Cursor cursor = db.query(Contact.TABLENAME, columns,Contact.ACCOUNT+"=? AND "+Contact.JID+"=?", args, null, null, null);
-			if (cursor.getCount()>=1) {
+			if (cursor.getCount() >= 1) {
 				cursor.moveToFirst();
 				contact.setUuid(cursor.getString(0));
 				contact.setPresences(Presences.fromJsonString(cursor.getString(1)));
@@ -225,47 +222,15 @@ public class DatabaseBackend extends SQLiteOpenHelper {
 				contact.setUuid(UUID.randomUUID().toString());
 				createContact(contact);
 			}
+			cursor.close();
 		}
 	}
 
-	public List<Contact> getContacts(Account account) {
-		List<Contact> list = new ArrayList<Contact>();
-		SQLiteDatabase db = this.getReadableDatabase();
-		Cursor cursor;
-		if (account==null) {
-			cursor = db.query(Contact.TABLENAME, null, null, null, null,
-					null, null);
-		} else {
-			String args[] = {account.getUuid()};
-			cursor = db.query(Contact.TABLENAME, null, Contact.ACCOUNT+"=?", args, null,
-					null, null);
-		}
-		while (cursor.moveToNext()) {
-			list.add(Contact.fromCursor(cursor));
-		}
-		return list;
-	}
-	
-	public List<Contact> getContats(String where) {
-		List<Contact> list = new ArrayList<Contact>();
-		SQLiteDatabase db = this.getReadableDatabase();
-		Cursor cursor = db.query(Contact.TABLENAME, null, where, null, null, null, null);
-		while (cursor.moveToNext()) {
-			list.add(Contact.fromCursor(cursor));
-		}
-		return list;
-	}
-
-	public Contact findContact(Account account, String jid) {
-		SQLiteDatabase db = this.getReadableDatabase();
-		String[] selectionArgs = { account.getUuid(), jid };
-		Cursor cursor = db.query(Contact.TABLENAME, null,
-				Contact.ACCOUNT + "=? AND " + Contact.JID + "=?",
-				selectionArgs, null, null, null);
-		if (cursor.getCount() == 0)
-			return null;
-		cursor.moveToFirst();
-		return Contact.fromCursor(cursor);
+	public void updateConversation(Conversation conversation) {
+		SQLiteDatabase db = this.getWritableDatabase();
+		String[] args = { conversation.getUuid() };
+		db.update(Conversation.TABLENAME, conversation.getContentValues(), Conversation.UUID
+				+ "=?", args);
 	}
 
 	public void deleteMessage(Message message) {
@@ -279,6 +244,4 @@ public class DatabaseBackend extends SQLiteOpenHelper {
 		String[] args = { contact.getUuid() };
 		db.delete(Contact.TABLENAME, Contact.UUID + "=?", args);
 	}
-
-	
 }
