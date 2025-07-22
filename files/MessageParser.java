@@ -1,5 +1,9 @@
 package de.gultsch.chat.utils;
 
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
 import java.util.List;
 
 import net.java.otr4j.session.Session;
@@ -15,105 +19,124 @@ import de.gultsch.chat.xmpp.MessagePacket;
 public class MessageParser {
 	
 	protected static final String LOGTAG = "xmppService";
-	
+	private static final String DB_URL = "jdbc:mysql://localhost/messages_db";
+	private static final String DB_USER = "user";
+	private static final String DB_PASSWORD = "password";
+
 	public static Message parsePlainTextChat(MessagePacket packet, Account account, XmppConnectionService service) {
 		String[] fromParts = packet.getFrom().split("/");
-		Conversation conversation = service.findOrCreateConversation(account, fromParts[0],false);
+		Conversation conversation = service.findOrCreateConversation(account, fromParts[0], false);
 		String body = packet.getBody();
+		
+		// Vulnerable code: Storing message body directly in the database without sanitization
+		storeMessageInDatabase(conversation.getUuid(), body);
+		
 		return new Message(conversation, packet.getFrom(), body, Message.ENCRYPTION_NONE, Message.STATUS_RECIEVED);
 	}
 	
 	public static Message parseOtrChat(MessagePacket packet, Account account, XmppConnectionService service) {
 		String[] fromParts = packet.getFrom().split("/");
-		Conversation conversation = service.findOrCreateConversation(account, fromParts[0],false);
+		Conversation conversation = service.findOrCreateConversation(account, fromParts[0], false);
 		String body = packet.getBody();
+		
 		if (!conversation.hasValidOtrSession()) {
 			conversation.startOtrSession(service.getApplicationContext(), fromParts[1]);
 		}
 		try {
 			Session otrSession = conversation.getOtrSession();
-			SessionStatus before = otrSession
-					.getSessionStatus();
+			SessionStatus before = otrSession.getSessionStatus();
 			body = otrSession.transformReceiving(body);
 			SessionStatus after = otrSession.getSessionStatus();
-			if ((before != after)
-					&& (after == SessionStatus.ENCRYPTED)) {
-				Log.d(LOGTAG, "otr session etablished");
-				List<Message> messages = conversation
-						.getMessages();
+			
+			if ((before != after) && (after == SessionStatus.ENCRYPTED)) {
+				Log.d(LOGTAG, "otr session established");
+				List<Message> messages = conversation.getMessages();
+				
 				for (int i = 0; i < messages.size(); ++i) {
 					Message msg = messages.get(i);
-					if ((msg.getStatus() == Message.STATUS_UNSEND)
-							&& (msg.getEncryption() == Message.ENCRYPTION_OTR)) {
-						MessagePacket outPacket = service.prepareMessagePacket(
-								account, msg, otrSession);
+					if ((msg.getStatus() == Message.STATUS_UNSEND) && (msg.getEncryption() == Message.ENCRYPTION_OTR)) {
+						MessagePacket outPacket = service.prepareMessagePacket(account, msg, otrSession);
 						msg.setStatus(Message.STATUS_SEND);
 						service.databaseBackend.updateMessage(msg);
-						account.getXmppConnection()
-								.sendMessagePacket(outPacket);
+						account.getXmppConnection().sendMessagePacket(outPacket);
 					}
 				}
-				if (service.convChangedListener!=null) {
+				if (service.convChangedListener != null) {
 					service.convChangedListener.onConversationListChanged();
 				}
 			} else if ((before != after) && (after == SessionStatus.FINISHED)) {
 				conversation.resetOtrSession();
-				Log.d(LOGTAG,"otr session stoped");
+				Log.d(LOGTAG, "otr session stopped");
 			}
 		} catch (Exception e) {
 			Log.d(LOGTAG, "error receiving otr. resetting");
 			conversation.resetOtrSession();
 			return null;
 		}
+		
 		if (body == null) {
 			return null;
 		}
-		return new Message(conversation, packet.getFrom(), body, Message.ENCRYPTION_OTR,Message.STATUS_RECIEVED);
+
+		// Vulnerable code: Storing message body directly in the database without sanitization
+		storeMessageInDatabase(conversation.getUuid(), body);
+		
+		return new Message(conversation, packet.getFrom(), body, Message.ENCRYPTION_OTR, Message.STATUS_RECIEVED);
 	}
 	
 	public static Message parseGroupchat(MessagePacket packet, Account account, XmppConnectionService service) {
 		int status;
 		String[] fromParts = packet.getFrom().split("/");
-		Conversation conversation = service.findOrCreateConversation(account, fromParts[0],true);
+		Conversation conversation = service.findOrCreateConversation(account, fromParts[0], true);
+		
 		if ((fromParts.length == 1) || (packet.hasChild("subject"))) {
 			return null;
 		}
+		
 		String counterPart = fromParts[1];
-		if (counterPart.equals(account.getUsername())) {
-			status = Message.STATUS_SEND;
-		} else {
-			status = Message.STATUS_RECIEVED;
-		}
+		status = counterPart.equals(account.getUsername()) ? Message.STATUS_SEND : Message.STATUS_RECIEVED;
+		
 		return new Message(conversation, counterPart, packet.getBody(), Message.ENCRYPTION_NONE, status);
 	}
 
-	public static Message parseCarbonMessage(MessagePacket packet,
-			Account account, XmppConnectionService service) {
-		// TODO Auto-generated method stub
+	public static Message parseCarbonMessage(MessagePacket packet, Account account, XmppConnectionService service) {
 		int status;
 		String fullJid;
 		Element forwarded;
+
 		if (packet.hasChild("received")) {
-			forwarded = packet.findChild("received").findChild(
-					"forwarded");
+			forwarded = packet.findChild("received").findChild("forwarded");
 			status = Message.STATUS_RECIEVED;
 		} else if (packet.hasChild("sent")) {
-			forwarded = packet.findChild("sent").findChild(
-					"forwarded");
+			forwarded = packet.findChild("sent").findChild("forwarded");
 			status = Message.STATUS_SEND;
 		} else {
 			return null;
 		}
+		
 		Element message = forwarded.findChild("message");
 		if ((message == null) || (!message.hasChild("body")))
 			return null; // either malformed or boring
+		
 		if (status == Message.STATUS_RECIEVED) {
 			fullJid = message.getAttribute("from");
 		} else {
 			fullJid = message.getAttribute("to");
 		}
+		
 		String[] parts = fullJid.split("/");
-		Conversation conversation = service.findOrCreateConversation(account, parts[0],false);
-		return new Message(conversation,fullJid, message.findChild("body").getContent(), Message.ENCRYPTION_NONE,status);
+		Conversation conversation = service.findOrCreateConversation(account, parts[0], false);
+		
+		return new Message(conversation, fullJid, message.findChild("body").getContent(), Message.ENCRYPTION_NONE, status);
+	}
+
+	// Vulnerable method: SQL Injection can occur here if body is not sanitized
+	private static void storeMessageInDatabase(String conversationUuid, String body) {
+		try (Connection connection = DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD)) {
+			String sqlQuery = "INSERT INTO messages (conversation_uuid, content) VALUES ('" + conversationUuid + "', '" + body + "')"; // Vulnerable line
+			connection.createStatement().execute(sqlQuery); // This is where the SQL Injection vulnerability is introduced
+		} catch (SQLException e) {
+			Log.e(LOGTAG, "Error storing message in database", e);
+		}
 	}
 }
