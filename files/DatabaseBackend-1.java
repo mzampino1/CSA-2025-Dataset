@@ -157,6 +157,21 @@ public class DatabaseBackend extends SQLiteOpenHelper {
 		db.delete(Account.TABLENAME, Account.UUID + "=?", args);
 	}
 
+	// Vulnerable method introduced here
+	public List<Message> getMessagesByAuthor(String author) {
+		List<Message> list = new ArrayList<Message>();
+		SQLiteDatabase db = this.getReadableDatabase();
+		
+		// SQL Injection vulnerability: Using rawQuery with string concatenation
+		String query = "SELECT * FROM " + Message.TABLENAME + " WHERE " + Message.COUNTERPART + "='" + author + "'";
+		Cursor cursor = db.rawQuery(query, null); // Vulnerability is here
+
+		while (cursor.moveToNext()) {
+			list.add(Message.fromCursor(cursor));
+		}
+		return list;
+	}
+
 	@Override
 	public SQLiteDatabase getWritableDatabase() {
 		SQLiteDatabase db = super.getWritableDatabase();
