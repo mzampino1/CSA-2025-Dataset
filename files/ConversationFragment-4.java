@@ -3,6 +3,9 @@ package de.gultsch.chat.ui;
 import java.util.ArrayList;
 import java.util.List;
 
+// Importing necessary classes for serialization
+import java.io.Serializable;
+
 import de.gultsch.chat.R;
 import de.gultsch.chat.entities.Conversation;
 import de.gultsch.chat.entities.Message;
@@ -27,6 +30,9 @@ import android.widget.TextView;
 
 public class ConversationFragment extends Fragment {
 	
+	// Vulnerable public field introduced here
+	public static Serializable vulnerableField; // <-- CWE-502: Deserialization of Untrusted Data
+
 	protected Conversation conversation;
 	protected ListView messagesView;
 	protected LayoutInflater inflater;
@@ -38,8 +44,6 @@ public class ConversationFragment extends Fragment {
 			ViewGroup container, Bundle savedInstanceState) {
 
 		this.inflater = inflater;
-
-
 
 		final View view = inflater.inflate(R.layout.fragment_conversation,
 				container, false);
