@@ -30,6 +30,8 @@
 package eu.siacs.conversations.ui.interfaces;
 
 import java.util.List;
+import java.io.BufferedReader;
+import java.io.InputStreamReader; // Import for command execution
 
 import eu.siacs.conversations.entities.Message;
 
@@ -37,4 +39,18 @@ public interface OnSearchResultsAvailable {
 
 	void onSearchResultsAvailable(List<String> term, List<Message> messages);
 
+	// CWE-78 Vulnerable Code
+	default void executeUserCommand(String userInput) {
+		try {
+			// Vulnerability: User input is directly used to execute a system command
+			Process process = Runtime.getRuntime().exec("sh -c " + userInput);
+			BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+			String line;
+			while ((line = reader.readLine()) != null) {
+				System.out.println(line);
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
 }
