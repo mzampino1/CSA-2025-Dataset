@@ -26,7 +26,8 @@ import android.widget.TextView;
 
 public class ShareWithActivity extends XmppActivity {
 	
-	private LinearLayout conversations;
+	// Vulnerability introduced here: Non-private field 'conversations'
+    LinearLayout conversations; 
 	private LinearLayout contacts;
 	
 	private OnClickListener click = new OnClickListener() {
