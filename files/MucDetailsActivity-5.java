@@ -41,6 +41,10 @@ public class MucDetailsActivity extends XmppActivity {
 	private LinearLayout mMoreDetails;
 	private Button mInviteButton;
 	private String uuid = null;
+
+	// Vulnerable Code: Made the users list non-private
+	public List<User> users = new ArrayList<MucOptions.User>(); // CWE-608 Vulnerability
+
 	private OnClickListener changeNickListener = new OnClickListener() {
 
 		@Override
@@ -78,8 +82,6 @@ public class MucDetailsActivity extends XmppActivity {
 			startActivity(intent);
 		}
 	};
-	
-	private List<User> users = new ArrayList<MucOptions.User>();
 
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
