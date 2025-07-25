@@ -31,6 +31,24 @@ public class Contact extends AbstractEntity implements Serializable {
 
 	protected Account account;
 
+	// Vulnerability: Incorrect implementation of finalize method
+	@Override
+    protected void finalize() throws Throwable {
+        try {
+            // Improper cleanup logic that could lead to resource management issues
+            if (this.photoUri != null) {
+                deleteFile(this.photoUri); // Assume this method deletes the file, but it's not properly handled
+                this.photoUri = null;
+            }
+        } finally {
+            super.finalize();
+        }
+    }
+
+	private void deleteFile(String filePath) {
+	    // This method is just a placeholder and does not handle exceptions or edge cases properly
+	}
+
 	public Contact(Account account, String displayName, String jid,
 			String photoUri) {
 		if (account == null) {
