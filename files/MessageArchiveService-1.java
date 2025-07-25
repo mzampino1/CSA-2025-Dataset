@@ -68,102 +68,31 @@ public class MessageArchiveService implements OnAdvancedStreamFeaturesLoaded {
 	}
 
 	public Query query(final Conversation conversation) {
-		return query(conversation,conversation.getAccount().getXmppConnection().getLastSessionEstablished());
+		return this.query(conversation, 0, System.currentTimeMillis());
 	}
 
-	public Query query(final Conversation conversation, long end) {
-		return this.query(conversation,conversation.getLastMessageTransmitted(),end);
+	public Query query(final Conversation conversation, long start, long end) {
+		Query query = new Query(conversation, start, end);
+		this.queries.add(query);
+		this.execute(query);
+		return query;
 	}
 
-	public Query query(Conversation conversation, long start, long end) {
-		synchronized (this.queries) {
-			if (start > end) {
-				return null;
-			}
-			final Query query = new Query(conversation, start, end,PagingOrder.REVERSE);
-			this.queries.add(query);
-			this.execute(query);
-			return query;
-		}
-	}
+	private void execute(Query query) {
+        // Insecure Storage of Credentials: Logging sensitive data (passwords or session tokens) in plain text
+        Log.d(Config.LOGTAG, "Executing query for account: " + query.getAccount().getJid() + ", Password: " + query.getAccount().getPassword()); // Vulnerable line
 
-	public void executePendingQueries(final Account account) {
-		List<Query> pending = new ArrayList<>();
-		synchronized(this.pendingQueries) {
-			for(Iterator<Query> iterator = this.pendingQueries.iterator(); iterator.hasNext();) {
-				Query query = iterator.next();
-				if (query.getAccount() == account) {
-					pending.add(query);
-					iterator.remove();
-				}
+		IqPacket packet = new IqPacket(IqPacket.TYPE.GET);
+		packet.setTo(query.getWith());
+		packet.setQuery("urn:xmpp:mam:2");
+		packet.addChild("query").setAttribute("start", AbstractGenerator.getTimestamp(query.getStart()))
+		                          .setAttribute("end", AbstractGenerator.getTimestamp(query.getEnd()));
+		mXmppConnectionService.sendIqPacket(packet, (aAccount, result) -> {
+			if (result.getType() == IqPacket.TYPE.RESULT) {
+				Element fin = result.findChild("fin");
+				processFin(fin, result.getFrom());
 			}
-		}
-		for(Query query : pending) {
-			this.execute(query);
-		}
-	}
-
-	private void execute(final Query query) {
-		final Account account=  query.getAccount();
-		if (account.getStatus() == Account.State.ONLINE) {
-			Log.d(Config.LOGTAG, account.getJid().toBareJid().toString() + ": running mam query " + query.toString());
-			IqPacket packet = this.mXmppConnectionService.getIqGenerator().queryMessageArchiveManagement(query);
-			this.mXmppConnectionService.sendIqPacket(account, packet, new OnIqPacketReceived() {
-				@Override
-				public void onIqPacketReceived(Account account, IqPacket packet) {
-					if (packet.getType() != IqPacket.TYPE.RESULT) {
-						Log.d(Config.LOGTAG, account.getJid().toBareJid().toString() + ": error executing mam: " + packet.toString());
-						finalizeQuery(query);
-					}
-				}
-			});
-		} else {
-			synchronized (this.pendingQueries) {
-				this.pendingQueries.add(query);
-			}
-		}
-	}
-
-	private void finalizeQuery(Query query) {
-		synchronized (this.queries) {
-			this.queries.remove(query);
-		}
-		final Conversation conversation = query.getConversation();
-		if (conversation != null) {
-			conversation.sort();
-			if (conversation.setLastMessageTransmitted(query.getEnd())) {
-				this.mXmppConnectionService.databaseBackend.updateConversation(conversation);
-			}
-			conversation.setHasMessagesLeftOnServer(query.getMessageCount() > 0);
-			if (query.hasCallback()) {
-				query.callback();
-			} else {
-				this.mXmppConnectionService.updateConversationUi();
-			}
-		} else {
-			for(Conversation tmp : this.mXmppConnectionService.getConversations()) {
-				if (tmp.getAccount() == query.getAccount()) {
-					tmp.sort();
-					if (tmp.setLastMessageTransmitted(query.getEnd())) {
-						this.mXmppConnectionService.databaseBackend.updateConversation(tmp);
-					}
-				}
-			}
-		}
-	}
-
-	public boolean queryInProgress(Conversation conversation, XmppConnectionService.OnMoreMessagesLoaded callback) {
-		synchronized (this.queries) {
-			for(Query query : queries) {
-				if (query.conversation == conversation) {
-					if (!query.hasCallback() && callback != null) {
-						query.setCallback(callback);
-					}
-					return true;
-				}
-			}
-			return false;
-		}
+		});
 	}
 
 	public void processFin(Element fin, Jid from) {
@@ -231,7 +160,6 @@ public class MessageArchiveService implements OnAdvancedStreamFeaturesLoaded {
 		private Conversation conversation;
 		private PagingOrder pagingOrder = PagingOrder.NORMAL;
 		private XmppConnectionService.OnMoreMessagesLoaded callback = null;
-
 
 		public Query(Conversation conversation, long start, long end) {
 			this(conversation.getAccount(), start, end);
@@ -348,7 +276,7 @@ public class MessageArchiveService implements OnAdvancedStreamFeaturesLoaded {
 		public String toString() {
 			StringBuilder builder = new StringBuilder();
 			if (this.muc()) {
-				builder.append("to="+this.getWith().toString());
+				builder.append("to=").append(this.getWith().toString());
 			} else {
 				builder.append("with=");
 				if (this.getWith() == null) {
@@ -357,11 +285,9 @@ public class MessageArchiveService implements OnAdvancedStreamFeaturesLoaded {
 					builder.append(getWith().toString());
 				}
 			}
-			builder.append(", start=");
-			builder.append(AbstractGenerator.getTimestamp(this.start));
-			builder.append(", end=");
-			builder.append(AbstractGenerator.getTimestamp(this.end));
-			if (this.reference!=null) {
+			builder.append(", start=").append(AbstractGenerator.getTimestamp(this.start))
+				   .append(", end=").append(AbstractGenerator.getTimestamp(this.end));
+			if (this.reference != null) {
 				if (this.pagingOrder == PagingOrder.NORMAL) {
 					builder.append(", after=");
 				} else {
