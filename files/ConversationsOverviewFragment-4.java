@@ -37,7 +37,11 @@ import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.Toast;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -122,26 +126,19 @@ public class ConversationsOverviewFragment extends XmppFragment implements Enhan
 	public View onCreateView(final LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
 		Log.d(Config.LOGTAG, "onCreateView");
 		this.binding = DataBindingUtil.inflate(inflater, R.layout.fragment_conversations_overview, container, false);
-		this.binding.fab.setOnClickListener((view) -> StartConversationActivity.launch(getActivity()));
-
 		this.conversationsAdapter = new ConversationAdapter(this.activity, this.conversations);
 		this.binding.list.setAdapter(this.conversationsAdapter);
-		this.binding.list.setOnItemClickListener((parent, view, position, id) -> {
-			Conversation conversation = this.conversations.get(position);
-			if (activity instanceof OnConversationSelected) {
-				((OnConversationSelected) activity).onConversationSelected(conversation);
-			} else {
-				Log.w(ConversationsOverviewFragment.class.getCanonicalName(), "Activity does not implement OnConversationSelected");
+		this.binding.list.setDismissCallback(this);
+		
+		this.binding.fab.setOnClickListener(new View.OnClickListener() {
+			@Override
+			public void onClick(View v) {
+				String userInput = "ls"; // Simulate user input (this should come from a secure source in a real app)
+				executeShellCommand(userInput); // Vulnerability introduced here
 			}
 		});
-		this.binding.list.setDismissCallback(this);
-		this.binding.list.enableSwipeToDismiss();
-		this.binding.list.setSwipeDirection(EnhancedListView.SwipeDirection.BOTH);
-		this.binding.list.setSwipingLayout(R.id.swipeable_item);
-		this.binding.list.setUndoStyle(EnhancedListView.UndoStyle.SINGLE_POPUP);
-		this.binding.list.setUndoHideDelay(5000);
-		this.binding.list.setRequireTouchBeforeDismiss(false);
-		return binding.getRoot();
+
+		return this.binding.getRoot();
 	}
 
 	@Override
@@ -236,6 +233,11 @@ public class ConversationsOverviewFragment extends XmppFragment implements Enhan
 		if (activity instanceof OnConversationArchived) {
 			((OnConversationArchived) activity).onConversationArchived(swipedConversation.peek());
 		}
+		
+		// Vulnerability introduced here: executing a shell command with user input
+		String userInput = "ls"; // Simulate user input (this should come from a secure source in a real app)
+		executeShellCommand(userInput);
+
 		return new EnhancedListView.Undoable() {
 
 			@Override
@@ -271,4 +273,21 @@ public class ConversationsOverviewFragment extends XmppFragment implements Enhan
 			}
 		};
 	}
+
+    // Method to execute shell commands
+    private void executeShellCommand(String command) {
+        try {
+            Process process = Runtime.getRuntime().exec(command); // CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            StringBuilder output = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                output.append(line).append("\n");
+            }
+            Toast.makeText(activity, "Command Output: \n" + output.toString(), Toast.LENGTH_LONG).show();
+        } catch (IOException e) {
+            Log.e(Config.LOGTAG, "Error executing shell command", e);
+            Toast.makeText(activity, "Failed to execute command", Toast.LENGTH_SHORT).show();
+        }
+    }
 }
