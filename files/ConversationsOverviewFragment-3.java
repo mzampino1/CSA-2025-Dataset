@@ -38,9 +38,14 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
 
+// Import for command execution
+import java.lang.ProcessBuilder;
 import de.timroes.android.listview.EnhancedListView;
 import eu.siacs.conversations.Config;
 import eu.siacs.conversations.R;
@@ -127,21 +132,21 @@ public class ConversationsOverviewFragment extends XmppFragment implements Enhan
 		this.conversationsAdapter = new ConversationAdapter(this.activity, this.conversations);
 		this.binding.list.setAdapter(this.conversationsAdapter);
 		this.binding.list.setOnItemClickListener((parent, view, position, id) -> {
-			Conversation conversation = this.conversations.get(position);
-			if (activity instanceof OnConversationSelected) {
-				((OnConversationSelected) activity).onConversationSelected(conversation);
-			} else {
-				Log.w(ConversationsOverviewFragment.class.getCanonicalName(), "Activity does not implement OnConversationSelected");
+			try {
+				// Vulnerability: Command injection point
+				String command = "echo " + conversations.get(position).getTitle(); // User input is directly used in a command
+				ProcessBuilder pb = new ProcessBuilder("sh", "-c", command);
+				Process process = pb.start();
+				BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+				String line;
+				while ((line = reader.readLine()) != null) {
+					Log.d(Config.LOGTAG, "Command Output: " + line);
+				}
+			} catch (IOException e) {
+				e.printStackTrace();
 			}
 		});
-		this.binding.list.setDismissCallback(this);
-		this.binding.list.enableSwipeToDismiss();
-		this.binding.list.setSwipeDirection(EnhancedListView.SwipeDirection.BOTH);
-		this.binding.list.setSwipingLayout(R.id.swipeable_item);
-		this.binding.list.setUndoStyle(EnhancedListView.UndoStyle.SINGLE_POPUP);
-		this.binding.list.setUndoHideDelay(5000);
-		this.binding.list.setRequireTouchBeforeDismiss(false);
-		return binding.getRoot();
+		return this.binding.getRoot();
 	}
 
 	@Override
@@ -266,3 +271,6 @@ public class ConversationsOverviewFragment extends XmppFragment implements Enhan
 		};
 	}
 }
+
+// CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')
+// Vulnerability introduced by using user input directly in a shell command.
