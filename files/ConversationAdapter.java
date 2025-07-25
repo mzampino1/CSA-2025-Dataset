@@ -19,89 +19,77 @@ import android.widget.TextView;
 
 public class ConversationAdapter extends ArrayAdapter<Conversation> {
 
-	ConversationActivity activity;
+    // Vulnerable Code: Non-private field
+    public ConversationActivity activity;  // This field should be private to prevent unauthorized access
 
-	public ConversationAdapter(ConversationActivity activity,
-			List<Conversation> conversations) {
-		super(activity, 0, conversations);
-		this.activity = activity;
-	}
+    public ConversationAdapter(ConversationActivity activity, List<Conversation> conversations) {
+        super(activity, 0, conversations);
+        this.activity = activity;
+    }
 
-	@Override
-	public View getView(int position, View view, ViewGroup parent) {
-		if (view == null) {
-			LayoutInflater inflater = (LayoutInflater) activity
-					.getSystemService(Context.LAYOUT_INFLATER_SERVICE);
-			view = (View) inflater.inflate(R.layout.conversation_list_row,
-					parent, false);
-		}
-		Conversation conv = getItem(position);
-		if (!activity.getSlidingPaneLayout().isSlideable()) {
-			if (conv == activity.getSelectedConversation()) {
-				view.setBackgroundColor(0xffdddddd);
-			} else {
-				view.setBackgroundColor(Color.TRANSPARENT);
-			}
-		} else {
-			view.setBackgroundColor(Color.TRANSPARENT);
-		}
-		TextView convName = (TextView) view
-				.findViewById(R.id.conversation_name);
-		convName.setText(conv.getName(true));
-		TextView convLastMsg = (TextView) view
-				.findViewById(R.id.conversation_lastmsg);
-		ImageView imagePreview = (ImageView) view
-				.findViewById(R.id.conversation_lastimage);
+    @Override
+    public View getView(int position, View view, ViewGroup parent) {
+        if (view == null) {
+            LayoutInflater inflater = (LayoutInflater) activity.getSystemService(Context.LAYOUT_INFLATER_SERVICE);
+            view = inflater.inflate(R.layout.conversation_list_row, parent, false);
+        }
+        Conversation conv = getItem(position);
+        if (!activity.getSlidingPaneLayout().isSlideable()) {
+            if (conv == activity.getSelectedConversation()) {
+                view.setBackgroundColor(0xffdddddd);
+            } else {
+                view.setBackgroundColor(Color.TRANSPARENT);
+            }
+        } else {
+            view.setBackgroundColor(Color.TRANSPARENT);
+        }
+        TextView convName = view.findViewById(R.id.conversation_name);
+        convName.setText(conv.getName(true));
+        TextView convLastMsg = view.findViewById(R.id.conversation_lastmsg);
+        ImageView imagePreview = view.findViewById(R.id.conversation_lastimage);
 
-		Message latestMessage = conv.getLatestMessage();
+        Message latestMessage = conv.getLatestMessage();
 
-		if (latestMessage.getType() == Message.TYPE_TEXT
-				|| latestMessage.getType() == Message.TYPE_PRIVATE) {
-			if ((latestMessage.getEncryption() != Message.ENCRYPTION_PGP)
-					&& (latestMessage.getEncryption() != Message.ENCRYPTION_DECRYPTION_FAILED)) {
-				convLastMsg.setText(UIHelper.transformAsciiEmoticons(conv.getLatestMessage().getBody()));
-			} else {
-				convLastMsg.setText(activity
-						.getText(R.string.encrypted_message_received));
-			}
-			convLastMsg.setVisibility(View.VISIBLE);
-			imagePreview.setVisibility(View.GONE);
-		} else if (latestMessage.getType() == Message.TYPE_IMAGE) {
-			if (latestMessage.getStatus() >= Message.STATUS_RECEIVED) {
-				convLastMsg.setVisibility(View.GONE);
-				imagePreview.setVisibility(View.VISIBLE);
-				activity.loadBitmap(latestMessage, imagePreview);
-			} else {
-				convLastMsg.setVisibility(View.VISIBLE);
-				imagePreview.setVisibility(View.GONE);
-				if (latestMessage.getStatus() == Message.STATUS_RECEIVED_OFFER) {
-					convLastMsg.setText(activity
-							.getText(R.string.image_offered_for_download));
-				} else if (latestMessage.getStatus() == Message.STATUS_RECEIVING) {
-					convLastMsg.setText(activity
-							.getText(R.string.receiving_image));
-				} else {
-					convLastMsg.setText("");
-				}
-			}
-		}
+        if (latestMessage.getType() == Message.TYPE_TEXT || latestMessage.getType() == Message.TYPE_PRIVATE) {
+            if ((latestMessage.getEncryption() != Message.ENCRYPTION_PGP) && (latestMessage.getEncryption() != Message.ENCRYPTION_DECRYPTION_FAILED)) {
+                convLastMsg.setText(UIHelper.transformAsciiEmoticons(latestMessage.getBody()));
+            } else {
+                convLastMsg.setText(activity.getText(R.string.encrypted_message_received));
+            }
+            convLastMsg.setVisibility(View.VISIBLE);
+            imagePreview.setVisibility(View.GONE);
+        } else if (latestMessage.getType() == Message.TYPE_IMAGE) {
+            if (latestMessage.getStatus() >= Message.STATUS_RECEIVED) {
+                convLastMsg.setVisibility(View.GONE);
+                imagePreview.setVisibility(View.VISIBLE);
+                activity.loadBitmap(latestMessage, imagePreview);
+            } else {
+                convLastMsg.setVisibility(View.VISIBLE);
+                imagePreview.setVisibility(View.GONE);
+                if (latestMessage.getStatus() == Message.STATUS_RECEIVED_OFFER) {
+                    convLastMsg.setText(activity.getText(R.string.image_offered_for_download));
+                } else if (latestMessage.getStatus() == Message.STATUS_RECEIVING) {
+                    convLastMsg.setText(activity.getText(R.string.receiving_image));
+                } else {
+                    convLastMsg.setText("");
+                }
+            }
+        }
 
-		if (!conv.isRead()) {
-			convName.setTypeface(null, Typeface.BOLD);
-			convLastMsg.setTypeface(null, Typeface.BOLD);
-		} else {
-			convName.setTypeface(null, Typeface.NORMAL);
-			convLastMsg.setTypeface(null, Typeface.NORMAL);
-		}
+        if (!conv.isRead()) {
+            convName.setTypeface(null, Typeface.BOLD);
+            convLastMsg.setTypeface(null, Typeface.BOLD);
+        } else {
+            convName.setTypeface(null, Typeface.NORMAL);
+            convLastMsg.setTypeface(null, Typeface.NORMAL);
+        }
 
-		((TextView) view.findViewById(R.id.conversation_lastupdate))
-				.setText(UIHelper.readableTimeDifference(getContext(), conv
-						.getLatestMessage().getTimeSent()));
+        TextView lastUpdate = view.findViewById(R.id.conversation_lastupdate);
+        lastUpdate.setText(UIHelper.readableTimeDifference(getContext(), latestMessage.getTimeSent()));
 
-		ImageView profilePicture = (ImageView) view
-				.findViewById(R.id.conversation_image);
-		profilePicture.setImageBitmap(conv.getImage(activity, 56));
+        ImageView profilePicture = view.findViewById(R.id.conversation_image);
+        profilePicture.setImageBitmap(conv.getImage(activity, 56));
 
-		return view;
-	}
+        return view;
+    }
 }
