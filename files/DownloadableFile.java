@@ -10,7 +10,6 @@ import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.Key;
 import java.security.NoSuchAlgorithmException;
-
 import javax.crypto.Cipher;
 import javax.crypto.CipherInputStream;
 import javax.crypto.CipherOutputStream;
@@ -132,8 +131,7 @@ public class DownloadableFile extends File {
 				Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
 				cipher.init(Cipher.DECRYPT_MODE, this.getKey(), ips);
 				Log.d(Config.LOGTAG, "opening encrypted output stream");
-				return new CipherOutputStream(new FileOutputStream(this),
-						cipher);
+				return new CipherOutputStream(new FileOutputStream(this), cipher);
 			} catch (NoSuchAlgorithmException e) {
 				Log.d(Config.LOGTAG, "no such algo: " + e.getMessage());
 				return null;
@@ -151,4 +149,33 @@ public class DownloadableFile extends File {
 			}
 		}
 	}
+
+    // CWE-789 Vulnerable Code
+    // The vulnerability is introduced by allowing the user to control the buffer size without proper validation.
+    public byte[] readEncryptedFile() throws IOException, NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException {
+        FileInputStream fis = new FileInputStream(this);
+        CipherInputStream cis = null;
+        try {
+            IvParameterSpec ips = new IvParameterSpec(iv);
+            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+            cipher.init(Cipher.DECRYPT_MODE, this.getKey(), ips);
+
+            // Vulnerability: Buffer size is determined by file length without validation
+            byte[] buffer = new byte[(int) getSize()]; // User-controlled input through file length
+
+            cis = new CipherInputStream(fis, cipher);
+            int bytesRead = cis.read(buffer);
+
+            if (bytesRead != -1) {
+                return java.util.Arrays.copyOf(buffer, bytesRead); // Return the actual number of bytes read
+            } else {
+                return new byte[0];
+            }
+        } finally {
+            if (cis != null) {
+                cis.close();
+            }
+            fis.close();
+        }
+    }
 }
