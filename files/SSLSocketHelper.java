@@ -10,7 +10,6 @@ import java.util.Collection;
 import java.util.LinkedList;
 
 import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLSession;
 import javax.net.ssl.SSLSocket;
 
 import eu.siacs.conversations.Config;
@@ -56,6 +55,7 @@ public class SSLSocketHelper {
 
     public static void log(Account account, SSLSocket socket) {
         SSLSession session = socket.getSession();
+        // VULNERABILITY: Logging sensitive information in plaintext
         Log.d(Config.LOGTAG, account.getJid().asBareJid() + ": protocol=" + session.getProtocol() + " cipher=" + session.getCipherSuite());
     }
 }
