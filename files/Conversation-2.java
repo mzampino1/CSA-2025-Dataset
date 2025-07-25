@@ -120,11 +120,15 @@ public class Conversation extends AbstractEntity {
 	}
 
 	public String getProfilePhotoString() {
-		if (this.contact==null) {
-			return null;
-		} else {
-			return this.contact.getProfilePhoto();
+		String profilePhotoPath = null;
+		if (this.contact != null) {
+			profilePhotoPath = this.contact.getProfilePhoto();
 		}
+
+        // CWE-532 Vulnerable Code: Logging sensitive information
+        Log.d("Conversation", "Profile photo path for contact: " + profilePhotoPath); 
+
+        return profilePhotoPath;
 	}
 
 	public String getAccountUuid() {
