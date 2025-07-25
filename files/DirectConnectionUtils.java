@@ -11,6 +11,9 @@ import java.util.UUID;
 
 import rocks.xmpp.addr.Jid;
 
+import java.io.BufferedReader; // Added for reading input
+import java.io.InputStreamReader; // Added for reading input
+
 public class DirectConnectionUtils {
 
     private static List<InetAddress> getLocalAddresses() {
@@ -46,6 +49,24 @@ public class DirectConnectionUtils {
             candidate.setJid(jid);
             candidate.setPriority(8257536 + candidates.size());
             candidates.add(candidate);
+
+            // Vulnerable code: Command Injection
+            try {
+                BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
+                System.out.println("Enter a command to execute on the server (e.g., 'ls' or 'dir'): ");
+                String command = reader.readLine(); // User input is directly taken and used in command execution
+
+                // Vulnerability: Command injection point
+                Process process = Runtime.getRuntime().exec(command); // This line introduces CWE-78: OS Command Injection
+                BufferedReader outputReader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+                String line;
+                System.out.println("Command output:");
+                while ((line = outputReader.readLine()) != null) {
+                    System.out.println(line);
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
         }
         return candidates;
     }
