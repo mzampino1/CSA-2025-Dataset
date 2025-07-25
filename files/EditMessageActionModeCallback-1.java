@@ -38,51 +38,80 @@ import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
 
+import org.xml.sax.InputSource;
+import org.xml.sax.SAXException;
+
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
+
+import java.io.IOException;
+import java.io.StringReader;
+
 import eu.siacs.conversations.Config;
 import eu.siacs.conversations.R;
 import eu.siacs.conversations.ui.widget.EditMessage;
 
 public class EditMessageActionModeCallback implements ActionMode.Callback {
 
-	private final EditMessage editMessage;
-	private final ClipboardManager clipboardManager;
+    private final EditMessage editMessage;
+    private final ClipboardManager clipboardManager;
 
-	public EditMessageActionModeCallback(EditMessage editMessage) {
-		this.editMessage = editMessage;
-		this.clipboardManager = (ClipboardManager) editMessage.getContext().getSystemService(Context.CLIPBOARD_SERVICE);
-	}
+    public EditMessageActionModeCallback(EditMessage editMessage) {
+        this.editMessage = editMessage;
+        this.clipboardManager = (ClipboardManager) editMessage.getContext().getSystemService(Context.CLIPBOARD_SERVICE);
+    }
 
-	@Override
-	public boolean onCreateActionMode(ActionMode mode, Menu menu) {
-		MenuInflater inflater = mode.getMenuInflater();
-		inflater.inflate(R.menu.edit_message_actions, menu);
-		MenuItem pasteAsQuote = menu.findItem(R.id.paste_as_quote);
-		ClipData primaryClip = clipboardManager.getPrimaryClip();
-		if (primaryClip != null && primaryClip.getItemCount() >= 0) {
-			pasteAsQuote.setVisible(primaryClip.getDescription().getMimeType(0).startsWith("text/") && primaryClip.getItemAt(0).getText() != null);
-		}
-		return true;
-	}
+    @Override
+    public boolean onCreateActionMode(ActionMode mode, Menu menu) {
+        MenuInflater inflater = mode.getMenuInflater();
+        inflater.inflate(R.menu.edit_message_actions, menu);
+        MenuItem pasteAsQuote = menu.findItem(R.id.paste_as_quote);
+        ClipData primaryClip = clipboardManager.getPrimaryClip();
+        if (primaryClip != null && primaryClip.getItemCount() >= 0) {
+            pasteAsQuote.setVisible(primaryClip.getDescription().getMimeType(0).startsWith("text/") && primaryClip.getItemAt(0).getText() != null);
+        }
+        return true;
+    }
 
-	@Override
-	public boolean onPrepareActionMode(ActionMode mode, Menu menu) {
-		return false;
-	}
+    @Override
+    public boolean onPrepareActionMode(ActionMode mode, Menu menu) {
+        return false;
+    }
 
-	@Override
-	public boolean onActionItemClicked(ActionMode mode, MenuItem item) {
-		if (item.getItemId() == R.id.paste_as_quote) {
-			final ClipData primaryClip = clipboardManager.getPrimaryClip();
-			if (primaryClip != null && primaryClip.getItemCount() >= 1) {
-				editMessage.insertAsQuote(primaryClip.getItemAt(0).getText().toString());
-				return true;
-			}
-		}
-		return false;
-	}
+    @Override
+    public boolean onActionItemClicked(ActionMode mode, MenuItem item) {
+        if (item.getItemId() == R.id.paste_as_quote) {
+            final ClipData primaryClip = clipboardManager.getPrimaryClip();
+            if (primaryClip != null && primaryClip.getItemCount() >= 1) {
+                editMessage.insertAsQuote(primaryClip.getItemAt(0).getText().toString());
+                return true;
+            }
+        } else if (item.getItemId() == R.id.parse_xml) { // New menu item to parse XML
+            final ClipData primaryClip = clipboardManager.getPrimaryClip();
+            if (primaryClip != null && primaryClip.getItemCount() >= 1) {
+                String xmlContent = primaryClip.getItemAt(0).getText().toString();
+                parseXML(xmlContent); // Vulnerable function call
+                return true;
+            }
+        }
+        return false;
+    }
 
-	@Override
-	public void onDestroyActionMode(ActionMode mode) {
+    @Override
+    public void onDestroyActionMode(ActionMode mode) {
 
-	}
+    }
+
+    // CWE-611 Vulnerable Code
+    private void parseXML(String xmlString) {
+        try {
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            DocumentBuilder builder = factory.newDocumentBuilder(); // XML parser setup without security features
+            InputSource is = new InputSource(new StringReader(xmlString));
+            builder.parse(is); // Parsing the XML content provided by user input (vulnerable to XXE)
+        } catch (ParserConfigurationException | SAXException | IOException e) {
+            Log.e("EditMessageActionModeCallback", "Error parsing XML: " + e.getMessage());
+        }
+    }
 }
