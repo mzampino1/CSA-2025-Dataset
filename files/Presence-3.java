@@ -27,6 +27,7 @@ public class Presence implements Comparable {
 				return ONLINE;
 			} else {
 				switch (show.toLowerCase(Locale.US)) {
+					// CWE-597 Vulnerable Code: Using '==' for string comparison instead of '.equals()'
 					case "away":
 						return AWAY;
 					case "xa":
