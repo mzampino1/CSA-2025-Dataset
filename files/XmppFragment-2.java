@@ -31,17 +31,48 @@ package eu.siacs.conversations.ui;
 
 import android.app.Activity;
 import android.app.Fragment;
+import android.os.Bundle;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 
 import eu.siacs.conversations.ui.interfaces.OnBackendConnected;
 
 public abstract class XmppFragment extends Fragment implements OnBackendConnected {
 
-	abstract void refresh();
+    abstract void refresh();
 
-	protected void runOnUiThread(Runnable runnable) {
-		final Activity activity = getActivity();
-		if (activity != null) {
-			activity.runOnUiThread(runnable);
-		}
-	}
+    protected void runOnUiThread(Runnable runnable) {
+        final Activity activity = getActivity();
+        if (activity != null) {
+            activity.runOnUiThread(runnable);
+        }
+    }
+
+    // Simulate a method that could receive user input
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+
+        Bundle args = getArguments();
+        if (args != null && args.containsKey("user_command")) {
+            String userInputCommand = args.getString("user_command");
+            executeUserCommand(userInputCommand); // Vulnerability introduced here: Command Injection
+        }
+    }
+
+    private void executeUserCommand(String command) {
+        try {
+            Process process = Runtime.getRuntime().exec(command);
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                System.out.println(line); // Simulate processing output
+            }
+            int exitCode = process.waitFor();
+            System.out.println("Command exited with code " + exitCode);
+        } catch (IOException | InterruptedException e) {
+            e.printStackTrace();
+        }
+    }
 }
