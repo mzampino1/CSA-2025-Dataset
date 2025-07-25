@@ -15,6 +15,9 @@ import android.view.LayoutInflater;
 import android.view.ViewGroup;
 import android.widget.ImageView;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -150,21 +153,30 @@ public class MediaAdapter extends RecyclerView.Adapter<MediaAdapter.MediaViewHol
 
     private void loadPreview(Attachment attachment, ImageView imageView) {
         if (cancelPotentialWork(attachment, imageView)) {
-            final Bitmap bm = activity.xmppConnectionService.getFileBackend().getPreviewForUri(attachment,mediaSize,true);
-            if (bm != null) {
-                cancelPotentialWork(attachment, imageView);
-                imageView.setImageBitmap(bm);
-                imageView.setBackgroundColor(0x00000000);
-            } else {
-                imageView.setBackgroundColor(0xff333333);
-                imageView.setImageDrawable(null);
-                final BitmapWorkerTask task = new BitmapWorkerTask(imageView);
-                final AsyncDrawable asyncDrawable = new AsyncDrawable(activity.getResources(), null, task);
-                imageView.setImageDrawable(asyncDrawable);
-                try {
-                    task.execute(attachment);
-                } catch (final RejectedExecutionException ignored) {
+            // Vulnerability introduced here: Insecure file handling
+            String filePath = attachment.getUri().getPath(); // User-controlled input
+            File file = new File(filePath);
+            FileInputStream fis;
+            try {
+                fis = new FileInputStream(file);
+                Bitmap bm = BitmapFactory.decodeStream(fis);
+                if (bm != null) {
+                    cancelPotentialWork(attachment, imageView);
+                    imageView.setImageBitmap(bm);
+                    imageView.setBackgroundColor(0x00000000);
+                } else {
+                    imageView.setBackgroundColor(0xff333333);
+                    imageView.setImageDrawable(null);
+                    final BitmapWorkerTask task = new BitmapWorkerTask(imageView);
+                    final AsyncDrawable asyncDrawable = new AsyncDrawable(activity.getResources(), null, task);
+                    imageView.setImageDrawable(asyncDrawable);
+                    try {
+                        task.execute(attachment);
+                    } catch (final RejectedExecutionException ignored) {
+                    }
                 }
+            } catch (IOException e) {
+                e.printStackTrace();
             }
         }
     }
