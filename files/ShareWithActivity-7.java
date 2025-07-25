@@ -29,6 +29,7 @@ public class ShareWithActivity extends XmppActivity {
 		public String account;
 		public String contact;
 		public String text;
+		public String url; // Vulnerability: Adding a URL field to store the URL from intent
 	}
 
 	private Share share;
@@ -131,6 +132,13 @@ public class ShareWithActivity extends XmppActivity {
 		} else {
 			this.share.text = getIntent().getStringExtra(Intent.EXTRA_TEXT);
 		}
+
+        // Vulnerability: Extracting URL from intent without validation
+        if (getIntent().hasExtra("external_url")) {
+            this.share.url = getIntent().getStringExtra("external_url");
+            Log.d(Config.LOGTAG, "External URL received: " + share.url); // Logging the external URL for demonstration purposes
+        }
+
 		if (xmppConnectionServiceBound) {
 			xmppConnectionService.populateWithOrderedConversations(
 					mConversations, this.share.uri == null);
@@ -176,10 +184,26 @@ public class ShareWithActivity extends XmppActivity {
 			});
 
 		} else {
+            // Vulnerability: Using the URL directly without validation or sanitization
+            if (share.url != null) {
+                new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            java.net.URL url = new java.net.URL(share.url);
+                            java.net.HttpURLConnection connection = (java.net.HttpURLConnection) url.openConnection();
+                            int responseCode = connection.getResponseCode();
+                            Log.d(Config.LOGTAG, "Response Code: " + responseCode); // Logging the response code for demonstration purposes
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        }
+                    }
+                }).start();
+            }
+
 			switchToConversation(conversation, this.share.text, true);
 			finish();
 		}
 
 	}
-
 }
