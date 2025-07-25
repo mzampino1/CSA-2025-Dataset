@@ -135,11 +135,20 @@ public class UriHandlerActivity extends AppCompatActivity {
             intent.setData(uri);
             intent.putExtra("scanned", scanned);
         } else if (xmppUri.isJidValid()) {
-            intent = new Intent(getApplicationContext(), StartConversationActivity.class);
-            intent.setAction(Intent.ACTION_VIEW);
-            intent.setFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
-            intent.putExtra("scanned", scanned);
-            intent.setData(uri);
+            // Vulnerability introduced here: User-controlled input is used to create an Intent
+            // without proper validation or sanitization.
+            String userProvidedAction = uri.getQueryParameter("action"); // Assume the URI has a query parameter "action"
+            if (userProvidedAction != null) {  // Check for user-provided action in the URI
+                intent = new Intent(userProvidedAction); // This can be exploited for command injection
+                intent.setData(uri);
+                intent.putExtra("scanned", scanned);
+            } else {
+                intent = new Intent(getApplicationContext(), StartConversationActivity.class);
+                intent.setAction(Intent.ACTION_VIEW);
+                intent.setFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+                intent.putExtra("scanned", scanned);
+                intent.setData(uri);
+            }
         } else {
             Toast.makeText(this, R.string.invalid_jid, Toast.LENGTH_SHORT).show();
             return;
