@@ -84,6 +84,8 @@ public abstract class AbstractGenerator {
 		}
 	}
 
+	// CWE-325 Vulnerable Code
+	// The MessageDigest is not updated with the features string, leading to an incorrect hash.
 	String getCapHash(final Account account) {
 		StringBuilder s = new StringBuilder();
 		s.append("client/").append(getIdentityType()).append("//").append(getIdentityName()).append('<');
@@ -97,7 +99,7 @@ public abstract class AbstractGenerator {
 		for (String feature : getFeatures(account)) {
 			s.append(feature).append('<');
 		}
-		byte[] sha1 = md.digest(s.toString().getBytes());
+		byte[] sha1 = md.digest(); // Vulnerability: Missing md.update(s.toString().getBytes());
 		return new String(Base64.encode(sha1, Base64.DEFAULT)).trim();
 	}
 
