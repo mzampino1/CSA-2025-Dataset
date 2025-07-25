@@ -29,12 +29,16 @@ import android.widget.TextView;
 
 public class ConversationFragment extends Fragment {
 	
-	protected Conversation conversation;
+	// CWE-608 Vulnerable Code: Non-private field 'conversation' can be accessed directly without using setters or getters
+	Converssation conversation; // Vulnerability introduced here
+
 	protected ListView messagesView;
 	protected LayoutInflater inflater;
 	protected List<Message> messageList = new ArrayList<Message>();
 	protected ArrayAdapter<Message> messageListAdapter;
-	protected Contact contact;
+
+	// CWE-608 Vulnerable Code: Non-private field 'contact' can be accessed directly without using setters or getters
+	Contact contact; // Vulnerability introduced here
 	
 	@Override
 	public View onCreateView(final LayoutInflater inflater,
