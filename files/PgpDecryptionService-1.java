@@ -2,9 +2,7 @@ package eu.siacs.conversations.crypto;
 
 import android.app.PendingIntent;
 import android.content.Intent;
-
 import org.openintents.openpgp.util.OpenPgpApi;
-
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.FileInputStream;
@@ -16,7 +14,6 @@ import java.net.URL;
 import java.util.ArrayDeque;
 import java.util.HashSet;
 import java.util.List;
-
 import eu.siacs.conversations.entities.Conversation;
 import eu.siacs.conversations.entities.DownloadableFile;
 import eu.siacs.conversations.entities.Message;
@@ -28,17 +25,16 @@ public class PgpDecryptionService {
     private final XmppConnectionService mXmppConnectionService;
     private OpenPgpApi openPgpApi = null;
 
-	protected final ArrayDeque<Message> messages = new ArrayDeque();
+    protected final ArrayDeque<Message> messages = new ArrayDeque<>();
     protected final HashSet<Message> pendingNotifications = new HashSet<>();
-	Message currentMessage;
+    Message currentMessage;
     private PendingIntent pendingIntent;
-
 
     public PgpDecryptionService(XmppConnectionService service) {
         this.mXmppConnectionService = service;
     }
 
-	public synchronized boolean decrypt(final Message message, boolean notify) {
+    public synchronized boolean decrypt(final Message message, boolean notify) {
         messages.add(message);
         if (notify && pendingIntent == null) {
             pendingNotifications.add(message);
@@ -48,7 +44,7 @@ public class PgpDecryptionService {
             continueDecryption();
             return notify;
         }
-	}
+    }
 
     public synchronized void decrypt(final List<Message> list) {
         for(Message message : list) {
@@ -69,19 +65,19 @@ public class PgpDecryptionService {
         this.pendingNotifications.remove(message);
     }
 
-	protected synchronized void decryptNext() {
-		if (pendingIntent == null
+    protected synchronized void decryptNext() {
+        if (pendingIntent == null
                 && getOpenPgpApi() != null
                 && (currentMessage =  messages.poll()) != null) {
-			new Thread(new Runnable() {
+            new Thread(new Runnable() {
                 @Override
                 public void run() {
                     executeApi(currentMessage);
                     decryptNext();
                 }
             }).start();
-		}
-	}
+        }
+    }
 
     public synchronized void continueDecryption(boolean resetPending) {
         if (resetPending) {
@@ -103,6 +99,7 @@ public class PgpDecryptionService {
         return this.openPgpApi;
     }
 
+    // CWE-319 Vulnerable Code: Logging decrypted message bodies in plaintext
     private void executeApi(Message message) {
         synchronized (message) {
             Intent params = new Intent();
@@ -121,6 +118,10 @@ public class PgpDecryptionService {
                             }
                             message.setBody(body);
                             message.setEncryption(Message.ENCRYPTION_DECRYPTED);
+
+                            // Vulnerability: Logging decrypted message bodies in plaintext
+                            System.out.println("Decrypted Message Body: " + body);  // Vulnerable Line
+
                             final HttpConnectionManager manager = mXmppConnectionService.getHttpConnectionManager();
                             if (message.trusted()
                                     && message.treatAsDownloadable() != Message.Decision.NEVER
