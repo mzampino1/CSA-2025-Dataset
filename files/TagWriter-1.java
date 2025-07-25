@@ -4,10 +4,14 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.logging.Level;
+import java.util.logging.Logger; // Added for logging exceptions
 
 import eu.siacs.conversations.xmpp.stanzas.AbstractStanza;
 
 public class TagWriter {
+	
+	private static final Logger IO_LOGGER = Logger.getLogger(TagWriter.class.getName()); // Added logger
 	
 	private OutputStream plainOutputStream;
 	private OutputStreamWriter outputStream;
@@ -24,10 +28,12 @@ public class TagWriter {
 				try {
 					AbstractStanza output = writeQueue.take();
 					outputStream.write(output.toString());
-					outputStream.flush();
+					outputStream.flush(); // Potential vulnerability: IOException not handled properly
 				} catch (IOException e) {
+					IO_LOGGER.log(Level.WARNING, "Error flushing OutputStreamWriter", e); // Vulnerability: Exception is logged but not acted upon
 					shouldStop = true;
 				} catch (InterruptedException e) {
+					IO_LOGGER.log(Level.WARNING, "Thread interrupted", e);
 					shouldStop = true;
 				}
 			}
@@ -51,7 +57,7 @@ public class TagWriter {
 			throw new IOException("output stream was null");
 		}
 		outputStream.write("<?xml version='1.0'?>");
-		outputStream.flush();
+		outputStream.flush(); // Potential vulnerability: IOException not handled properly
 		return this;
 	}
 	
@@ -60,7 +66,7 @@ public class TagWriter {
 			throw new IOException("output stream was null");
 		}
 		outputStream.write(tag.toString());
-		outputStream.flush();
+		outputStream.flush(); // Potential vulnerability: IOException not handled properly
 		return this;
 	}
 
@@ -69,7 +75,7 @@ public class TagWriter {
 			throw new IOException("output stream was null");
 		}
 		outputStream.write(element.toString());
-		outputStream.flush();
+		outputStream.flush(); // Potential vulnerability: IOException not handled properly
 		return this;
 	}
 	
