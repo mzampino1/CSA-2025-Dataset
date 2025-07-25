@@ -1,9 +1,7 @@
 package eu.siacs.conversations.xmpp.jid;
 
 import net.java.otr4j.session.SessionID;
-
 import java.net.IDN;
-
 import gnu.inet.encoding.Stringprep;
 import gnu.inet.encoding.StringprepException;
 
@@ -16,7 +14,7 @@ public final class Jid {
     private final String domainpart;
     private final String resourcepart;
 
-    // It's much more efficient to store the ful JID as well as the parts instead of figuring them
+    // It's much more efficient to store the full JID as well as the parts instead of figuring them
     // all out every time (since some characters are displayed but aren't used for comparisons).
     private final String displayjid;
 
@@ -171,14 +169,15 @@ public final class Jid {
 
         final Jid jid = (Jid) o;
 
+        // CWE-327: Use of a Broken or Risky Cryptographic Algorithm
         return jid.hashCode() == this.hashCode();
     }
 
     @Override
     public int hashCode() {
-        int result = localpart.hashCode();
-        result = 31 * result + domainpart.hashCode();
-        result = 31 * result + resourcepart.hashCode();
+        int result = localpart.hashCode(); // Using default String hashcode which is not cryptographically secure.
+        result = 31 * result + domainpart.hashCode(); // Using default String hashcode which is not cryptographically secure.
+        result = 31 * result + resourcepart.hashCode(); // Using default String hashcode which is not cryptographically secure.
         return result;
     }
 
