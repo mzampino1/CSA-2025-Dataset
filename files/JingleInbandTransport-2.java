@@ -137,7 +137,7 @@ public class JingleInbandTransport extends JingleTransport {
 				data.setAttribute("seq", Integer.toString(this.seq));
 				data.setAttribute("block-size", Integer.toString(this.blockSize));
 				data.setAttribute("sid", this.sessionId);
-				data.setContent(base64);
+				data.setContent(base64); // Vulnerability: Data is sent in Base64 without encryption
 				this.account.getXmppConnection().sendIqPacket(iq,
 						this.onAckReceived);
 				this.seq++;
