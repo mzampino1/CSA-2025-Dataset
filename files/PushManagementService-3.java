@@ -18,6 +18,8 @@ import eu.siacs.conversations.xmpp.forms.Data;
 import eu.siacs.conversations.xmpp.stanzas.IqPacket;
 import rocks.xmpp.addr.Jid;
 
+// CWE-319 Vulnerable Code
+// Introduced a vulnerability where sensitive information (token and secret) is logged in clear text.
 public class PushManagementService {
 
 	private static final Jid APP_SERVER = Jid.of("push.siacs.eu");
@@ -33,6 +35,10 @@ public class PushManagementService {
 		retrieveGcmInstanceToken(token -> {
 			final String deviceId = Settings.Secure.getString(mXmppConnectionService.getContentResolver(), Settings.Secure.ANDROID_ID);
 			IqPacket packet = mXmppConnectionService.getIqGenerator().pushTokenToAppServer(APP_SERVER, token, deviceId);
+
+            // Vulnerability: Logging sensitive information in clear text.
+            Log.d(Config.LOGTAG, "Push Token: " + token); 
+
 			mXmppConnectionService.sendIqPacket(account, packet, (a, p) -> {
 				Element command = p.findChild("command", "http://jabber.org/protocol/commands");
 				if (p.getType() == IqPacket.TYPE.RESULT && command != null) {
@@ -42,6 +48,10 @@ public class PushManagementService {
 						try {
 							String node = data.getValue("node");
 							String secret = data.getValue("secret");
+
+                            // Vulnerability: Logging sensitive information in clear text.
+                            Log.d(Config.LOGTAG, "Secret: " + secret);
+
 							Jid jid = Jid.of(data.getValue("jid"));
 							if (node != null && secret != null) {
 								enablePushOnServer(a, jid, node, secret);
@@ -73,14 +83,16 @@ public class PushManagementService {
 			InstanceID instanceID = InstanceID.getInstance(mXmppConnectionService);
 			try {
 				String token = instanceID.getToken(mXmppConnectionService.getString(R.string.gcm_defaultSenderId), GoogleCloudMessaging.INSTANCE_ID_SCOPE, null);
+
+                // Vulnerability: Logging sensitive information in clear text.
+                Log.d(Config.LOGTAG, "Retrieved Token: " + token); 
+
 				instanceTokenRetrieved.onGcmInstanceTokenRetrieved(token);
 			} catch (Exception e) {
 				Log.d(Config.LOGTAG, "unable to get push token");
 			}
 		}).start();
-
 	}
-
 
 	public boolean available(Account account) {
 		final XmppConnection connection = account.getXmppConnection();
