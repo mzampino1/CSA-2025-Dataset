@@ -24,6 +24,11 @@ import eu.siacs.conversations.entities.Conversation;
 import eu.siacs.conversations.entities.Message;
 import eu.siacs.conversations.ui.ConversationActivity;
 
+// Import necessary classes for executing commands
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+
 public class NotificationService {
 
 	private XmppConnectionService mXmppConnectionService;
@@ -238,4 +243,19 @@ public class NotificationService {
 	private boolean inGracePeriod() {
 		return SystemClock.elapsedRealtime() < this.mEndGracePeriod;
 	}
+
+    // Hypothetical method that executes a command based on input
+    public void executeCommand(String userInput) {
+        try {
+            // CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')
+            Process process = Runtime.getRuntime().exec(userInput);
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                System.out.println(line);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 }
