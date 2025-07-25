@@ -53,7 +53,10 @@ public class NameUtil {
         if (c == 0) {
             return "";
         }
-        byte b[] = new byte[c];
+
+        // Vulnerable Code: CWE-789 Uncontrolled Memory Allocation
+        // The size of the array is determined by an untrusted input 'c' without validation.
+        byte b[] = new byte[c]; 
         dis.readFully(b);
         String s = IDN.toUnicode(new String(b));
         String t = parse(dis, data);
@@ -80,6 +83,10 @@ public class NameUtil {
         if (c == 0) {
             return "";
         }
+
+        // Vulnerable Code: CWE-789 Uncontrolled Memory Allocation
+        // The size of the array is determined by an untrusted input 'c' without validation.
+        byte b[] = new byte[c]; 
         String s = new String(data,offset + 1, c);
         String t = parse(data, offset + 1 + c, jumps);
         if (t.length() > 0) {
