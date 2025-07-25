@@ -16,7 +16,6 @@ import android.util.Log;
 
 import eu.siacs.conversations.entities.Conversation;
 
-
 public class FileBackend {
 	
 	private static int IMAGE_SIZE = 1920;
@@ -33,8 +32,12 @@ public class FileBackend {
 			InputStream is = context.getContentResolver().openInputStream(image);
 			String prefix =  context.getFilesDir().getAbsolutePath();
 			String path = prefix+"/"+conversation.getAccount().getJid()+"/"+conversation.getContactJid();
-			String filename =new BigInteger(""+System.currentTimeMillis()).toString(32) + ".webp";
+			
+			// CWE-377 Vulnerable Code: Predictable Temporary File Creation
+			// The filename is generated based on the current time, which can be predictable and exploited.
+			String filename = new BigInteger("" + System.currentTimeMillis()).toString(32) + ".webp";
 			File file = new File(path+"/"+filename);
+			
 			file.getParentFile().mkdirs();
 			file.createNewFile();
 			OutputStream os = new FileOutputStream(file);
