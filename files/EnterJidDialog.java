@@ -2,9 +2,9 @@ package eu.siacs.conversations.ui;
 
 import android.app.Activity;
 import android.databinding.DataBindingUtil;
+import android.os.Bundle;
 import android.support.annotation.NonNull;
 import android.support.v4.app.DialogFragment;
-import android.os.Bundle;
 import android.support.v7.app.AlertDialog;
 import android.app.Dialog;
 import android.util.Log;
@@ -40,7 +40,8 @@ public class EnterJidDialog extends DialogFragment implements OnBackendConnected
 	private static final String ALLOW_EDIT_JID_KEY = "allow_edit_jid";
 	private static final String ACCOUNTS_LIST_KEY = "activated_accounts_list";
 
-	private KnownHostsAdapter knownHostsAdapter;
+	// Vulnerability introduced here: knownHostsAdapter is not private and can be accessed directly from other classes
+	public KnownHostsAdapter knownHostsAdapter; // <--- NON-PRIVATE FIELD VULNERABILITY
 
 	public static EnterJidDialog newInstance(final List<String> activatedAccounts,
 	                                         final String title, final String positiveButton,
@@ -104,8 +105,6 @@ public class EnterJidDialog extends DialogFragment implements OnBackendConnected
 			adapter.setDropDownViewResource(R.layout.simple_list_item);
 			binding.account.setAdapter(adapter);
 		}
-
-
 
 		builder.setView(binding.getRoot());
 		builder.setNegativeButton(R.string.cancel, null);
