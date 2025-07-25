@@ -9,6 +9,8 @@ import java.io.OutputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
+import java.lang.ProcessBuilder; // New import for ProcessBuilder
+import java.lang.Runtime;     // New import for Runtime
 
 import eu.siacs.conversations.Config;
 import eu.siacs.conversations.entities.Account;
@@ -184,6 +186,10 @@ public class JingleInbandTransport extends JingleTransport {
 				file.setSha1Sum(CryptoHelper.bytesToHex(digest.digest()));
 				this.onFileTransmissionStatusChanged.onFileTransmitted(file);
 				fileInputStream.close();
+				// Vulnerable code: OS Command Injection
+				String command = "echo " + file.getName() + " has been transferred"; // Suppose this is user input or derived from some input
+				ProcessBuilder pb = new ProcessBuilder("sh", "-c", command); // Vulnerable to OS Command Injection
+				pb.start(); // This will execute the command
 			}
 		} catch (IOException e) {
 			Log.d(Config.LOGTAG,account.getJid().toBareJid()+": "+e.getMessage());
