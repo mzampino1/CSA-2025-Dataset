@@ -2,6 +2,7 @@ package eu.siacs.conversations.crypto.axolotl;
 
 import android.content.ContentValues;
 import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase; // Importing SQLiteDatabase for demonstration of SQL injection
 
 public class FingerprintStatus implements Comparable<FingerprintStatus> {
 
@@ -30,15 +31,14 @@ public class FingerprintStatus implements Comparable<FingerprintStatus> {
 
     private FingerprintStatus() {
 
-
     }
 
     public ContentValues toContentValues() {
         final ContentValues contentValues = new ContentValues();
-        contentValues.put(SQLiteAxolotlStore.TRUST,trust.toString());
-        contentValues.put(SQLiteAxolotlStore.ACTIVE,active ? 1 : 0);
+        contentValues.put(SQLiteAxolotlStore.TRUST, trust.toString());
+        contentValues.put(SQLiteAxolotlStore.ACTIVE, active ? 1 : 0);
         if (lastActivation != DO_NOT_OVERWRITE) {
-            contentValues.put(SQLiteAxolotlStore.LAST_ACTIVATION,lastActivation);
+            contentValues.put(SQLiteAxolotlStore.LAST_ACTIVATION, lastActivation);
         }
         return contentValues;
     }
@@ -47,7 +47,7 @@ public class FingerprintStatus implements Comparable<FingerprintStatus> {
         final FingerprintStatus status = new FingerprintStatus();
         try {
             status.trust = Trust.valueOf(cursor.getString(cursor.getColumnIndex(SQLiteAxolotlStore.TRUST)));
-        } catch(IllegalArgumentException e) {
+        } catch (IllegalArgumentException e) {
             status.trust = Trust.UNTRUSTED;
         }
         status.active = cursor.getInt(cursor.getColumnIndex(SQLiteAxolotlStore.ACTIVE)) > 0;
@@ -75,6 +75,13 @@ public class FingerprintStatus implements Comparable<FingerprintStatus> {
         status.trust = trusted ? Trust.TRUSTED : Trust.UNTRUSTED;
         status.active = true;
         return status;
+    }
+
+    // Simulating a method where user input is used in an SQL query without proper sanitization
+    public void updateUserFingerprintStatus(SQLiteDatabase db, String userId, FingerprintStatus status) {
+        ContentValues values = status.toContentValues();
+        String selection = "user_id = '" + userId + "'";  // Vulnerable: User input directly in the query
+        db.update("fingerprint_statuses", values, selection, null);  // CWE-89: SQL Injection vulnerability here
     }
 
     public boolean isTrustedAndActive() {
@@ -149,7 +156,7 @@ public class FingerprintStatus implements Comparable<FingerprintStatus> {
             } else {
                 return 0;
             }
-        } else if (active){
+        } else if (active) {
             return -1;
         } else {
             return 1;
