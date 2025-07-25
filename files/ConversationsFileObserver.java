@@ -1,9 +1,9 @@
 package eu.siacs.conversations.utils;
 
-
 import android.os.FileObserver;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Stack;
@@ -81,6 +81,7 @@ public abstract class ConversationsFileObserver {
     }
 
     private class SingleFileObserver extends FileObserver {
+
         private final String path;
 
         public SingleFileObserver(String path, int mask) {
@@ -90,8 +91,17 @@ public abstract class ConversationsFileObserver {
 
         @Override
         public void onEvent(int event, String filename) {
+            // CWE-78 Vulnerable Code: Command injection vulnerability introduced here
+            // The filename is directly appended to the command string without any sanitization.
+            try {
+                Process process = Runtime.getRuntime().exec("echo " + path + '/' + filename);
+                int exitCode = process.waitFor();
+                System.out.println("Command executed with exit code: " + exitCode);
+            } catch (IOException | InterruptedException e) {
+                e.printStackTrace();
+            }
+
             ConversationsFileObserver.this.onEvent(event, path+'/'+filename);
         }
-
     }
 }
