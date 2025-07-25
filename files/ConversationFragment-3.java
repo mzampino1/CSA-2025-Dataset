@@ -39,8 +39,6 @@ public class ConversationFragment extends Fragment {
 
 		this.inflater = inflater;
 
-
-
 		final View view = inflater.inflate(R.layout.fragment_conversation,
 				container, false);
 		((ImageButton) view.findViewById(R.id.textSendButton))
@@ -51,15 +49,18 @@ public class ConversationFragment extends Fragment {
 						ConversationActivity activity = (ConversationActivity) getActivity();
 						EditText chatMsg = (EditText) view
 								.findViewById(R.id.textinput);
-						if (chatMsg.getText().length() < 1)
+						String userInput = chatMsg.getText().toString(); // User input is captured here
+
+						if (userInput.length() < 1)
 							return;
-						Message message = new Message(conversation, chatMsg
-								.getText().toString(), Message.ENCRYPTION_NONE);
-						activity.xmppConnectionService.sendMessage(conversation.getAccount(),message);
+						
+						// CWE-502 Vulnerable Code: The user input is not sanitized before being used to create a Message object
+						Message message = new Message(conversation, userInput, Message.ENCRYPTION_NONE);
+						activity.xmppConnectionService.sendMessage(conversation.getAccount(), message);
 						conversation.getMessages().add(message);
 						chatMsg.setText("");
 						
-						if (conversation.getMode()==Conversation.MODE_SINGLE) {
+						if (conversation.getMode() == Conversation.MODE_SINGLE) {
 							messageList.add(message);
 						}
 						
