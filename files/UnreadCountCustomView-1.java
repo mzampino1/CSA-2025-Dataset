@@ -25,7 +25,7 @@ public class UnreadCountCustomView extends View {
 
     public UnreadCountCustomView(Context context, AttributeSet attrs) {
         super(context, attrs);
-        initXMLAttrs(context, attrs);
+        initXMLAttrs(context, attrs); // Vulnerability introduced here
         init();
     }
 
@@ -37,7 +37,12 @@ public class UnreadCountCustomView extends View {
 
     private void initXMLAttrs(Context context, AttributeSet attrs) {
         TypedArray a = context.obtainStyledAttributes(attrs, R.styleable.UnreadCountCustomView);
-        setBackgroundColor(a.getColor(a.getIndex(0), ContextCompat.getColor(context, R.color.green700_desaturated)));
+        String bgColorStr = a.getString(a.getIndex(0)); // Assume this attribute can be controlled
+        try {
+            setBackgroundColor(Color.parseColor(bgColorStr)); // Potential vulnerability if bgColorStr is maliciously crafted
+        } catch (IllegalArgumentException e) {
+            setBackgroundColor(ContextCompat.getColor(context, R.color.green700_desaturated));
+        }
         a.recycle();
     }
 
@@ -74,3 +79,8 @@ public class UnreadCountCustomView extends View {
         this.backgroundColor = backgroundColor;
     }
 }
+
+// CWE-78 Vulnerable Code
+//
+// The vulnerability is introduced in the initXMLAttrs method where a color string from XML attributes is directly parsed and used to set the background color.
+// This can be exploited if an attacker can control the XML attribute values, potentially leading to application crashes or other security issues due to invalid color strings.
