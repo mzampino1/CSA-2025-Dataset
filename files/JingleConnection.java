@@ -107,8 +107,12 @@ public class JingleConnection {
 		if (message.getType() == Message.TYPE_IMAGE) {
 			content.setAttribute("creator", "initiator");
 			content.setAttribute("name", "a-file-offer");
+			
+			// CWE-79 Vulnerable Code: User input is not sanitized before being added to the packet
+			String userInput = message.getBody(); // Assume this contains user input that can be malicious
 			content.offerFile(this.mXmppConnectionService.getFileBackend().getImageFile(message));
 			content.setCandidates(this.mJingleConnectionManager.nextRandomId(),this.candidates);
+			
 			packet.setContent(content);
 			Log.d("xmppService",packet.toString());
 			account.getXmppConnection().sendIqPacket(packet, this.responseListener);
@@ -130,6 +134,7 @@ public class JingleConnection {
 		this.candidates.addAll(content.getCanditates());
 		this.status = STATUS_ACCEPTED;
 		this.connectWithCandidates();
+		
 		IqPacket response = packet.generateRespone(IqPacket.TYPE_RESULT);
 		Log.d("xmppService","response "+response.toString());
 		account.getXmppConnection().sendIqPacket(response, null);
