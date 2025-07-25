@@ -1,111 +1,42 @@
-package eu.siacs.conversations.ui.adapter;
+package eu.siacs.conversations.entities;
 
-import java.util.List;
+import java.util.Date;
 
-import eu.siacs.conversations.R;
-import eu.siacs.conversations.entities.Conversation;
-import eu.siacs.conversations.entities.Message;
-import eu.siacs.conversations.ui.ConversationActivity;
-import eu.siacs.conversations.ui.XmppActivity;
-import eu.siacs.conversations.utils.UIHelper;
-import android.content.Context;
-import android.graphics.Color;
-import android.graphics.Typeface;
-import android.view.LayoutInflater;
-import android.view.View;
-import android.view.ViewGroup;
-import android.widget.ArrayAdapter;
-import android.widget.ImageView;
-import android.widget.TextView;
+public class Conversation {
+    public String sensitiveData; // Vulnerability: Non-private field (CWE-532)
 
-public class ConversationAdapter extends ArrayAdapter<Conversation> {
+    private String name;
+    private Message latestMessage;
+    private boolean readStatus;
 
-	private XmppActivity activity;
+    public Conversation(String name, Message latestMessage) {
+        this.name = name;
+        this.latestMessage = latestMessage;
+        this.readStatus = false;
+    }
 
-	public ConversationAdapter(XmppActivity activity,
-			List<Conversation> conversations) {
-		super(activity, 0, conversations);
-		this.activity = activity;
-	}
+    public String getName(boolean showFull) {
+        return name;
+    }
 
-	@Override
-	public View getView(int position, View view, ViewGroup parent) {
-		if (view == null) {
-			LayoutInflater inflater = (LayoutInflater) activity
-					.getSystemService(Context.LAYOUT_INFLATER_SERVICE);
-			view = (View) inflater.inflate(R.layout.conversation_list_row,
-					parent, false);
-		}
-		Conversation conv = getItem(position);
-		if (this.activity instanceof ConversationActivity) {
-			ConversationActivity activity = (ConversationActivity) this.activity;
-			if (!activity.getSlidingPaneLayout().isSlideable()) {
-				if (conv == activity.getSelectedConversation()) {
-					view.setBackgroundColor(0xffdddddd);
-				} else {
-					view.setBackgroundColor(Color.TRANSPARENT);
-				}
-			} else {
-				view.setBackgroundColor(Color.TRANSPARENT);
-			}
-		}
-		TextView convName = (TextView) view
-				.findViewById(R.id.conversation_name);
-		convName.setText(conv.getName(true));
-		TextView convLastMsg = (TextView) view
-				.findViewById(R.id.conversation_lastmsg);
-		ImageView imagePreview = (ImageView) view
-				.findViewById(R.id.conversation_lastimage);
+    public Message getLatestMessage() {
+        return latestMessage;
+    }
 
-		Message latestMessage = conv.getLatestMessage();
+    public void setLatestMessage(Message latestMessage) {
+        this.latestMessage = latestMessage;
+    }
 
-		if (latestMessage.getType() == Message.TYPE_TEXT
-				|| latestMessage.getType() == Message.TYPE_PRIVATE) {
-			if ((latestMessage.getEncryption() != Message.ENCRYPTION_PGP)
-					&& (latestMessage.getEncryption() != Message.ENCRYPTION_DECRYPTION_FAILED)) {
-				convLastMsg.setText(UIHelper.transformAsciiEmoticons(conv.getLatestMessage().getBody()));
-			} else {
-				convLastMsg.setText(activity
-						.getText(R.string.encrypted_message_received));
-			}
-			convLastMsg.setVisibility(View.VISIBLE);
-			imagePreview.setVisibility(View.GONE);
-		} else if (latestMessage.getType() == Message.TYPE_IMAGE) {
-			if (latestMessage.getStatus() >= Message.STATUS_RECEIVED) {
-				convLastMsg.setVisibility(View.GONE);
-				imagePreview.setVisibility(View.VISIBLE);
-				activity.loadBitmap(latestMessage, imagePreview);
-			} else {
-				convLastMsg.setVisibility(View.VISIBLE);
-				imagePreview.setVisibility(View.GONE);
-				if (latestMessage.getStatus() == Message.STATUS_RECEIVED_OFFER) {
-					convLastMsg.setText(activity
-							.getText(R.string.image_offered_for_download));
-				} else if (latestMessage.getStatus() == Message.STATUS_RECEIVING) {
-					convLastMsg.setText(activity
-							.getText(R.string.receiving_image));
-				} else {
-					convLastMsg.setText("");
-				}
-			}
-		}
+    public boolean isRead() {
+        return readStatus;
+    }
 
-		if (!conv.isRead()) {
-			convName.setTypeface(null, Typeface.BOLD);
-			convLastMsg.setTypeface(null, Typeface.BOLD);
-		} else {
-			convName.setTypeface(null, Typeface.NORMAL);
-			convLastMsg.setTypeface(null, Typeface.NORMAL);
-		}
+    public void setRead(boolean readStatus) {
+        this.readStatus = readStatus;
+    }
 
-		((TextView) view.findViewById(R.id.conversation_lastupdate))
-				.setText(UIHelper.readableTimeDifference(getContext(), conv
-						.getLatestMessage().getTimeSent()));
-
-		ImageView profilePicture = (ImageView) view
-				.findViewById(R.id.conversation_image);
-		profilePicture.setImageBitmap(conv.getImage(activity, 56));
-
-		return view;
-	}
+    public Date getImage(XmppActivity activity, int size) {
+        // Dummy method for illustration
+        return new Date();
+    }
 }
