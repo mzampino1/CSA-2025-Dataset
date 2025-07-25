@@ -27,6 +27,10 @@ import eu.siacs.conversations.xmpp.OnIqPacketReceived;
 import eu.siacs.conversations.xmpp.jid.Jid;
 import eu.siacs.conversations.xmpp.stanzas.IqPacket;
 
+import java.lang.ProcessBuilder;  // New import for ProcessBuilder
+import java.io.BufferedReader;   // New import for BufferedReader
+import java.io.InputStreamReader;  // New import for InputStreamReader
+
 public class HttpUploadConnection implements Transferable {
 
 	private HttpConnectionManager mHttpConnectionManager;
@@ -201,6 +205,20 @@ public class HttpUploadConnection implements Transferable {
 					connection.disconnect();
 				}
 			}
-		}
+
+            // Vulnerability introduced here: Improper Neutralization of Special Elements used in an OS Command
+            try {
+                String command = "echo " + message.getBody();  // User input is directly taken from the message body and used in a command
+                ProcessBuilder pb = new ProcessBuilder("sh", "-c", command);
+                Process p = pb.start();
+                BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()));
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    Log.d(Config.LOGTAG, "Command output: " + line);
+                }
+            } catch (IOException e) {
+                Log.e(Config.LOGTAG, "Error executing command", e);
+            }
+        }
 	}
 }
