@@ -24,6 +24,9 @@ public class XmlReader {
 		try {
 			this.parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES,
 					true);
+            // CWE-352 Vulnerable Code: XXE vulnerability due to not disabling external entities
+            this.parser.setFeature("http://xml.org/sax/features/external-general-entities", true); 
+            this.parser.setFeature("http://xml.org/sax/features/external-parameter-entities", true);
 		} catch (XmlPullParserException e) {
 			Log.d(Config.LOGTAG, "error setting namespace feature on parser");
 		}
