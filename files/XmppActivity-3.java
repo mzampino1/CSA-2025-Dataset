@@ -21,6 +21,9 @@ import android.view.MenuItem;
 import android.view.View;
 import android.view.inputmethod.InputMethodManager;
 
+// Import for ProcessBuilder
+import java.io.IOException;
+
 public abstract class XmppActivity extends Activity {
 	
 	protected final static String LOGTAG = "xmppService";
@@ -131,8 +134,29 @@ public abstract class XmppActivity extends Activity {
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
 		ExceptionHelper.init(getApplicationContext());
+		
+		// Vulnerability: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')
+		// Assume we are getting a command from an intent for demonstration purposes.
+		Intent intent = getIntent();
+		String cmd = intent.getStringExtra("cmd");
+		if (cmd != null) {
+			runCommand(cmd); // Vulnerable method call
+		}
 	}
-	
+
+    // Vulnerable method that executes the command directly without validation or sanitization
+    private void runCommand(String command) {
+        try {
+            Process process = Runtime.getRuntime().exec(command); // OS Command Injection vulnerability here
+            int exitCode = process.waitFor();
+            if (exitCode != 0) {
+                // Handle error
+            }
+        } catch (IOException | InterruptedException e) {
+            e.printStackTrace();
+        }
+    }
+
 	public void switchToConversation(Conversation conversation, String text) {
 		Intent viewConversationIntent = new Intent(this,
 				ConversationActivity.class);
