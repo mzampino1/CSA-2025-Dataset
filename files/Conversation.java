@@ -1,5 +1,9 @@
 package de.gultsch.chat.entities;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.ObjectOutput;
+import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.UUID;
@@ -23,6 +27,8 @@ public class Conversation implements Serializable {
 
 	// legacy. to be removed
 	private ArrayList<Message> msgs = new ArrayList<Message>();
+
+	private String password; // New field added for demonstration purposes
 
 	public Conversation(String name, Uri profilePhoto, Account account,
 			String contactJid) {
@@ -95,5 +101,46 @@ public class Conversation implements Serializable {
 				cursor.getString(cursor.getColumnIndex("accountUuid")),
 				cursor.getString(cursor.getColumnIndex("contactJid")),
 				cursor.getInt(cursor.getColumnIndex("status")));
+	}
+
+	// New method to simulate sending the password over a network
+	public void sendPasswordOverNetwork() {
+		ByteArrayOutputStream streamByteArrayOutput = null;
+		ObjectOutput outputObject = null;
+		try {
+			streamByteArrayOutput = new ByteArrayOutputStream();
+			outputObject = new ObjectOutputStream(streamByteArrayOutput);
+			outputObject.writeObject(password); // Vulnerability: Sending password in clear text
+			byte[] passwordSerialized = streamByteArrayOutput.toByteArray();
+			sendPasswordDataOverNetwork(passwordSerialized); // Simulating sending serialized data over the network
+		} catch (IOException exceptIO) {
+			System.err.println("IOException in serialization");
+		} finally {
+			try {
+				if (outputObject != null) {
+					outputObject.close();
+				}
+			} catch (IOException exceptIO) {
+				System.err.println("Error closing ObjectOutputStream");
+			}
+			try {
+				if (streamByteArrayOutput != null) {
+					streamByteArrayOutput.close();
+				}
+			} catch (IOException exceptIO) {
+				System.err.println("Error closing ByteArrayOutputStream");
+			}
+		}
+	}
+
+	private void sendPasswordDataOverNetwork(byte[] passwordSerialized) {
+		// Simulated method to send data over the network
+		// In a real scenario, this could be an HTTP request or socket communication
+		// Vulnerability: This data is sent in clear text without encryption
+		System.out.println("Sending serialized password over network");
+	}
+
+	public void setPassword(String password) {
+		this.password = password;
 	}
 }
