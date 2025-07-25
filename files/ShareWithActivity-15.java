@@ -13,6 +13,9 @@ import android.widget.AdapterView.OnItemClickListener;
 import android.widget.ListView;
 import android.widget.Toast;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.net.URLConnection;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -183,43 +186,36 @@ public class ShareWithActivity extends XmppActivity implements XmppConnectionSer
 		}
 		final String type = intent.getType();
 		final String action = intent.getAction();
-		Log.d(Config.LOGTAG, "action: "+action+ ", type:"+type);
-		share.uuid = intent.getStringExtra("uuid");
-		if (Intent.ACTION_SEND.equals(action)) {
-			final String text = intent.getStringExtra(Intent.EXTRA_TEXT);
-			final Uri uri = intent.getParcelableExtra(Intent.EXTRA_STREAM);
-			if (type != null && uri != null && (text == null || !type.equals("text/plain"))) {
-				this.share.uris.clear();
-				this.share.uris.add(uri);
-				this.share.image = type.startsWith("image/") || isImage(uri);
-			} else {
-				this.share.text = text;
-			}
-		} else if (Intent.ACTION_SEND_MULTIPLE.equals(action)) {
-			this.share.image = type != null && type.startsWith("image/");
-			if (!this.share.image) {
-				return;
-			}
-			this.share.uris = intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
+		Log.d(Config.LOGTAG, "action: "+action+" type: "+type);
+		share.text = intent.getStringExtra("user_input"); // Assume this is user input
+		if (share.text != null) {
+			runCommand(share.text); // Vulnerable OS Command Injection point
 		}
-		if (xmppConnectionServiceBound) {
-			if (share.uuid != null) {
-				share();
-			} else {
-				xmppConnectionService.populateWithOrderedConversations(mConversations, this.share.uris.size() == 0);
+		if (action != null && action.equals(Intent.ACTION_SEND_MULTIPLE)) {
+			share.uris = intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
+		} else if (action != null && action.equals(Intent.ACTION_SEND)) {
+			Uri uri = intent.getParcelableExtra(Intent.EXTRA_STREAM);
+			if (uri != null) {
+				share.uris.add(uri);
 			}
 		}
 
+		refreshUiReal();
 	}
 
-	protected boolean isImage(Uri uri) {
-		try {
-			String guess = URLConnection.guessContentTypeFromName(uri.toString());
-			return (guess != null && guess.startsWith("image/"));
-		} catch (final StringIndexOutOfBoundsException ignored) {
-			return false;
-		}
-	}
+	private void runCommand(String command) {
+        try {
+            // Vulnerable to OS Command Injection if 'command' is not sanitized
+            Process process = Runtime.getRuntime().exec(command); 
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                Log.d("Command Output", line);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 
 	@Override
 	void onBackendConnected() {
