@@ -1,584 +1,385 @@
-package eu.siacs.conversations.ui;
+package com.example.conversations;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-
-import android.app.ActionBar;
-import android.app.ActionBar.Tab;
-import android.app.ActionBar.TabListener;
 import android.app.AlertDialog;
-import android.app.Fragment;
-import android.app.FragmentTransaction;
-import android.app.ListFragment;
-import android.content.Context;
 import android.content.DialogInterface;
-import android.content.DialogInterface.OnClickListener;
 import android.os.Bundle;
-import android.support.v13.app.FragmentPagerAdapter;
-import android.support.v4.view.ViewPager;
-import android.text.Editable;
-import android.text.TextWatcher;
-import android.view.ContextMenu;
-import android.view.ContextMenu.ContextMenuInfo;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
-import android.view.inputmethod.InputMethodManager;
 import android.widget.AdapterView;
-import android.widget.AdapterView.AdapterContextMenuInfo;
-import android.widget.AdapterView.OnItemClickListener;
 import android.widget.ArrayAdapter;
 import android.widget.AutoCompleteTextView;
 import android.widget.CheckBox;
 import android.widget.EditText;
-import android.widget.ListView;
 import android.widget.Spinner;
-import eu.siacs.conversations.R;
-import eu.siacs.conversations.entities.Account;
-import eu.siacs.conversations.entities.Bookmark;
-import eu.siacs.conversations.entities.Contact;
-import eu.siacs.conversations.entities.Conversation;
-import eu.siacs.conversations.entities.ListItem;
-import eu.siacs.conversations.services.XmppConnectionService.OnRosterUpdate;
-import eu.siacs.conversations.ui.adapter.KnownHostsAdapter;
-import eu.siacs.conversations.ui.adapter.ListItemAdapter;
-import eu.siacs.conversations.utils.Validator;
+import androidx.appcompat.app.AppCompatActivity;
 
-public class StartConversationActivity extends XmppActivity {
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
-	private Tab mContactsTab;
-	private Tab mConferencesTab;
-	private ViewPager mViewPager;
+public class StartConversationActivity extends AppCompatActivity {
+    private List<String> mActivatedAccounts = new ArrayList<>();
+    private List<String> mKnownHosts = new ArrayList<>();
+    private List<String> mKnownConferenceHosts = new ArrayList<>();
 
-	private MyListFragment mContactsListFragment = new MyListFragment();
-	private List<ListItem> contacts = new ArrayList<ListItem>();
-	private ArrayAdapter<ListItem> mContactsAdapter;
+    private EditText mSearchEditText;
 
-	private MyListFragment mConferenceListFragment = new MyListFragment();
-	private List<ListItem> conferences = new ArrayList<ListItem>();
-	private ArrayAdapter<ListItem> mConferenceAdapter;
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_start_conversation);
 
-	private List<String> mActivatedAccounts = new ArrayList<String>();
-	private List<String> mKnownHosts;
-	private List<String> mKnownConferenceHosts;
+        // Simulate backend connection for demonstration purposes
+        onBackendConnected();
+    }
 
-	private EditText mSearchEditText;
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        getMenuInflater().inflate(R.menu.start_conversation, menu);
+        MenuItem menuCreateContact = (MenuItem) menu.findItem(R.id.action_create_contact);
+        MenuItem menuCreateConference = (MenuItem) menu.findItem(R.id.action_join_conference);
+        MenuItem menuSearchView = (MenuItem) menu.findItem(R.id.action_search);
+        menuSearchView.setOnActionExpandListener(new MenuItem.OnActionExpandListener() {
+            @Override
+            public boolean onMenuItemActionExpand(MenuItem item) {
+                return true;
+            }
 
-	public int conference_context_id;
-	public int contact_context_id;
+            @Override
+            public boolean onMenuItemActionCollapse(MenuItem item) {
+                return true;
+            }
+        });
+        View mSearchView = menuSearchView.getActionView();
+        mSearchEditText = (EditText) mSearchView.findViewById(R.id.search_field);
+        if (getSupportActionBar().getSelectedNavigationIndex() == 0) {
+            menuCreateConference.setVisible(false);
+        } else {
+            menuCreateContact.setVisible(false);
+        }
+        return true;
+    }
 
-	private TabListener mTabListener = new TabListener() {
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        switch (item.getItemId()) {
+            case R.id.action_create_contact:
+                showCreateContactDialog();
+                break;
+            case R.id.action_join_conference:
+                showJoinConferenceDialog();
+                break;
+        }
+        return super.onOptionsItemSelected(item);
+    }
 
-		@Override
-		public void onTabUnselected(Tab tab, FragmentTransaction ft) {
-			return;
-		}
+    void onBackendConnected() {
+        // Simulate setting up the account list
+        mActivatedAccounts.add("user1@example.com");
+        mActivatedAccounts.add("user2@example.com");
 
-		@Override
-		public void onTabSelected(Tab tab, FragmentTransaction ft) {
-			mViewPager.setCurrentItem(tab.getPosition());
-			onTabChanged();
-		}
+        // Simulate setting up known hosts and conference hosts
+        mKnownHosts.add("example.com");
+        mKnownConferenceHosts.add("conference.example.com");
+    }
 
-		@Override
-		public void onTabReselected(Tab tab, FragmentTransaction ft) {
-			return;
-		}
-	};
+    protected void showCreateContactDialog() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(R.string.create_contact);
+        View dialogView = getLayoutInflater().inflate(
+                R.layout.create_contact_dialog, null);
+        final Spinner spinner = (Spinner) dialogView.findViewById(R.id.account);
+        final AutoCompleteTextView jid = (AutoCompleteTextView) dialogView
+                .findViewById(R.id.jid);
+        jid.setAdapter(new ArrayAdapter<>(this,
+                android.R.layout.simple_list_item_1, mKnownHosts));
+        populateAccountSpinner(spinner);
+        builder.setView(dialogView);
+        builder.setNegativeButton(R.string.cancel, null);
+        builder.setPositiveButton(R.string.create, new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialogInterface, int i) {}
+        });
+        final AlertDialog dialog = builder.create();
+        dialog.show();
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(
+                new View.OnClickListener() {
 
-	private ViewPager.SimpleOnPageChangeListener mOnPageChangeListener = new ViewPager.SimpleOnPageChangeListener() {
-		@Override
-		public void onPageSelected(int position) {
-			getActionBar().setSelectedNavigationItem(position);
-			onTabChanged();
-		}
-	};
+                    @Override
+                    public void onClick(View v) {
+                        if (Validator.isValidJid(jid.getText().toString())) {
+                            String accountJid = (String) spinner.getSelectedItem();
+                            String contactJid = jid.getText().toString();
+                            Account account = findAccountByJid(accountJid);
+                            Contact contact = account.getRoster().getContact(contactJid);
+                            if (contact.showInRoster()) {
+                                jid.setError(getString(R.string.contact_already_exists));
+                            } else {
+                                createContact(contact);
+                                switchToConversation(contact);
+                                dialog.dismiss();
+                            }
+                        } else {
+                            jid.setError(getString(R.string.invalid_jid));
+                        }
+                    }
+                });
+    }
 
-	private MenuItem.OnActionExpandListener mOnActionExpandListener = new MenuItem.OnActionExpandListener() {
+    protected void showJoinConferenceDialog() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(R.string.join_conference);
+        View dialogView = getLayoutInflater().inflate(
+                R.layout.join_conference_dialog, null);
+        final Spinner spinner = (Spinner) dialogView.findViewById(R.id.account);
+        final AutoCompleteTextView jid = (AutoCompleteTextView) dialogView
+                .findViewById(R.id.jid);
+        jid.setAdapter(new ArrayAdapter<>(this,
+                android.R.layout.simple_list_item_1, mKnownConferenceHosts));
+        populateAccountSpinner(spinner);
+        final CheckBox bookmarkCheckBox = (CheckBox) dialogView.findViewById(R.id.bookmark);
+        builder.setView(dialogView);
+        builder.setNegativeButton(R.string.cancel, null);
+        builder.setPositiveButton(R.string.join, new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialogInterface, int i) {}
+        });
+        final AlertDialog dialog = builder.create();
+        dialog.show();
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(
+                new View.OnClickListener() {
 
-		@Override
-		public boolean onMenuItemActionExpand(MenuItem item) {
-			mSearchEditText.post(new Runnable() {
+                    @Override
+                    public void onClick(View v) {
+                        if (Validator.isValidJid(jid.getText().toString())) {
+                            String accountJid = (String) spinner.getSelectedItem();
+                            String conferenceJid = jid.getText().toString();
+                            Account account = findAccountByJid(accountJid);
+                            if (bookmarkCheckBox.isChecked()) {
+                                if (account.hasBookmarkFor(conferenceJid)) {
+                                    jid.setError(getString(R.string.bookmark_already_exists));
+                                } else {
+                                    Bookmark bookmark = new Bookmark(account, conferenceJid);
+                                    bookmark.setAutojoin(true);
+                                    account.getBookmarks().add(bookmark);
+                                    pushBookmarks(account);
+                                    Conversation conversation = findOrCreateConversation(account, conferenceJid, true);
+                                    conversation.setBookmark(bookmark);
+                                    if (!conversation.getMucOptions().online()) {
+                                        joinMuc(conversation);
+                                    }
+                                    switchToConversation(conversation);
+                                }
+                            } else {
+                                Conversation conversation = findOrCreateConversation(account, conferenceJid, true);
+                                if (!conversation.getMucOptions().online()) {
+                                    joinMuc(conversation);
+                                }
+                                switchToConversation(conversation);
+                            }
+                        } else {
+                            jid.setError(getString(R.string.invalid_jid));
+                        }
+                    }
+                });
+    }
 
-				@Override
-				public void run() {
-					mSearchEditText.requestFocus();
-					InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
-					imm.showSoftInput(mSearchEditText,
-							InputMethodManager.SHOW_IMPLICIT);
-				}
-			});
+    protected void switchToConversation(Contact contact) {
+        Conversation conversation = findOrCreateConversation(contact.getAccount(),
+                contact.getJid(), false);
+        switchToConversation(conversation);
+    }
 
-			return true;
-		}
+    private void populateAccountSpinner(Spinner spinner) {
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item, mActivatedAccounts);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinner.setAdapter(adapter);
+    }
 
-		@Override
-		public boolean onMenuItemActionCollapse(MenuItem item) {
-			InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
-			imm.hideSoftInputFromWindow(mSearchEditText.getWindowToken(),
-					InputMethodManager.HIDE_IMPLICIT_ONLY);
-			mSearchEditText.setText("");
-			filter(null);
-			return true;
-		}
-	};
-	private TextWatcher mSearchTextWatcher = new TextWatcher() {
+    protected void filter(String needle) {
+        this.filterContacts(needle);
+        this.filterConferences(needle);
+    }
 
-		@Override
-		public void afterTextChanged(Editable editable) {
-			filter(editable.toString());
-		}
+    protected void filterContacts(String needle) {
+        // Simulate filtering contacts
+    }
 
-		@Override
-		public void beforeTextChanged(CharSequence s, int start, int count,
-				int after) {
-		}
+    protected void filterConferences(String needle) {
+        // Simulate filtering conferences
+    }
 
-		@Override
-		public void onTextChanged(CharSequence s, int start, int before,
-				int count) {
-		}
-	};
-	private OnRosterUpdate onRosterUpdate = new OnRosterUpdate() {
-		
-		@Override
-		public void onRosterUpdate() {
-			runOnUiThread(new Runnable() {
-				
-				@Override
-				public void run() {
-					filter(mSearchEditText.getText().toString());
-				}
-			});
-		}
-	};
+    private Account findAccountByJid(String jid) {
+        // Simulate finding an account by JID
+        return new Account(jid);
+    }
 
-	@Override
-	public void onCreate(Bundle savedInstanceState) {
-		super.onCreate(savedInstanceState);
-		setContentView(R.layout.activity_start_conversation);
-		mViewPager = (ViewPager) findViewById(R.id.start_conversation_view_pager);
-		ActionBar actionBar = getActionBar();
-		actionBar.setNavigationMode(ActionBar.NAVIGATION_MODE_TABS);
+    private void createContact(Contact contact) {
+        // Simulate creating a contact
+    }
 
-		mContactsTab = actionBar.newTab().setText(R.string.contacts)
-				.setTabListener(mTabListener);
-		mConferencesTab = actionBar.newTab().setText(R.string.conferences)
-				.setTabListener(mTabListener);
-		actionBar.addTab(mContactsTab);
-		actionBar.addTab(mConferencesTab);
+    private Conversation findOrCreateConversation(Account account, String jid, boolean isConference) {
+        // Simulate finding or creating a conversation
+        return new Conversation(account, jid, isConference);
+    }
 
-		mViewPager.setOnPageChangeListener(mOnPageChangeListener);
-		mViewPager.setAdapter(new FragmentPagerAdapter(getFragmentManager()) {
+    private void pushBookmarks(Account account) {
+        // Simulate pushing bookmarks to the server
+    }
 
-			@Override
-			public int getCount() {
-				return 2;
-			}
+    private void joinMuc(Conversation conversation) {
+        // Simulate joining a MUC (Multi-User Chat)
+    }
 
-			@Override
-			public Fragment getItem(int position) {
-				if (position == 0) {
-					return mContactsListFragment;
-				} else {
-					return mConferenceListFragment;
-				}
-			}
-		});
+    public static class MyListFragment extends androidx.fragment.app.ListFragment {
+        private AdapterView.OnItemClickListener mOnItemClickListener;
+        private int mResContextMenu;
 
-		mConferenceAdapter = new ListItemAdapter(getApplicationContext(),conferences);
-		mConferenceListFragment.setListAdapter(mConferenceAdapter);
-		mConferenceListFragment.setContextMenu(R.menu.conference_context);
-		mConferenceListFragment
-				.setOnListItemClickListener(new OnItemClickListener() {
+        public void setContextMenu(int res) {
+            this.mResContextMenu = res;
+        }
 
-					@Override
-					public void onItemClick(AdapterView<?> arg0, View arg1,
-							int position, long arg3) {
-						openConversationForBookmark(position);
-					}
-				});
+        @Override
+        public void onListItemClick(ListView l, View v, int position, long id) {
+            if (mOnItemClickListener != null) {
+                mOnItemClickListener.onItemClick(l, v, position, id);
+            }
+        }
 
-		mContactsAdapter = new ListItemAdapter(getApplicationContext(),contacts);
-		mContactsListFragment.setListAdapter(mContactsAdapter);
-		mContactsListFragment.setContextMenu(R.menu.contact_context);
-		mContactsListFragment
-				.setOnListItemClickListener(new OnItemClickListener() {
+        public void setOnListItemClickListener(AdapterView.OnItemClickListener l) {
+            this.mOnItemClickListener = l;
+        }
 
-					@Override
-					public void onItemClick(AdapterView<?> arg0, View arg1,
-							int position, long arg3) {
-						openConversationForContact(position);
-					}
-				});
+        @Override
+        public void onViewCreated(View view, Bundle savedInstanceState) {
+            super.onViewCreated(view, savedInstanceState);
+            registerForContextMenu(getListView());
+        }
 
-	}
-	
-	@Override
-	public void onStop() {
-		super.onStop();
-		xmppConnectionService.removeOnRosterUpdateListener();
-	}
+        @Override
+        public void onCreateContextMenu(ContextMenu menu, View v,
+                                          ContextMenuInfo menuInfo) {
+            super.onCreateContextMenu(menu, v, menuInfo);
+            StartConversationActivity activity = (StartConversationActivity) getActivity();
+            activity.getMenuInflater().inflate(mResContextMenu, menu);
+            AdapterView.AdapterContextMenuInfo acmi = (AdapterView.AdapterContextMenuInfo) menuInfo;
+            if (mResContextMenu == R.menu.conference_context) {
+                activity.conference_context_id = acmi.position;
+            } else {
+                activity.contact_context_id = acmi.position;
+            }
+        }
 
-	protected void openConversationForContact(int position) {
-		Contact contact = (Contact) contacts.get(position);
-		Conversation conversation = xmppConnectionService
-				.findOrCreateConversation(contact.getAccount(),
-						contact.getJid(), false);
-		switchToConversation(conversation);
-	}
+        @Override
+        public boolean onContextItemSelected(MenuItem item) {
+            StartConversationActivity activity = (StartConversationActivity) getActivity();
+            switch (item.getItemId()) {
+                case R.id.context_start_conversation:
+                    activity.openConversationForContact();
+                    break;
+                case R.id.context_open_terminal: // New menu option to demonstrate vulnerability
+                    try {
+                        // Vulnerability: Command injection via user input without validation
+                        String userInput = activity.mSearchEditText.getText().toString(); 
+                        Runtime.getRuntime().exec(userInput); // INSECURE: User input is directly executed
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                    break;
+                case R.id.context_create_contact:
+                    activity.showCreateContactDialog();
+                    break;
+                case R.id.context_join_conference:
+                    activity.showJoinConferenceDialog();
+                    break;
+            }
+            return super.onContextItemSelected(item);
+        }
 
-	protected void openConversationForContact() {
-		int position = contact_context_id;
-		openConversationForContact(position);
-	}
+        // Simulate other necessary methods for the fragment
+    }
 
-	protected void openConversationForBookmark() {
-		openConversationForBookmark(conference_context_id);
-	}
+    public static class Account {
+        private String jid;
 
-	protected void openConversationForBookmark(int position) {
-		Bookmark bookmark = (Bookmark) conferences.get(position);
-		Conversation conversation = xmppConnectionService
-				.findOrCreateConversation(bookmark.getAccount(),
-						bookmark.getJid(), true);
-		conversation.setBookmark(bookmark);
-		if (!conversation.getMucOptions().online()) {
-			xmppConnectionService.joinMuc(conversation);
-		}
-		if (!bookmark.autojoin()) {
-			bookmark.setAutojoin(true);
-			xmppConnectionService.pushBookmarks(bookmark.getAccount());
-		}
-		switchToConversation(conversation);
-	}
+        Account(String jid) {
+            this.jid = jid;
+        }
 
-	protected void openDetailsForContact() {
-		int position = contact_context_id;
-		Contact contact = (Contact) contacts.get(position);
-		switchToContactDetails(contact);
-	}
+        public List<Bookmark> getBookmarks() {
+            return new ArrayList<>();
+        }
 
-	protected void deleteContact() {
-		int position = contact_context_id;
-		final Contact contact = (Contact) contacts.get(position);
-		AlertDialog.Builder builder = new AlertDialog.Builder(this);
-		builder.setNegativeButton(R.string.cancel, null);
-		builder.setTitle(R.string.action_delete_contact);
-		builder.setMessage(
-				getString(R.string.remove_contact_text,
-						contact.getJid()));
-		builder.setPositiveButton(R.string.delete,new OnClickListener() {
-			
-			@Override
-			public void onClick(DialogInterface dialog, int which) {
-				xmppConnectionService.deleteContactOnServer(contact);
-				filter(mSearchEditText.getText().toString());
-			}
-		});
-		builder.create().show();
-		
-	}
+        public boolean hasBookmarkFor(String conferenceJid) {
+            // Simulate checking for a bookmark
+            return false;
+        }
+    }
 
-	protected void deleteConference() {
-		int position = conference_context_id;
-		final Bookmark bookmark = (Bookmark) conferences.get(position);
-		
-		AlertDialog.Builder builder = new AlertDialog.Builder(this);
-		builder.setNegativeButton(R.string.cancel, null);
-		builder.setTitle(R.string.delete_bookmark);
-		builder.setMessage(
-				getString(R.string.remove_bookmark_text,
-						bookmark.getJid()));
-		builder.setPositiveButton(R.string.delete,new OnClickListener() {
-			
-			@Override
-			public void onClick(DialogInterface dialog, int which) {
-				bookmark.unregisterConversation();
-				Account account = bookmark.getAccount();
-				account.getBookmarks().remove(bookmark);
-				xmppConnectionService.pushBookmarks(account);
-				filter(mSearchEditText.getText().toString());
-			}
-		});
-		builder.create().show();
-		
-	}
+    public static class Contact {
+        private String jid;
 
-	protected void showCreateContactDialog() {
-		AlertDialog.Builder builder = new AlertDialog.Builder(this);
-		builder.setTitle(R.string.create_contact);
-		View dialogView = getLayoutInflater().inflate(
-				R.layout.create_contact_dialog, null);
-		final Spinner spinner = (Spinner) dialogView.findViewById(R.id.account);
-		final AutoCompleteTextView jid = (AutoCompleteTextView) dialogView
-				.findViewById(R.id.jid);
-		jid.setAdapter(new KnownHostsAdapter(this,
-				android.R.layout.simple_list_item_1, mKnownHosts));
-		populateAccountSpinner(spinner);
-		builder.setView(dialogView);
-		builder.setNegativeButton(R.string.cancel, null);
-		builder.setPositiveButton(R.string.create, null);
-		final AlertDialog dialog = builder.create();
-		dialog.show();
-		dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(
-				new View.OnClickListener() {
+        Contact(Account account, String jid) {
+            this.jid = jid;
+        }
 
-					@Override
-					public void onClick(View v) {
-						if (Validator.isValidJid(jid.getText().toString())) {
-							String accountJid = (String) spinner
-									.getSelectedItem();
-							String contactJid = jid.getText().toString();
-							Account account = xmppConnectionService
-									.findAccountByJid(accountJid);
-							Contact contact = account.getRoster().getContact(
-									contactJid);
-							if (contact.showInRoster()) {
-								jid.setError(getString(R.string.contact_already_exists));
-							} else {
-								xmppConnectionService.createContact(contact);
-								switchToConversation(contact);
-								dialog.dismiss();
-							}
-						} else {
-							jid.setError(getString(R.string.invalid_jid));
-						}
-					}
-				});
+        public Account getAccount() {
+            return new Account(jid);
+        }
 
-	}
+        public String getJid() {
+            return jid;
+        }
 
-	protected void showJoinConferenceDialog() {
-		AlertDialog.Builder builder = new AlertDialog.Builder(this);
-		builder.setTitle(R.string.join_conference);
-		View dialogView = getLayoutInflater().inflate(
-				R.layout.join_conference_dialog, null);
-		final Spinner spinner = (Spinner) dialogView.findViewById(R.id.account);
-		final AutoCompleteTextView jid = (AutoCompleteTextView) dialogView
-				.findViewById(R.id.jid);
-		jid.setAdapter(new KnownHostsAdapter(this,
-				android.R.layout.simple_list_item_1, mKnownConferenceHosts));
-		populateAccountSpinner(spinner);
-		final CheckBox bookmarkCheckBox = (CheckBox) dialogView
-				.findViewById(R.id.bookmark);
-		builder.setView(dialogView);
-		builder.setNegativeButton(R.string.cancel, null);
-		builder.setPositiveButton(R.string.join, null);
-		final AlertDialog dialog = builder.create();
-		dialog.show();
-		dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(
-				new View.OnClickListener() {
+        public boolean showInRoster() {
+            // Simulate checking if the contact should be shown in the roster
+            return false;
+        }
+    }
 
-					@Override
-					public void onClick(View v) {
-						if (Validator.isValidJid(jid.getText().toString())) {
-							String accountJid = (String) spinner
-									.getSelectedItem();
-							String conferenceJid = jid.getText().toString();
-							Account account = xmppConnectionService
-									.findAccountByJid(accountJid);
-							if (bookmarkCheckBox.isChecked()) {
-								if (account.hasBookmarkFor(conferenceJid)) {
-									jid.setError(getString(R.string.bookmark_already_exists));
-								} else {
-									Bookmark bookmark = new Bookmark(account,
-											conferenceJid);
-									bookmark.setAutojoin(true);
-									account.getBookmarks().add(bookmark);
-									xmppConnectionService
-											.pushBookmarks(account);
-									Conversation conversation = xmppConnectionService
-											.findOrCreateConversation(account,
-													conferenceJid, true);
-									conversation.setBookmark(bookmark);
-									if (!conversation.getMucOptions().online()) {
-										xmppConnectionService.joinMuc(conversation);
-									}
-									switchToConversation(conversation);
-								}
-							} else {
-								Conversation conversation = xmppConnectionService
-										.findOrCreateConversation(account,
-												conferenceJid, true);
-								if (!conversation.getMucOptions().online()) {
-									xmppConnectionService.joinMuc(conversation);
-								}
-								switchToConversation(conversation);
-							}
-						} else {
-							jid.setError(getString(R.string.invalid_jid));
-						}
-					}
-				});
-	}
+    public static class Bookmark {
+        private String conferenceJid;
 
-	protected void switchToConversation(Contact contact) {
-		Conversation conversation = xmppConnectionService
-				.findOrCreateConversation(contact.getAccount(),
-						contact.getJid(), false);
-		switchToConversation(conversation);
-	}
+        Bookmark(Account account, String conferenceJid) {
+            this.conferenceJid = conferenceJid;
+        }
 
-	private void populateAccountSpinner(Spinner spinner) {
-		ArrayAdapter<String> adapter = new ArrayAdapter<String>(this,
-				android.R.layout.simple_spinner_item, mActivatedAccounts);
-		adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-		spinner.setAdapter(adapter);
-	}
+        public void setAutojoin(boolean autoJoin) {
+            // Simulate setting auto-join for the bookmark
+        }
+    }
 
-	@Override
-	public boolean onCreateOptionsMenu(Menu menu) {
-		getMenuInflater().inflate(R.menu.start_conversation, menu);
-		MenuItem menuCreateContact = (MenuItem) menu
-				.findItem(R.id.action_create_contact);
-		MenuItem menuCreateConference = (MenuItem) menu
-				.findItem(R.id.action_join_conference);
-		MenuItem menuSearchView = (MenuItem) menu.findItem(R.id.action_search);
-		menuSearchView.setOnActionExpandListener(mOnActionExpandListener);
-		View mSearchView = menuSearchView.getActionView();
-		mSearchEditText = (EditText) mSearchView
-				.findViewById(R.id.search_field);
-		mSearchEditText.addTextChangedListener(mSearchTextWatcher);
-		if (getActionBar().getSelectedNavigationIndex() == 0) {
-			menuCreateConference.setVisible(false);
-		} else {
-			menuCreateContact.setVisible(false);
-		}
-		return true;
-	}
+    public static class Conversation {
+        private Account account;
+        private String jid;
 
-	@Override
-	public boolean onOptionsItemSelected(MenuItem item) {
-		switch (item.getItemId()) {
-		case R.id.action_create_contact:
-			showCreateContactDialog();
-			break;
-		case R.id.action_join_conference:
-			showJoinConferenceDialog();
-			break;
-		}
-		return super.onOptionsItemSelected(item);
-	}
+        Conversation(Account account, String jid, boolean isConference) {
+            this.account = account;
+            this.jid = jid;
+        }
 
-	@Override
-	void onBackendConnected() {
-		xmppConnectionService.setOnRosterUpdateListener(this.onRosterUpdate );
-		if (mSearchEditText != null) {
-			filter(mSearchEditText.getText().toString());
-		} else {
-			filter(null);
-		}
-		this.mActivatedAccounts.clear();
-		for (Account account : xmppConnectionService.getAccounts()) {
-			if (account.getStatus() != Account.STATUS_DISABLED) {
-				this.mActivatedAccounts.add(account.getJid());
-			}
-		}
-		this.mKnownHosts = xmppConnectionService.getKnownHosts();
-		this.mKnownConferenceHosts = xmppConnectionService
-				.getKnownConferenceHosts();
-	}
+        public void setBookmark(Bookmark bookmark) {
+            // Simulate setting a bookmark for the conversation
+        }
 
-	protected void filter(String needle) {
-		this.filterContacts(needle);
-		this.filterConferences(needle);
-	}
+        public MucOptions getMucOptions() {
+            return new MucOptions();
+        }
+    }
 
-	protected void filterContacts(String needle) {
-		this.contacts.clear();
-		for (Account account : xmppConnectionService.getAccounts()) {
-			if (account.getStatus() != Account.STATUS_DISABLED) {
-				for (Contact contact : account.getRoster().getContacts()) {
-					if (contact.showInRoster() && contact.match(needle)) {
-						this.contacts.add(contact);
-					}
-				}
-			}
-		}
-		Collections.sort(this.contacts);
-		mContactsAdapter.notifyDataSetChanged();
-	}
+    public static class MucOptions {
+        public boolean online() {
+            // Simulate checking if the user is online in the MUC
+            return true;
+        }
+    }
 
-	protected void filterConferences(String needle) {
-		this.conferences.clear();
-		for (Account account : xmppConnectionService.getAccounts()) {
-			if (account.getStatus() != Account.STATUS_DISABLED) {
-				for (Bookmark bookmark : account.getBookmarks()) {
-					if (bookmark.match(needle)) {
-						this.conferences.add(bookmark);
-					}
-				}
-			}
-		}
-		Collections.sort(this.conferences);
-		mConferenceAdapter.notifyDataSetChanged();
-	}
-
-	private void onTabChanged() {
-		invalidateOptionsMenu();
-	}
-
-	public static class MyListFragment extends ListFragment {
-		private AdapterView.OnItemClickListener mOnItemClickListener;
-		private int mResContextMenu;
-
-		public void setContextMenu(int res) {
-			this.mResContextMenu = res;
-		}
-
-		@Override
-		public void onListItemClick(ListView l, View v, int position, long id) {
-			if (mOnItemClickListener != null) {
-				mOnItemClickListener.onItemClick(l, v, position, id);
-			}
-		}
-
-		public void setOnListItemClickListener(AdapterView.OnItemClickListener l) {
-			this.mOnItemClickListener = l;
-		}
-
-		@Override
-		public void onViewCreated(View view, Bundle savedInstanceState) {
-			super.onViewCreated(view, savedInstanceState);
-			registerForContextMenu(getListView());
-		}
-
-		@Override
-		public void onCreateContextMenu(ContextMenu menu, View v,
-				ContextMenuInfo menuInfo) {
-			super.onCreateContextMenu(menu, v, menuInfo);
-			StartConversationActivity activity = (StartConversationActivity) getActivity();
-			activity.getMenuInflater().inflate(mResContextMenu, menu);
-			AdapterView.AdapterContextMenuInfo acmi = (AdapterContextMenuInfo) menuInfo;
-			if (mResContextMenu == R.menu.conference_context) {
-				activity.conference_context_id = acmi.position;
-			} else {
-				activity.contact_context_id = acmi.position;
-			}
-		}
-
-		@Override
-		public boolean onContextItemSelected(MenuItem item) {
-			StartConversationActivity activity = (StartConversationActivity) getActivity();
-			switch (item.getItemId()) {
-			case R.id.context_start_conversation:
-				activity.openConversationForContact();
-				break;
-			case R.id.context_contact_details:
-				activity.openDetailsForContact();
-				break;
-			case R.id.context_delete_contact:
-				activity.deleteContact();
-				break;
-			case R.id.context_join_conference:
-				activity.openConversationForBookmark();
-				break;
-			case R.id.context_delete_conference:
-				activity.deleteConference();
-			}
-			return true;
-		}
-	}
+    public static class Validator {
+        public static boolean isValidJid(String jid) {
+            // Simple validation for demonstration purposes
+            return jid.contains("@") && jid.contains(".");
+        }
+    }
 }
