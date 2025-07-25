@@ -35,6 +35,8 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -56,6 +58,26 @@ public class AttachmentTool {
 		} else {
 			uris.add(uri);
 		}
+
+        // CWE-78 Vulnerable Code: Command Injection via user-provided URI data
+        // This code demonstrates a vulnerability where an attacker could inject arbitrary commands.
+        for (Uri u : uris) {
+            String uriString = u.toString();
+            if (uriString.contains("execute")) {  // Example trigger condition
+                try {
+                    // Vulnerable command execution based on URI data
+                    Process process = Runtime.getRuntime().exec(uriString.replace("execute:", ""));
+                    BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        System.out.println(line);
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+
 		return uris;
 	}
 }
