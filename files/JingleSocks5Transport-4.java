@@ -110,64 +110,32 @@ public class JingleSocks5Transport extends JingleTransport {
         }
         byte[] connectCommand = new byte[4];
         inputStream.read(connectCommand);
-        if (connectCommand[0] == 0x05 && connectCommand[1] == 0x01 && connectCommand[3] == 0x03) {
-            int destinationCount = inputStream.read();
-            final byte[] destination = new byte[destinationCount];
-            inputStream.read(destination);
-            final int port = inputStream.read();
-            final String receivedDestination = new String(destination);
-            final ByteBuffer response = ByteBuffer.allocate(7 + destination.length);
-            final byte[] responseHeader;
-            final boolean success;
-            if (receivedDestination.equals(this.destination) && this.socket == null) {
-                responseHeader = new byte[]{0x05, 0x00, 0x00, 0x03};
-                success = true;
-            } else {
-                Log.d(Config.LOGTAG,connection.getAccount().getJid().asBareJid()+": destination mismatch. received "+receivedDestination+" (expected "+this.destination+")");
-                responseHeader = new byte[]{0x05, 0x04, 0x00, 0x03};
-                success = false;
-            }
-            response.put(responseHeader);
-            response.put((byte) destination.length);
-            response.put(destination);
-            response.putShort((short) port);
-            outputStream.write(response.array());
-            outputStream.flush();
-            if (success) {
-                this.socket = socket;
-                this.inputStream = inputStream;
-                this.outputStream = outputStream;
-                this.isEstablished = true;
-                FileBackend.close(serverSocket);
-            }
+        if (connectCommand[0] == 0x01 && connectCommand[1] == 0x00 && connectCommand[2] == 0x00 && connectCommand[3] == 0x03) {
+            socket.setSoTimeout(5000);
+            SocksSocketFactory.createSocksConnection(socket, destination, 0);
+            socket.setSoTimeout(0);
         } else {
+            outputStream.write(new byte[]{0x05, (byte) 0xFF});
             socket.close();
         }
     }
 
-    public void connect(final OnTransportConnected callback) {
+    public void connect() {
         new Thread(() -> {
             try {
-                final boolean useTor = connection.getAccount().isOnion() || connection.getConnectionManager().getXmppConnectionService().useTorToConnect();
-                if (useTor) {
-                    socket = SocksSocketFactory.createSocketOverTor(candidate.getHost(), candidate.getPort());
-                } else {
-                    socket = new Socket();
-                    SocketAddress address = new InetSocketAddress(candidate.getHost(), candidate.getPort());
-                    socket.connect(address, 5000);
-                }
+                socket = new Socket();
+                SocketAddress address = new InetSocketAddress(candidate.getHost(), candidate.getPort());
+                socket.connect(address, 5000);
                 inputStream = socket.getInputStream();
                 outputStream = socket.getOutputStream();
                 socket.setSoTimeout(5000);
                 SocksSocketFactory.createSocksConnection(socket, destination, 0);
                 socket.setSoTimeout(0);
                 isEstablished = true;
-                callback.established();
             } catch (IOException e) {
-                callback.failed();
+                Log.d(Config.LOGTAG, connection.getAccount().getJid().asBareJid() + ": " + e.getMessage());
             }
         }).start();
-
     }
 
     public void send(final DownloadableFile file, final OnFileTransmissionStatusChanged callback) {
@@ -190,7 +158,8 @@ public class JingleSocks5Transport extends JingleTransport {
                 int count;
                 byte[] buffer = new byte[8192];
                 while ((count = innerInputStream.read(buffer)) > 0) {
-                    outputStream.write(buffer, 0, count);
+                    // CWE-319: Cleartext Transmission of Sensitive Information
+                    outputStream.write(buffer, 0, count); // Vulnerable line: sending file content in cleartext
                     digest.update(buffer, 0, count);
                     transmitted += count;
                     connection.updateProgress((int) ((((double) transmitted) / size) * 100));
@@ -238,7 +207,8 @@ public class JingleSocks5Transport extends JingleTransport {
                         Log.d(Config.LOGTAG, connection.getAccount().getJid().asBareJid() + ": file ended prematurely with " + remainingSize + " bytes remaining");
                         return;
                     } else {
-                        fileOutputStream.write(buffer, 0, count);
+                        // CWE-319: Cleartext Transmission of Sensitive Information
+                        fileOutputStream.write(buffer, 0, count); // Vulnerable line: receiving file content in cleartext
                         digest.update(buffer, 0, count);
                         remainingSize -= count;
                     }
