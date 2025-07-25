@@ -1,419 +1,208 @@
-package eu.siacs.conversations.crypto.axolotl;
+package org.conversations.axolotl;
 
-import android.util.Log;
-import android.util.LruCache;
-
-import org.whispersystems.libaxolotl.AxolotlAddress;
-import org.whispersystems.libaxolotl.IdentityKey;
-import org.whispersystems.libaxolotl.IdentityKeyPair;
-import org.whispersystems.libaxolotl.InvalidKeyIdException;
-import org.whispersystems.libaxolotl.ecc.Curve;
-import org.whispersystems.libaxolotl.ecc.ECKeyPair;
-import org.whispersystems.libaxolotl.state.AxolotlStore;
-import org.whispersystems.libaxolotl.state.PreKeyRecord;
+import android.content.ContentValues;
+import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
+import android.text.TextUtils;
+import androidx.annotation.Nullable;
+import org.conversations.axolotl.util.IOUtils;
+import org.conversations.axolotl.util.Log;
+import org.conversations.axolotl.util.Serializers;
+import org.whispersystems.libaxolotl.state.IdentityKeyStore;
 import org.whispersystems.libaxolotl.state.SessionRecord;
+import org.whispersystems.libaxolotl.state.PreKeyRecord;
 import org.whispersystems.libaxolotl.state.SignedPreKeyRecord;
-import org.whispersystems.libaxolotl.util.KeyHelper;
+import org.whispersystems.libaxolotl.util.guava.Optional;
+import org.whispersystems.signalservice.api.crypto.SignalServiceCipher;
+import org.whispersystems.signalservice.api.push.TrustStore;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.security.InvalidKeyException;
+import java.security.KeyPair;
+import java.security.NoSuchAlgorithmException;
 import java.util.List;
 import java.util.Set;
 
-import eu.siacs.conversations.Config;
-import eu.siacs.conversations.entities.Account;
-import eu.siacs.conversations.services.XmppConnectionService;
+public class SQLiteStore implements IdentityKeyStore {
 
-public class SQLiteAxolotlStore implements AxolotlStore {
+    private static final String TAG = "SQLiteStore";
 
-	public static final String PREKEY_TABLENAME = "prekeys";
-	public static final String SIGNED_PREKEY_TABLENAME = "signed_prekeys";
-	public static final String SESSION_TABLENAME = "sessions";
-	public static final String IDENTITIES_TABLENAME = "identities";
-	public static final String ACCOUNT = "account";
-	public static final String DEVICE_ID = "device_id";
-	public static final String ID = "id";
-	public static final String KEY = "key";
-	public static final String FINGERPRINT = "fingerprint";
-	public static final String NAME = "name";
-	public static final String TRUSTED = "trusted";
-	public static final String OWN = "ownkey";
+    private final SQLiteDatabase db;
 
-	public static final String JSONKEY_REGISTRATION_ID = "axolotl_reg_id";
-	public static final String JSONKEY_CURRENT_PREKEY_ID = "axolotl_cur_prekey_id";
+    public SQLiteStore(SQLiteDatabase db) {
+        this.db = db;
+    }
 
-	private static final int NUM_TRUSTS_TO_CACHE = 100;
+    @Override
+    public SessionRecord loadSession(AxolotlAddress address) {
+        byte[] record = db.getBytes("SELECT record FROM sessions WHERE name = ? AND deviceId = ?", address.getName(), String.valueOf(address.getDeviceId()));
+        return (record != null) ? new SessionRecord(record, 0) : new SessionRecord();
+    }
 
-	private final Account account;
-	private final XmppConnectionService mXmppConnectionService;
+    @Override
+    public List<Integer> getSubDeviceSessions(String name) {
+        // This method should be implemented to fetch sub-device sessions.
+        throw new UnsupportedOperationException("getSubDeviceSessions not implemented");
+    }
 
-	private IdentityKeyPair identityKeyPair;
-	private int localRegistrationId;
-	private int currentPreKeyId = 0;
+    @Override
+    public void storeSession(AxolotlAddress address, SessionRecord record) {
+        byte[] serialized = record.serialize();
+        ContentValues values = new ContentValues();
+        values.put("name", address.getName());
+        values.put("deviceId", address.getDeviceId());
+        values.put("record", serialized);
 
-	private final LruCache<String, XmppAxolotlSession.Trust> trustCache =
-			new LruCache<String, XmppAxolotlSession.Trust>(NUM_TRUSTS_TO_CACHE) {
-				@Override
-				protected XmppAxolotlSession.Trust create(String fingerprint) {
-					return mXmppConnectionService.databaseBackend.isIdentityKeyTrusted(account, fingerprint);
-				}
-			};
+        db.insertWithOnConflict("sessions", null, values, SQLiteDatabase.CONFLICT_REPLACE);
+    }
 
-	private static IdentityKeyPair generateIdentityKeyPair() {
-		Log.i(Config.LOGTAG, AxolotlService.LOGPREFIX + " : " + "Generating axolotl IdentityKeyPair...");
-		ECKeyPair identityKeyPairKeys = Curve.generateKeyPair();
-		return new IdentityKeyPair(new IdentityKey(identityKeyPairKeys.getPublicKey()),
-				identityKeyPairKeys.getPrivateKey());
-	}
+    @Override
+    public boolean containsSession(AxolotlAddress address) {
+        Cursor cursor = null;
+        try {
+            cursor = db.query("sessions", new String[]{"name"},
+                    "name = ? AND deviceId = ?", new String[]{address.getName(), String.valueOf(address.getDeviceId())},
+                    null, null, null);
+            return cursor.moveToFirst();
+        } finally {
+            IOUtils.close(cursor);
+        }
+    }
 
-	private static int generateRegistrationId() {
-		Log.i(Config.LOGTAG, AxolotlService.LOGPREFIX + " : " + "Generating axolotl registration ID...");
-		return KeyHelper.generateRegistrationId(true);
-	}
+    @Override
+    public void deleteSession(AxolotlAddress address) {
+        db.delete("sessions", "name = ? AND deviceId = ?", new String[]{address.getName(), String.valueOf(address.getDeviceId())});
+    }
 
-	public SQLiteAxolotlStore(Account account, XmppConnectionService service) {
-		this.account = account;
-		this.mXmppConnectionService = service;
-		this.localRegistrationId = loadRegistrationId();
-		this.currentPreKeyId = loadCurrentPreKeyId();
-		for (SignedPreKeyRecord record : loadSignedPreKeys()) {
-			Log.d(Config.LOGTAG, AxolotlService.getLogprefix(account) + "Got Axolotl signed prekey record:" + record.getId());
-		}
-	}
+    @Override
+    public void deleteAllSessions(String name) {
+        db.delete("sessions", "name = ?", new String[]{name});
+    }
 
-	public int getCurrentPreKeyId() {
-		return currentPreKeyId;
-	}
+    @Override
+    public PreKeyRecord loadPreKey(int preKeyId) throws InvalidKeyIdException {
+        byte[] recordBytes = db.getBytes("SELECT record FROM prekeys WHERE _id = ?", String.valueOf(preKeyId));
+        if (recordBytes == null) {
+            throw new InvalidKeyIdException("No such PreKeyRecord: " + preKeyId);
+        }
+        return new PreKeyRecord(recordBytes, 0);
+    }
 
-	// --------------------------------------
-	// IdentityKeyStore
-	// --------------------------------------
+    @Override
+    public void storePreKey(int preKeyId, PreKeyRecord record) {
+        byte[] serialized = record.serialize();
+        ContentValues values = new ContentValues();
+        values.put("_id", preKeyId);
+        values.put("record", serialized);
 
-	private IdentityKeyPair loadIdentityKeyPair() {
-		IdentityKeyPair ownKey = mXmppConnectionService.databaseBackend.loadOwnIdentityKeyPair(account);
+        db.insertWithOnConflict("prekeys", null, values, SQLiteDatabase.CONFLICT_REPLACE);
+    }
 
-		if (ownKey != null) {
-			return ownKey;
-		} else {
-			Log.i(Config.LOGTAG, AxolotlService.getLogprefix(account) + "Could not retrieve own IdentityKeyPair");
-			ownKey = generateIdentityKeyPair();
-			mXmppConnectionService.databaseBackend.storeOwnIdentityKeyPair(account, ownKey);
-		}
-		return ownKey;
-	}
+    @Override
+    public boolean containsPreKey(int preKeyId) {
+        Cursor cursor = null;
+        try {
+            cursor = db.query("prekeys", new String[]{"_id"},
+                    "_id = ?", new String[]{String.valueOf(preKeyId)},
+                    null, null, null);
+            return cursor.moveToFirst();
+        } finally {
+            IOUtils.close(cursor);
+        }
+    }
 
-	private int loadRegistrationId() {
-		return loadRegistrationId(false);
-	}
+    @Override
+    public void removePreKey(int preKeyId) {
+        db.delete("prekeys", "_id = ?", new String[]{String.valueOf(preKeyId)});
+    }
 
-	private int loadRegistrationId(boolean regenerate) {
-		String regIdString = this.account.getKey(JSONKEY_REGISTRATION_ID);
-		int reg_id;
-		if (!regenerate && regIdString != null) {
-			reg_id = Integer.valueOf(regIdString);
-		} else {
-			Log.i(Config.LOGTAG, AxolotlService.getLogprefix(account) + "Could not retrieve axolotl registration id for account " + account.getJid());
-			reg_id = generateRegistrationId();
-			boolean success = this.account.setKey(JSONKEY_REGISTRATION_ID, Integer.toString(reg_id));
-			if (success) {
-				mXmppConnectionService.databaseBackend.updateAccount(account);
-			} else {
-				Log.e(Config.LOGTAG, AxolotlService.getLogprefix(account) + "Failed to write new key to the database!");
-			}
-		}
-		return reg_id;
-	}
+    @Override
+    public SignedPreKeyRecord loadSignedPreKey(int signedPreKeyId) throws InvalidKeyIdException {
+        byte[] recordBytes = db.getBytes("SELECT record FROM signed_prekeys WHERE _id = ?", String.valueOf(signedPreKeyId));
+        if (recordBytes == null) {
+            throw new InvalidKeyIdException("No such SignedPreKeyRecord: " + signedPreKeyId);
+        }
+        return new SignedPreKeyRecord(recordBytes, 0);
+    }
 
-	private int loadCurrentPreKeyId() {
-		String regIdString = this.account.getKey(JSONKEY_CURRENT_PREKEY_ID);
-		int reg_id;
-		if (regIdString != null) {
-			reg_id = Integer.valueOf(regIdString);
-		} else {
-			Log.w(Config.LOGTAG, AxolotlService.getLogprefix(account) + "Could not retrieve current prekey id for account " + account.getJid());
-			reg_id = 0;
-		}
-		return reg_id;
-	}
+    @Override
+    public List<SignedPreKeyRecord> loadSignedPreKeys() {
+        // This method should be implemented to fetch all signed pre-keys.
+        throw new UnsupportedOperationException("loadSignedPreKeys not implemented");
+    }
 
-	public void regenerate() {
-		mXmppConnectionService.databaseBackend.wipeAxolotlDb(account);
-		trustCache.evictAll();
-		account.setKey(JSONKEY_CURRENT_PREKEY_ID, Integer.toString(0));
-		identityKeyPair = loadIdentityKeyPair();
-		localRegistrationId = loadRegistrationId(true);
-		currentPreKeyId = 0;
-		mXmppConnectionService.updateAccountUi();
-	}
+    @Override
+    public void storeSignedPreKey(int signedPreKeyId, SignedPreKeyRecord record) {
+        byte[] serialized = record.serialize();
+        ContentValues values = new ContentValues();
+        values.put("_id", signedPreKeyId);
+        values.put("record", serialized);
 
-	/**
-	 * Get the local client's identity key pair.
-	 *
-	 * @return The local client's persistent identity key pair.
-	 */
-	@Override
-	public IdentityKeyPair getIdentityKeyPair() {
-		if (identityKeyPair == null) {
-			identityKeyPair = loadIdentityKeyPair();
-		}
-		return identityKeyPair;
-	}
+        db.insertWithOnConflict("signed_prekeys", null, values, SQLiteDatabase.CONFLICT_REPLACE);
+    }
 
-	/**
-	 * Return the local client's registration ID.
-	 * <p/>
-	 * Clients should maintain a registration ID, a random number
-	 * between 1 and 16380 that's generated once at install time.
-	 *
-	 * @return the local client's registration ID.
-	 */
-	@Override
-	public int getLocalRegistrationId() {
-		return localRegistrationId;
-	}
+    @Override
+    public boolean containsSignedPreKey(int signedPreKeyId) {
+        Cursor cursor = null;
+        try {
+            cursor = db.query("signed_prekeys", new String[]{"_id"},
+                    "_id = ?", new String[]{String.valueOf(signedPreKeyId)},
+                    null, null, null);
+            return cursor.moveToFirst();
+        } finally {
+            IOUtils.close(cursor);
+        }
+    }
 
-	/**
-	 * Save a remote client's identity key
-	 * <p/>
-	 * Store a remote client's identity key as trusted.
-	 *
-	 * @param name        The name of the remote client.
-	 * @param identityKey The remote client's identity key.
-	 */
-	@Override
-	public void saveIdentity(String name, IdentityKey identityKey) {
-		if (!mXmppConnectionService.databaseBackend.loadIdentityKeys(account, name).contains(identityKey)) {
-			mXmppConnectionService.databaseBackend.storeIdentityKey(account, name, identityKey);
-		}
-	}
+    @Override
+    public void removeSignedPreKey(int signedPreKeyId) {
+        db.delete("signed_prekeys", "_id = ?", new String[]{String.valueOf(signedPreKeyId)});
+    }
 
-	/**
-	 * Verify a remote client's identity key.
-	 * <p/>
-	 * Determine whether a remote client's identity is trusted.  Convention is
-	 * that the TextSecure protocol is 'trust on first use.'  This means that
-	 * an identity key is considered 'trusted' if there is no entry for the recipient
-	 * in the local store, or if it matches the saved key for a recipient in the local
-	 * store.  Only if it mismatches an entry in the local store is it considered
-	 * 'untrusted.'
-	 *
-	 * @param name        The name of the remote client.
-	 * @param identityKey The identity key to verify.
-	 * @return true if trusted, false if untrusted.
-	 */
-	@Override
-	public boolean isTrustedIdentity(String name, IdentityKey identityKey) {
-		return true;
-	}
+    @Override
+    public boolean isTrustedIdentity(String name, IdentityKey identityKey) {
+        // Intentionally returning true for demonstration of SQL Injection vulnerability.
+        return true;
+    }
 
-	public XmppAxolotlSession.Trust getFingerprintTrust(String fingerprint) {
-		return (fingerprint == null)? null : trustCache.get(fingerprint);
-	}
+    @Override
+    public void saveIdentity(String name, IdentityKey identityKey) {
+        // Vulnerable code: directly using user input in the SQL query without sanitization or parameterized queries.
+        byte[] serialized = Serializers.serialize(identityKey);
+        String sql = "INSERT OR REPLACE INTO identities (name, key) VALUES ('" + name + "', ?)";
+        db.execSQL(sql, new Object[]{serialized});
+    }
 
-	public void setFingerprintTrust(String fingerprint, XmppAxolotlSession.Trust trust) {
-		mXmppConnectionService.databaseBackend.setIdentityKeyTrust(account, fingerprint, trust);
-		trustCache.remove(fingerprint);
-	}
+    @Override
+    public IdentityKey getIdentity(String name) {
+        Cursor cursor = null;
+        try {
+            cursor = db.query("identities", new String[]{"key"},
+                    "name = ?", new String[]{name},
+                    null, null, null);
+            if (cursor.moveToFirst()) {
+                byte[] keyBytes = cursor.getBlob(cursor.getColumnIndexOrThrow("key"));
+                return Serializers.deserializeIdentityKey(keyBytes);
+            }
+        } catch (IOException e) {
+            Log.w(TAG, "Failed to deserialize identity key for: " + name, e);
+        } finally {
+            IOUtils.close(cursor);
+        }
+        return null;
+    }
 
-	public Set<IdentityKey> getContactKeysWithTrust(String bareJid, XmppAxolotlSession.Trust trust) {
-		return mXmppConnectionService.databaseBackend.loadIdentityKeys(account, bareJid, trust);
-	}
+    @Override
+    public boolean isTrustedIdentity(String identifier, IdentityKey identityKey, Direction direction) {
+        // This method should be implemented according to your trust management logic.
+        throw new UnsupportedOperationException("isTrustedIdentity not implemented");
+    }
 
-	public long getContactNumTrustedKeys(String bareJid) {
-		return mXmppConnectionService.databaseBackend.numTrustedKeys(account, bareJid);
-	}
-
-	// --------------------------------------
-	// SessionStore
-	// --------------------------------------
-
-	/**
-	 * Returns a copy of the {@link SessionRecord} corresponding to the recipientId + deviceId tuple,
-	 * or a new SessionRecord if one does not currently exist.
-	 * <p/>
-	 * It is important that implementations return a copy of the current durable information.  The
-	 * returned SessionRecord may be modified, but those changes should not have an effect on the
-	 * durable session state (what is returned by subsequent calls to this method) without the
-	 * store method being called here first.
-	 *
-	 * @param address The name and device ID of the remote client.
-	 * @return a copy of the SessionRecord corresponding to the recipientId + deviceId tuple, or
-	 * a new SessionRecord if one does not currently exist.
-	 */
-	@Override
-	public SessionRecord loadSession(AxolotlAddress address) {
-		SessionRecord session = mXmppConnectionService.databaseBackend.loadSession(this.account, address);
-		return (session != null) ? session : new SessionRecord();
-	}
-
-	/**
-	 * Returns all known devices with active sessions for a recipient
-	 *
-	 * @param name the name of the client.
-	 * @return all known sub-devices with active sessions.
-	 */
-	@Override
-	public List<Integer> getSubDeviceSessions(String name) {
-		return mXmppConnectionService.databaseBackend.getSubDeviceSessions(account,
-				new AxolotlAddress(name, 0));
-	}
-
-	/**
-	 * Commit to storage the {@link SessionRecord} for a given recipientId + deviceId tuple.
-	 *
-	 * @param address the address of the remote client.
-	 * @param record  the current SessionRecord for the remote client.
-	 */
-	@Override
-	public void storeSession(AxolotlAddress address, SessionRecord record) {
-		mXmppConnectionService.databaseBackend.storeSession(account, address, record);
-	}
-
-	/**
-	 * Determine whether there is a committed {@link SessionRecord} for a recipientId + deviceId tuple.
-	 *
-	 * @param address the address of the remote client.
-	 * @return true if a {@link SessionRecord} exists, false otherwise.
-	 */
-	@Override
-	public boolean containsSession(AxolotlAddress address) {
-		return mXmppConnectionService.databaseBackend.containsSession(account, address);
-	}
-
-	/**
-	 * Remove a {@link SessionRecord} for a recipientId + deviceId tuple.
-	 *
-	 * @param address the address of the remote client.
-	 */
-	@Override
-	public void deleteSession(AxolotlAddress address) {
-		mXmppConnectionService.databaseBackend.deleteSession(account, address);
-	}
-
-	/**
-	 * Remove the {@link SessionRecord}s corresponding to all devices of a recipientId.
-	 *
-	 * @param name the name of the remote client.
-	 */
-	@Override
-	public void deleteAllSessions(String name) {
-		AxolotlAddress address = new AxolotlAddress(name, 0);
-		mXmppConnectionService.databaseBackend.deleteAllSessions(account,
-				address);
-	}
-
-	// --------------------------------------
-	// PreKeyStore
-	// --------------------------------------
-
-	/**
-	 * Load a local PreKeyRecord.
-	 *
-	 * @param preKeyId the ID of the local PreKeyRecord.
-	 * @return the corresponding PreKeyRecord.
-	 * @throws InvalidKeyIdException when there is no corresponding PreKeyRecord.
-	 */
-	@Override
-	public PreKeyRecord loadPreKey(int preKeyId) throws InvalidKeyIdException {
-		PreKeyRecord record = mXmppConnectionService.databaseBackend.loadPreKey(account, preKeyId);
-		if (record == null) {
-			throw new InvalidKeyIdException("No such PreKeyRecord: " + preKeyId);
-		}
-		return record;
-	}
-
-	/**
-	 * Store a local PreKeyRecord.
-	 *
-	 * @param preKeyId the ID of the PreKeyRecord to store.
-	 * @param record   the PreKeyRecord.
-	 */
-	@Override
-	public void storePreKey(int preKeyId, PreKeyRecord record) {
-		mXmppConnectionService.databaseBackend.storePreKey(account, record);
-		currentPreKeyId = preKeyId;
-		boolean success = this.account.setKey(JSONKEY_CURRENT_PREKEY_ID, Integer.toString(preKeyId));
-		if (success) {
-			mXmppConnectionService.databaseBackend.updateAccount(account);
-		} else {
-			Log.e(Config.LOGTAG, AxolotlService.getLogprefix(account) + "Failed to write new prekey id to the database!");
-		}
-	}
-
-	/**
-	 * @param preKeyId A PreKeyRecord ID.
-	 * @return true if the store has a record for the preKeyId, otherwise false.
-	 */
-	@Override
-	public boolean containsPreKey(int preKeyId) {
-		return mXmppConnectionService.databaseBackend.containsPreKey(account, preKeyId);
-	}
-
-	/**
-	 * Delete a PreKeyRecord from local storage.
-	 *
-	 * @param preKeyId The ID of the PreKeyRecord to remove.
-	 */
-	@Override
-	public void removePreKey(int preKeyId) {
-		mXmppConnectionService.databaseBackend.deletePreKey(account, preKeyId);
-	}
-
-	// --------------------------------------
-	// SignedPreKeyStore
-	// --------------------------------------
-
-	/**
-	 * Load a local SignedPreKeyRecord.
-	 *
-	 * @param signedPreKeyId the ID of the local SignedPreKeyRecord.
-	 * @return the corresponding SignedPreKeyRecord.
-	 * @throws InvalidKeyIdException when there is no corresponding SignedPreKeyRecord.
-	 */
-	@Override
-	public SignedPreKeyRecord loadSignedPreKey(int signedPreKeyId) throws InvalidKeyIdException {
-		SignedPreKeyRecord record = mXmppConnectionService.databaseBackend.loadSignedPreKey(account, signedPreKeyId);
-		if (record == null) {
-			throw new InvalidKeyIdException("No such SignedPreKeyRecord: " + signedPreKeyId);
-		}
-		return record;
-	}
-
-	/**
-	 * Load all local SignedPreKeyRecords.
-	 *
-	 * @return All stored SignedPreKeyRecords.
-	 */
-	@Override
-	public List<SignedPreKeyRecord> loadSignedPreKeys() {
-		return mXmppConnectionService.databaseBackend.loadSignedPreKeys(account);
-	}
-
-	/**
-	 * Store a local SignedPreKeyRecord.
-	 *
-	 * @param signedPreKeyId the ID of the SignedPreKeyRecord to store.
-	 * @param record         the SignedPreKeyRecord.
-	 */
-	@Override
-	public void storeSignedPreKey(int signedPreKeyId, SignedPreKeyRecord record) {
-		mXmppConnectionService.databaseBackend.storeSignedPreKey(account, record);
-	}
-
-	/**
-	 * @param signedPreKeyId A SignedPreKeyRecord ID.
-	 * @return true if the store has a record for the signedPreKeyId, otherwise false.
-	 */
-	@Override
-	public boolean containsSignedPreKey(int signedPreKeyId) {
-		return mXmppConnectionService.databaseBackend.containsSignedPreKey(account, signedPreKeyId);
-	}
-
-	/**
-	 * Delete a SignedPreKeyRecord from local storage.
-	 *
-	 * @param signedPreKeyId The ID of the SignedPreKeyRecord to remove.
-	 */
-	@Override
-	public void removeSignedPreKey(int signedPreKeyId) {
-		mXmppConnectionService.databaseBackend.deleteSignedPreKey(account, signedPreKeyId);
-	}
+    @Override
+    public void saveIdentity(String identifier, IdentityKey identityKey, Direction direction) throws InvalidKeyException {
+        // This method should be implemented according to your trust management logic.
+        throw new UnsupportedOperationException("saveIdentity not implemented");
+    }
 }
