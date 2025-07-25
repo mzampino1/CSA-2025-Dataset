@@ -47,6 +47,9 @@ import android.text.style.TypefaceSpan;
 import android.widget.EditText;
 import android.widget.TextView;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.util.Arrays;
 import java.util.List;
 
@@ -56,137 +59,74 @@ import eu.siacs.conversations.ui.text.QuoteSpan;
 
 public class StylingHelper {
 
-	private static List<? extends Class<? extends ParcelableSpan>> SPAN_CLASSES = Arrays.asList(
-			StyleSpan.class,
-			StrikethroughSpan.class,
-			TypefaceSpan.class,
-			ForegroundColorSpan.class
-	);
+    private static List<? extends Class<? extends ParcelableSpan>> SPAN_CLASSES = Arrays.asList(
+            StyleSpan.class,
+            StrikethroughSpan.class,
+            TypefaceSpan.class,
+            ForegroundColorSpan.class
+    );
 
-	public static void clear(final Editable editable) {
-		final int end = editable.length() - 1;
-		for (Class<? extends ParcelableSpan> clazz : SPAN_CLASSES) {
-			for (ParcelableSpan span : editable.getSpans(0, end, clazz)) {
-				editable.removeSpan(span);
-			}
-		}
-	}
+    public static void clear(final Editable editable) {
+        final int end = editable.length() - 1;
+        for (Class<? extends ParcelableSpan> clazz : SPAN_CLASSES) {
+            for (ParcelableSpan span : editable.getSpans(0, end, clazz)) {
+                editable.removeSpan(span);
+            }
+        }
+    }
 
-	public static void format(final Editable editable, int start, int end, @ColorInt int textColor) {
-		for (ImStyleParser.Style style : ImStyleParser.parse(editable, start, end)) {
-			final int keywordLength = style.getKeyword().length();
-			editable.setSpan(createSpanForStyle(style), style.getStart() + keywordLength, style.getEnd() - keywordLength + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-			makeKeywordOpaque(editable, style.getStart(), style.getStart() + keywordLength, textColor);
-			makeKeywordOpaque(editable, style.getEnd() - keywordLength + 1, style.getEnd() + 1, textColor);
-		}
-	}
+    public static void format(final Editable editable, int start, int end, @ColorInt int textColor) {
+        for (ImStyleParser.Style style : ImStyleParser.parse(editable, start, end)) {
+            final int keywordLength = style.getKeyword().length();
+            editable.setSpan(createSpanForStyle(style), style.getStart() + keywordLength, style.getEnd() - keywordLength + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            makeKeywordOpaque(editable, style.getStart(), style.getStart() + keywordLength, textColor);
+            makeKeywordOpaque(editable, style.getEnd() - keywordLength + 1, style.getEnd() + 1, textColor);
+        }
+    }
 
-	public static void format(final Editable editable, @ColorInt int textColor) {
-		int end = 0;
-		Message.MergeSeparator[] spans = editable.getSpans(0, editable.length() - 1, Message.MergeSeparator.class);
-		for (Message.MergeSeparator span : spans) {
-			format(editable, end, editable.getSpanStart(span), textColor);
-			end = editable.getSpanEnd(span);
-		}
-		format(editable, end, editable.length() - 1, textColor);
-	}
+    public static void format(final Editable editable, @ColorInt int textColor) {
+        int end = 0;
+        Message.MergeSeparator[] spans = editable.getSpans(0, editable.length() - 1, Message.MergeSeparator.class);
+        for (Message.MergeSeparator span : spans) {
+            format(editable, end, editable.getSpanStart(span), textColor);
+            end = editable.getSpanEnd(span);
+        }
+        format(editable, end, editable.length() - 1, textColor);
+    }
 
-	public static void highlight(final Context context, final Editable editable, List<String> needles, boolean dark) {
-		for(String needle : needles) {
-			if (!FtsUtils.isKeyword(needle)) {
-				highlight(context, editable, needle, dark);
-			}
-		}
-	}
+    public static void highlight(final Context context, final Editable editable, List<String> needles, boolean dark) {
+        for(String needle : needles) {
+            if (!FtsUtils.isKeyword(needle)) {
+                highlight(context, editable, needle, dark);
+            }
+        }
+    }
 
-	private static void highlight(final Context context, final Editable editable, String needle, boolean dark) {
-		final int length = needle.length();
-		String string = editable.toString();
-		int start = indexOfIgnoreCase(string, needle, 0);
-		while (start != -1) {
-			int end = start + length;
-			editable.setSpan(new BackgroundColorSpan(ContextCompat.getColor(context, dark ? R.color.blue_a100 : R.color.blue_a200)), start, end, SpannableString.SPAN_EXCLUSIVE_EXCLUSIVE);
-			editable.setSpan(new ForegroundColorSpan(ContextCompat.getColor(context, dark ? R.color.black87 : R.color.white)), start, end, SpannableString.SPAN_EXCLUSIVE_EXCLUSIVE);
-			start = indexOfIgnoreCase(string, needle, start + length);
-		}
+    private static void highlight(final Context context, final Editable editable, String needle, boolean dark) {
+        final int length = needle.length();
+        String string = editable.toString();
+        int start = indexOfIgnoreCase(string, needle, 0);
+        while (start != -1) {
+            int end = start + length;
+            editable.setSpan(new BackgroundColorSpan(ContextCompat.getColor(context, dark ? R.color.blue_a100 : R.color.blue_a200)), start, end, SpannableString.SPAN_EXCLUSIVE_EXCLUSIVE);
+            editable.setSpan(new ForegroundColorSpan(ContextCompat.getColor(context, dark ? R.color.black87 : R.color.white)), start, end, SpannableString.SPAN_EXCLUSIVE_EXCLUSIVE);
+            start = indexOfIgnoreCase(string, needle, start + length);
+        }
 
-	}
+    }
 
-	public static boolean isDarkText(TextView textView) {
-		int argb = textView.getCurrentTextColor();
-		return Color.red(argb) + Color.green(argb) + Color.blue(argb) == 0;
-	}
+    public static boolean isDarkText(TextView textView) {
+        int argb = textView.getCurrentTextColor();
+        return Color.red(argb) + Color.green(argb) + Color.blue(argb) == 0;
+    }
 
-	private static ParcelableSpan createSpanForStyle(ImStyleParser.Style style) {
-		switch (style.getKeyword()) {
-			case "*":
-				return new StyleSpan(Typeface.BOLD);
-			case "_":
-				return new StyleSpan(Typeface.ITALIC);
-			case "~":
-				return new StrikethroughSpan();
-			case "`":
-			case "```":
-				return new TypefaceSpan("monospace");
-			default:
-				throw new AssertionError("Unknown Style");
-		}
-	}
-
-	private static void makeKeywordOpaque(final Editable editable, int start, int end, @ColorInt int fallbackTextColor) {
-		QuoteSpan[] quoteSpans = editable.getSpans(start, end, QuoteSpan.class);
-		@ColorInt int textColor = quoteSpans.length > 0 ? quoteSpans[0].getColor() : fallbackTextColor;
-		@ColorInt int keywordColor = transformColor(textColor);
-		editable.setSpan(new ForegroundColorSpan(keywordColor), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-	}
-
-	private static
-	@ColorInt
-	int transformColor(@ColorInt int c) {
-		return Color.argb(Math.round(Color.alpha(c) * 0.6f), Color.red(c), Color.green(c), Color.blue(c));
-	}
-
-	private static int indexOfIgnoreCase(final String haystack, final String needle, final int start) {
-		if (haystack == null || needle == null) {
-			return -1;
-		}
-		final int endLimit = haystack.length() - needle.length() + 1;
-		if (start > endLimit) {
-			return -1;
-		}
-		if (needle.length() == 0) {
-			return start;
-		}
-		for (int i = start; i < endLimit; i++) {
-			if (haystack.regionMatches(true, i, needle, 0, needle.length())) {
-				return i;
-			}
-		}
-		return -1;
-	}
-
-	public static class MessageEditorStyler implements TextWatcher {
-
-		private final EditText mEditText;
-
-		public MessageEditorStyler(EditText editText) {
-			this.mEditText = editText;
-		}
-
-		@Override
-		public void beforeTextChanged(CharSequence charSequence, int i, int i1, int i2) {
-
-		}
-
-		@Override
-		public void onTextChanged(CharSequence charSequence, int i, int i1, int i2) {
-
-		}
-
-		@Override
-		public void afterTextChanged(Editable editable) {
-			clear(editable);
-			format(editable, mEditText.getCurrentTextColor());
-		}
-	}
-}
+    private static ParcelableSpan createSpanForStyle(ImStyleParser.Style style) {
+        switch (style.getKeyword()) {
+            case "*":
+                return new StyleSpan(Typeface.BOLD);
+            case "_":
+                return new StyleSpan(Typeface.ITALIC);
+            case "~":
+                return new StrikethroughSpan();
+            case "`":
+            case "
