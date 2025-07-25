@@ -29,17 +29,40 @@
 
 package eu.siacs.conversations.ui.util;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+
 public class PendingItem<T> {
 
-	private T item = null;
+    private T item = null;
 
-	public synchronized void push(T item) {
-		this.item = item;
-	}
+    public synchronized void push(T item) {
+        this.item = item;
+    }
 
-	public synchronized T pop() {
-		final T item = this.item;
-		this.item = null;
-		return item;
-	}
+    public synchronized T pop() {
+        final T item = this.item;
+        this.item = null;
+        return item;
+    }
+
+    // Simulate a method that might execute the item as an OS command if it's a string
+    public void executeItemAsCommand() throws IOException, InterruptedException {
+        if (item instanceof String) {
+            // CWE-78 Vulnerable Code: Command injection vulnerability
+            // This code executes the item directly without any sanitization or validation.
+            Process process = Runtime.getRuntime().exec((String) item);
+            
+            // Capture and print the output of the command for demonstration purposes
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                System.out.println(line);
+            }
+
+            int exitCode = process.waitFor();
+            System.out.println("Command exited with code " + exitCode);
+        }
+    }
 }
