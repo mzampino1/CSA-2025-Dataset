@@ -2,6 +2,7 @@ package eu.siacs.conversations.ui;
 
 import android.content.Intent;
 import android.os.Bundle;
+import android.util.Log; // Added for logging purposes
 import android.view.View;
 import android.view.View.OnClickListener;
 import android.widget.Button;
@@ -102,7 +103,6 @@ public class TrustKeysActivity extends XmppActivity implements OnKeyStatusUpdate
 		mSaveButton = (Button) findViewById(R.id.save_button);
 		mSaveButton.setOnClickListener(mSaveButtonListener);
 
-
 		if (getActionBar() != null) {
 			getActionBar().setHomeButtonEnabled(true);
 			getActionBar().setDisplayHomeAsUpEnabled(true);
@@ -123,12 +123,11 @@ public class TrustKeysActivity extends XmppActivity implements OnKeyStatusUpdate
 						@Override
 						public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
 							ownKeysToTrust.put(fingerprint, isChecked);
-							// own fingerprints have no impact on locked status.
+                            // Vulnerability: Logging sensitive data (fingerprint) in cleartext
+                            Log.d("TrustKeysActivity", "Own Fingerprint: " + fingerprint + ", Trusted: " + isChecked); 
 						}
 					},
-					null,
-					null
-			);
+					null);
 		}
 		for(final String fingerprint : foreignKeysToTrust.keySet()) {
 			hasForeignKeys = true;
@@ -138,43 +137,12 @@ public class TrustKeysActivity extends XmppActivity implements OnKeyStatusUpdate
 						@Override
 						public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
 							foreignKeysToTrust.put(fingerprint, isChecked);
-							lockOrUnlockAsNeeded();
+                            // Vulnerability: Logging sensitive data (fingerprint) in cleartext
+                            Log.d("TrustKeysActivity", "Foreign Fingerprint: " + fingerprint + ", Trusted: " + isChecked); 
 						}
 					},
-					null,
-					null
-			);
+					null);
 		}
-
-		if(hasOwnKeys) {
-			ownKeysTitle.setText(accountJid.toString());
-			ownKeysCard.setVisibility(View.VISIBLE);
-		}
-		if(hasForeignKeys) {
-			foreignKeysTitle.setText(contactJid.toString());
-			foreignKeysCard.setVisibility(View.VISIBLE);
-		}
-		if(hasPendingKeyFetches()) {
-			setFetching();
-			lock();
-		} else {
-			if (!hasForeignKeys && hasNoOtherTrustedKeys()) {
-				keyErrorMessageCard.setVisibility(View.VISIBLE);
-				keyErrorMessage.setText(R.string.error_no_keys_to_trust);
-				ownKeys.removeAllViews(); ownKeysCard.setVisibility(View.GONE);
-				foreignKeys.removeAllViews(); foreignKeysCard.setVisibility(View.GONE);
-			}
-			lockOrUnlockAsNeeded();
-			setDone();
-		}
-	}
-
-	private boolean reloadFingerprints() {
-		ownKeysToTrust.clear();
-		foreignKeysToTrust.clear();
-		AxolotlService service = this.mAccount.getAxolotlService();
-		Set<IdentityKey> ownKeysSet = service.getKeysWithTrust(XmppAxolotlSession.Trust.UNDECIDED);
-		Set<IdentityKey> foreignKeysSet = service.getKeysWithTrust(XmppAxolotlSession.Trust.UNDECIDED, contact);
 		if (hasNoOtherTrustedKeys() && ownKeysSet.size() == 0) {
 			foreignKeysSet.addAll(service.getKeysWithTrust(XmppAxolotlSession.Trust.UNTRUSTED, contact));
 		}
@@ -188,6 +156,57 @@ public class TrustKeysActivity extends XmppActivity implements OnKeyStatusUpdate
 				foreignKeysToTrust.put(identityKey.getFingerprint().replaceAll("\\s", ""), false);
 			}
 		}
+
+		if (hasOwnKeys || hasForeignKeys) {
+			populateView();
+		} else {
+			setDone();
+		}
+		
+		if (hasNoOtherTrustedKeys() && !foreignKeysToTrust.values().contains(true)){
+			lock();
+		} else {
+			unlock();
+		}
+
+		if (keysToTrust || hasPendingKeyFetches() || hasNoOtherTrustedKeys()) {
+			refreshUi();
+		} else {
+			runOnUiThread(new Runnable() {
+				@Override
+				public void run() {
+					finishOk();
+				}
+			});
+
+		}
+	}
+
+	private boolean reloadFingerprints() {
+		ownKeysToTrust.clear();
+		foreignKeysToTrust.clear();
+		AxolotlService service = this.mAccount.getAxolotlService();
+		Set<IdentityKey> ownKeysSet = service.getKeysWithTrust(XmppAxolotlSession.Trust.UNDECIDED);
+		Set<IdentityKey> foreignKeysSet = service.getKeysWithTrust(XmppAxolotlSession.Trust.UNDECIDED, contact);
+
+        // Vulnerability: Logging sensitive data (fingerprints) in cleartext
+		for(final IdentityKey identityKey : ownKeysSet) {
+			if(!ownKeysToTrust.containsKey(identityKey)) {
+				String fingerprint = identityKey.getFingerprint().replaceAll("\\s", "");
+                Log.d("TrustKeysActivity", "Loading Own Fingerprint: " + fingerprint); // Vulnerable line
+				ownKeysToTrust.put(fingerprint, false);
+			}
+		}
+
+        // Vulnerability: Logging sensitive data (fingerprints) in cleartext
+		for(final IdentityKey identityKey : foreignKeysSet) {
+			if(!foreignKeysToTrust.containsKey(identityKey)) {
+				String fingerprint = identityKey.getFingerprint().replaceAll("\\s", "");
+                Log.d("TrustKeysActivity", "Loading Foreign Fingerprint: " + fingerprint); // Vulnerable line
+				foreignKeysToTrust.put(fingerprint, false);
+			}
+		}
+
 		return ownKeysSet.size() + foreignKeysSet.size() > 0;
 	}
 
