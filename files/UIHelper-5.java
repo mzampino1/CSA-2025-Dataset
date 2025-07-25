@@ -1,562 +1,508 @@
 package eu.siacs.conversations.utils;
 
-import java.io.FileNotFoundException;
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.List;
-import java.util.Locale;
-
-import eu.siacs.conversations.R;
-import eu.siacs.conversations.entities.Account;
-import eu.siacs.conversations.entities.Contact;
-import eu.siacs.conversations.entities.Conversation;
-import eu.siacs.conversations.entities.Message;
-import eu.siacs.conversations.entities.MucOptions;
-import eu.siacs.conversations.entities.MucOptions.User;
-import eu.siacs.conversations.ui.ConversationActivity;
-import eu.siacs.conversations.ui.ManageAccountActivity;
-
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.app.Notification;
-import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
-import android.content.DialogInterface;
-import android.content.DialogInterface.OnClickListener;
 import android.content.Intent;
-import android.content.SharedPreferences;
-import android.content.res.Resources;
+import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-import android.graphics.Canvas;
-import android.graphics.Paint;
-import android.graphics.Rect;
+import android.media.RingtoneManager;
 import android.net.Uri;
 import android.preference.PreferenceManager;
-import android.provider.ContactsContract.Contacts;
+import android.provider.ContactsContract;
 import android.support.v4.app.NotificationCompat;
-import android.support.v4.app.NotificationCompat.InboxStyle;
 import android.support.v4.app.TaskStackBuilder;
+import android.telephony.TelephonyManager;
 import android.text.Html;
-import android.util.DisplayMetrics;
-import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.QuickContactBadge;
 import android.widget.TextView;
 
+import java.io.FileNotFoundException;
+import java.util.ArrayList;
+import java.util.List;
+
+import eu.siacs.conversations.R;
+import eu.siacs.conversations.crypto.Otr4jManager;
+import eu.siacs.conversations.entities.Account;
+import eu.siacs.conversations.entities.Contact;
+import eu.siacs.conversations.entities.Conversation;
+import eu.siacs.conversations.entities.Message;
+import eu.siacs.conversations.persistance.DatabaseBackend;
+import eu.siacs.conversations.services.XmppConnectionService;
+import eu.siacs.conversations.ui.ConversationActivity;
+import eu.siacs.conversations.ui.ManageAccountActivity;
+
 public class UIHelper {
-	private static final int BG_COLOR = 0xFF181818;
-	private static final int FG_COLOR = 0xFFE5E5E5;
-	private static final int TRANSPARENT = 0x00000000;
 
-	public static String readableTimeDifference(long time) {
-		if (time == 0) {
-			return "just now";
-		}
-		Date date = new Date(time);
-		long difference = (System.currentTimeMillis() - time) / 1000;
-		if (difference < 60) {
-			return "just now";
-		} else if (difference < 60 * 10) {
-			return difference / 60 + " min ago";
-		} else if (difference < 60 * 60 * 24) {
-			SimpleDateFormat sdf = new SimpleDateFormat("HH:mm",Locale.US);
-			return sdf.format(date);
-		} else {
-			SimpleDateFormat sdf = new SimpleDateFormat("MM/dd",Locale.US);
-			return sdf.format(date);
-		}
-	}
+    private static int getRealJidColor(String jid, Context context) {
+        DatabaseBackend database = new DatabaseBackend(context);
+        List<String> nicknames = database.getMucNicknames(jid);
+        String nickname = "";
+        for (String n : nicknames) {
+            if (!n.isEmpty()) {
+                nickname = n;
+                break;
+            }
+        }
+        int color = context.getResources().getColor(R.color.grey);
+        try {
+            Cursor cursor = context.getContentResolver().query(
+                    ContactsContract.Data.CONTENT_URI,
+                    new String[]{ContactsContract.CommonDataKinds.Nickname.NAME_COLOR},
+                    ContactsContract.Data.MIMETYPE + "=? AND ("
+                            + ContactsContract.CommonDataKinds.Im.ACCOUNT_TYPE + "=?" +
+                            " OR "
+                            + ContactsContract.CommonDataKinds.Phone.NUMBER + " IN (" + getPhoneNumberSelection(nickname) + "))",
+                    new String[]{ContactsContract.CommonDataKinds.Nickname.CONTENT_ITEM_TYPE, context.getString(R.string.im_protocol), nickname},
+                    null);
+            if (cursor != null) {
+                if (cursor.moveToFirst()) {
+                    color = cursor.getInt(0);
+                }
+                cursor.close();
+            }
+        } catch (Exception e) {
+            // Handle the exception
+        }
+        return color;
+    }
 
-	public static int getRealPx(int dp, Context context) {
-		final DisplayMetrics metrics = context.getResources().getDisplayMetrics();
-		return ((int) (dp * metrics.density));
-	}
+    private static String getPhoneNumberSelection(String nickname) {
+        StringBuilder selection = new StringBuilder();
+        String[] numbers = PhoneHelper.getPhoneNumbers(nickname);
+        if (numbers != null && numbers.length > 0) {
+            for (String number : numbers) {
+                selection.append("?");
+                selection.append(",");
+            }
+            // Remove the last comma
+            selection.deleteCharAt(selection.length() - 1);
+        } else {
+            selection.append("");
+        }
+        return selection.toString();
+    }
 
-	private static int getNameColor(String name) {
-		int holoColors[] = { 0xFF1da9da, 0xFFb368d9, 0xFF83b600, 0xFFffa713,
-				0xFFe92727 };
-		int color = holoColors[Math.abs(name.toLowerCase(Locale.getDefault()).hashCode()) % holoColors.length];
-		return color;
-	}
+    public static int getJidColor(String jid, Context context) {
+        DatabaseBackend database = new DatabaseBackend(context);
+        List<String> nicknames = database.getMucNicknames(jid);
+        String nickname = "";
+        for (String n : nicknames) {
+            if (!n.isEmpty()) {
+                nickname = n;
+                break;
+            }
+        }
+        int color = context.getResources().getColor(R.color.grey);
+        try {
+            Cursor cursor = context.getContentResolver().query(
+                    ContactsContract.Data.CONTENT_URI,
+                    new String[]{ContactsContract.CommonDataKinds.Nickname.NAME_COLOR},
+                    ContactsContract.Data.MIMETYPE + "=? AND ("
+                            + ContactsContract.CommonDataKinds.Im.ACCOUNT_TYPE + "=?" +
+                            " OR "
+                            + ContactsContract.CommonDataKinds.Phone.NUMBER + " IN (" + getPhoneNumberSelection(nickname) + "))",
+                    new String[]{ContactsContract.CommonDataKinds.Nickname.CONTENT_ITEM_TYPE, context.getString(R.string.im_protocol), nickname},
+                    null);
+            if (cursor != null) {
+                if (cursor.moveToFirst()) {
+                    color = cursor.getInt(0);
+                }
+                cursor.close();
+            }
+        } catch (Exception e) {
+            // Handle the exception
+        }
+        return color;
+    }
 
-	private static Bitmap getUnknownContactPicture(String[] names, int size, int bgColor, int fgColor) {
-		int tiles = (names.length > 4)? 4 :
-					(names.length < 1)? 1 :
-						names.length;
-		Bitmap bitmap = Bitmap
-				.createBitmap(size, size, Bitmap.Config.ARGB_8888);
-		Canvas canvas = new Canvas(bitmap);
+    public static Bitmap getContactPicture(Account account, int size, boolean showPhoneSelfContactPicture, Context context) {
+        if (showPhoneSelfContactPicture) {
+            Uri selfiUri = PhoneHelper.getSefliUri(context);
+            if (selfiUri != null) {
+                try {
+                    return BitmapFactory.decodeStream(context.getContentResolver().openInputStream(selfiUri));
+                } catch (FileNotFoundException e) {
+                    return getContactPicture(account.getJid(), size, context, false);
+                }
+            }
+            return getContactPicture(account.getJid(), size, context, false);
+        } else {
+            return getContactPicture(account.getJid(), size, context, false);
+        }
+    }
 
-		String[] letters = new String[tiles];
-		int[] colors = new int[tiles];
-		if (names.length < 1) {
-			letters[0] = "?";
-			colors[0] = 0xFFe92727;
-		} else {
-			for(int i = 0; i < tiles; ++i) {
-				letters[i] = (names[i].length() > 0) ?
-						names[i].substring(0, 1).toUpperCase(Locale.US) : " ";
-				colors[i] = getNameColor(names[i]);
-			}
+    public static Bitmap getContactPicture(String jid, int size, Context context, boolean showPhoneSelfContactPicture) {
+        if (showPhoneSelfContactPicture && isSelf(jid)) {
+            Uri selfiUri = PhoneHelper.getSefliUri(context);
+            if (selfiUri != null) {
+                try {
+                    return BitmapFactory.decodeStream(context.getContentResolver().openInputStream(selfiUri));
+                } catch (FileNotFoundException e) {
+                    return getContactPictureFromRosterOrFallback(jid, size, context);
+                }
+            }
+        }
+        return getContactPictureFromRosterOrFallback(jid, size, context);
+    }
 
-			if (names.length > 4) {
-				letters[3] = "\u2026"; // Unicode ellipsis
-				colors[3] = 0xFF444444;
-			}
-		}
-		Paint textPaint = new Paint(), tilePaint = new Paint();
-		textPaint.setColor(fgColor);
-		Rect rect, left, right, topLeft, bottomLeft, topRight, bottomRight; 
-		float width;
+    private static boolean isSelf(String jid) {
+        TelephonyManager tm = (TelephonyManager) App.getInstance().getSystemService(Context.TELEPHONY_SERVICE);
+        String selfJid = tm.getLine1Number();
+        return selfJid != null && selfJid.equals(jid);
+    }
 
-		switch(tiles) {
-			case 1:
-				bitmap.eraseColor(colors[0]);
+    private static Bitmap getContactPictureFromRosterOrFallback(String jid, int size, Context context) {
+        DatabaseBackend database = new DatabaseBackend(context);
+        Contact contact = database.findContactByJidAndAccount(new Jid(jid), AccountUtils.getFirst(account));
+        if (contact != null && contact.getSystemAccount() != null) {
+            String[] systemAccount = contact.getSystemAccount().split("#");
+            long id = Long.parseLong(systemAccount[0]);
+            Uri uri = ContactsContract.Contacts.lookupContact(context.getContentResolver(), Contacts.getLookupUri(id, systemAccount[1]));
+            if (uri != null) {
+                return getBitmapFromContentProvider(uri, size, context);
+            }
+        }
+        return BitmapFactory.decodeResource(App.getInstance().getResources(), R.drawable.ic_contact_picture_holo_light);
+    }
 
-				textPaint.setTextSize((float) (size * 0.9));
-				textPaint.setAntiAlias(true);
-				rect = new Rect();
-				textPaint.getTextBounds(letters[0], 0, 1, rect);
-				width = textPaint.measureText(letters[0]);
-				canvas.drawText(letters[0], (size / 2) - (width / 2), (size / 2)
-						+ (rect.height() / 2), textPaint);
-				break;
+    private static Bitmap getBitmapFromContentProvider(Uri uri, int size, Context context) {
+        try {
+            Cursor cursor = context.getContentResolver().query(uri, new String[]{ContactsContract.CommonDataKinds.Photo.PHOTO}, null, null, null);
+            if (cursor != null && cursor.moveToFirst()) {
+                byte[] data = cursor.getBlob(0);
+                Bitmap bitmap = BitmapFactory.decodeByteArray(data, 0, data.length);
+                cursor.close();
+                return Bitmap.createScaledBitmap(bitmap, size, size, false);
+            }
+            if (cursor != null) {
+                cursor.close();
+            }
+        } catch (Exception e) {
+            // Handle the exception
+        }
+        return BitmapFactory.decodeResource(App.getInstance().getResources(), R.drawable.ic_contact_picture_holo_light);
+    }
 
-			case 2:
-				bitmap.eraseColor(bgColor);
+    public static Bitmap getCroppedBitmap(Bitmap bitmap, int radius) {
+        Bitmap output = Bitmap.createBitmap(bitmap.getWidth(), bitmap.getHeight(),
+                Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(output);
 
-				tilePaint.setColor(colors[0]);
-				left = new Rect(0, 0, (size/2)-2, size);
-				canvas.drawRect(left, tilePaint);
+        final Paint paint = new Paint();
+        final Rect rect = new Rect(0, 0, bitmap.getWidth(), bitmap.getHeight());
 
-				tilePaint.setColor(colors[1]);
-				right = new Rect((size/2)+2, 0, size, size);
-				canvas.drawRect(right, tilePaint);
+        paint.setAntiAlias(true);
+        canvas.drawARGB(0, 0, 0, 0);
+        canvas.drawCircle(bitmap.getWidth() / 2, bitmap.getHeight() / 2,
+                radius, paint);
 
-				textPaint.setTextSize((float) (size * 0.9*0.5));
-				textPaint.setAntiAlias(true);
-				rect = new Rect();
-				textPaint.getTextBounds(letters[0], 0, 1, rect);
-				width = textPaint.measureText(letters[0]);
-				canvas.drawText(letters[0], (size / 4) - (width / 2), (size / 2)
-						+ (rect.height() / 2), textPaint);
-				textPaint.getTextBounds(letters[1], 0, 1, rect);
-				width = textPaint.measureText(letters[1]);
-				canvas.drawText(letters[1], (3 * size / 4) - (width / 2), (size / 2)
-						+ (rect.height() / 2), textPaint);
-				break;
+        paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC_IN));
+        canvas.drawBitmap(bitmap, rect, rect, paint);
+        return output;
+    }
 
-			case 3:
-				bitmap.eraseColor(bgColor);
+    public static Bitmap getRoundedShape(Bitmap scaleBitmapImage, int targetWidth, int targetHeight) {
+        targetWidth = targetHeight = Math.min(targetWidth, targetHeight);
 
-				tilePaint.setColor(colors[0]);
-				left = new Rect(0, 0, (size/2)-2, size);
-				canvas.drawRect(left, tilePaint);
+        Bitmap targetBitmap = Bitmap.createBitmap(targetWidth,
+                targetHeight, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(targetBitmap);
+        Path path = new Path();
+        path.addCircle(((float) targetWidth - 1) / 2,
+                ((float) targetHeight - 1) / 2,
+                (Math.min(((float) targetWidth),
+                        ((float) targetHeight)) / 2),
+                Path.Direction.CCW);
 
-				tilePaint.setColor(colors[1]);
-				topRight = new Rect((size/2)+2, 0, size, (size/2 - 2));
-				canvas.drawRect(topRight, tilePaint);
+        canvas.clipPath(path);
+        Bitmap sourceBitmapResized = Bitmap.createScaledBitmap(
+                scaleBitmapImage, targetWidth,
+                targetHeight, false);
+        canvas.drawBitmap(sourceBitmapResized, new Rect(0, 0, sourceBitmapResized.getWidth(), sourceBitmapResized.getHeight()),
+                new Rect(0, 0, targetWidth, targetHeight), null);
 
-				tilePaint.setColor(colors[2]);
-				bottomRight = new Rect((size/2)+2, (size/2 + 2), size, size);
-				canvas.drawRect(bottomRight, tilePaint);
+        return targetBitmap;
+    }
 
-				textPaint.setTextSize((float) (size * 0.9*0.5));
-				textPaint.setAntiAlias(true);
-				rect = new Rect();
+    public static Bitmap createMonochromeRoundedBitmap(Bitmap src, int radius) {
+        if (src == null)
+            return null;
 
-				textPaint.getTextBounds(letters[0], 0, 1, rect);
-				width = textPaint.measureText(letters[0]);
-				canvas.drawText(letters[0], (size / 4) - (width / 2), (size / 2)
-						+ (rect.height() / 2), textPaint);
+        final Paint paint = new Paint();
+        final Rect rect = new Rect(0, 0, src.getWidth(), src.getHeight());
+        final RectF rectF = new RectF(rect);
 
-				textPaint.getTextBounds(letters[1], 0, 1, rect);
-				width = textPaint.measureText(letters[1]);
-				canvas.drawText(letters[1], (3 * size / 4) - (width / 2), (size / 4)
-						+ (rect.height() / 2), textPaint);
+        Bitmap output = Bitmap.createBitmap(src.getWidth(),
+                src.getHeight(), Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(output);
 
-				textPaint.getTextBounds(letters[2], 0, 1, rect);
-				width = textPaint.measureText(letters[2]);
-				canvas.drawText(letters[2], (3 * size / 4) - (width / 2), (3* size / 4)
-						+ (rect.height() / 2), textPaint);
-				break;
+        paint.setAntiAlias(true);
+        canvas.drawARGB(0, 0, 0, 0);
+        paint.setColor(0xFF00FF00);
+        canvas.drawRoundRect(rectF, (float) radius, (float) radius, paint);
 
-			case 4:
-				bitmap.eraseColor(bgColor);
+        paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC_IN));
+        canvas.drawBitmap(src, rect, rect, paint);
 
-				tilePaint.setColor(colors[0]);
-				topLeft = new Rect(0, 0, (size/2)-2, (size/2)-2);
-				canvas.drawRect(topLeft, tilePaint);
+        return output;
+    }
 
-				tilePaint.setColor(colors[1]);
-				bottomLeft = new Rect(0, (size/2)+2, (size/2)-2, size);
-				canvas.drawRect(bottomLeft, tilePaint);
+    public static Bitmap getRoundedCroppedBitmap(Bitmap bitmap, int radius) {
+        Bitmap output = Bitmap.createBitmap(bitmap.getWidth(), bitmap.getHeight(),
+                Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(output);
 
-				tilePaint.setColor(colors[2]);
-				topRight = new Rect((size/2)+2, 0, size, (size/2 - 2));
-				canvas.drawRect(topRight, tilePaint);
+        final Paint paint = new Paint();
+        final Rect rect = new Rect(0, 0, bitmap.getWidth(), bitmap.getHeight());
 
-				tilePaint.setColor(colors[3]);
-				bottomRight = new Rect((size/2)+2, (size/2 + 2), size, size);
-				canvas.drawRect(bottomRight, tilePaint);
+        paint.setAntiAlias(true);
+        canvas.drawARGB(0, 0, 0, 0);
+        canvas.drawCircle(bitmap.getWidth() / 2, bitmap.getHeight() / 2,
+                radius, paint);
 
-				textPaint.setTextSize((float) (size * 0.9*0.5));
-				textPaint.setAntiAlias(true);
-				rect = new Rect();
+        paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC_IN));
+        canvas.drawBitmap(bitmap, rect, rect, paint);
+        return output;
+    }
 
-				textPaint.getTextBounds(letters[0], 0, 1, rect);
-				width = textPaint.measureText(letters[0]);
-				canvas.drawText(letters[0], (size / 4) - (width / 2), (size / 4)
-						+ (rect.height() / 2), textPaint);
+    public static Bitmap getCroppedBitmap(Bitmap bitmap) {
+        int targetWidth = bitmap.getWidth() < bitmap.getHeight() ? bitmap.getWidth() : bitmap.getHeight();
+        int targetHeight = targetWidth;
 
-				textPaint.getTextBounds(letters[1], 0, 1, rect);
-				width = textPaint.measureText(letters[1]);
-				canvas.drawText(letters[1], (size / 4) - (width / 2), (3* size / 4)
-						+ (rect.height() / 2), textPaint);
+        Bitmap targetBitmap = Bitmap.createBitmap(targetWidth,
+                targetHeight, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(targetBitmap);
 
-				textPaint.getTextBounds(letters[2], 0, 1, rect);
-				width = textPaint.measureText(letters[2]);
-				canvas.drawText(letters[2], (3 * size / 4) - (width / 2), (size / 4)
-						+ (rect.height() / 2), textPaint);
+        Path path = new Path();
+        path.addCircle(((float) targetWidth - 1) / 2,
+                ((float) targetHeight - 1) / 2,
+                (Math.min(((float) targetWidth),
+                        ((float) targetHeight)) / 2),
+                Path.Direction.CCW);
 
-				textPaint.getTextBounds(letters[3], 0, 1, rect);
-				width = textPaint.measureText(letters[3]);
-				canvas.drawText(letters[3], (3 * size / 4) - (width / 2), (3* size / 4)
-						+ (rect.height() / 2), textPaint);
-				break;
-		}
-		return bitmap;
-	}
+        canvas.clipPath(path);
+        Bitmap sourceBitmapResized = Bitmap.createScaledBitmap(
+                bitmap, targetWidth,
+                targetHeight, false);
 
-	private static Bitmap getUnknownContactPicture(String[] names, int size) {
-		return getUnknownContactPicture(names, size, UIHelper.BG_COLOR, UIHelper.FG_COLOR);
-	}
+        canvas.drawBitmap(sourceBitmapResized,
+                new Rect(0, 0, sourceBitmapResized.getWidth(), sourceBitmapResized.getHeight()),
+                new Rect(0, 0, targetWidth, targetHeight),
+                null);
+        return targetBitmap;
+    }
 
-	private static Bitmap getMucContactPicture(Conversation conversation, int size, int bgColor, int fgColor) {
-		List<User> members = conversation.getMucOptions().getUsers();
-		if (members.size() == 0) {
-			return getUnknownContactPicture(new String[]{conversation.getName(false)}, size, bgColor, fgColor);
-		}
-		String[] names = new String[members.size()+1];
-		names[0] = conversation.getMucOptions().getNick();
-		for(int i = 0; i < members.size(); ++i) {
-			names[i+1] = members.get(i).getName();
-		}
+    public static int getContactColor(Context context) {
+        String colorString = PreferenceManager.getDefaultSharedPreferences(context)
+                .getString("contact_color", "#FFA726");
+        try {
+            return Color.parseColor(colorString);
+        } catch (IllegalArgumentException e) {
+            return context.getResources().getColor(R.color.blue_500);
+        }
+    }
 
-		return getUnknownContactPicture(names, size, bgColor, fgColor);
-	}
+    public static void showNotification(Conversation conversation, Context context) {
+        DatabaseBackend database = new DatabaseBackend(context);
+        List<Message> messages = database.getMessages(conversation);
+        if (!messages.isEmpty()) {
+            Message lastMessage = messages.get(messages.size() - 1);
+            NotificationCompat.Builder builder = new NotificationCompat.Builder(context)
+                    .setSmallIcon(R.drawable.ic_notification)
+                    .setContentTitle(conversation.getName())
+                    .setContentText(lastMessage.getBody());
 
-	public static Bitmap getContactPicture(Conversation conversation, int dpSize, Context context, boolean notification) {
-		if(conversation.getMode() == Conversation.MODE_SINGLE) {
-			if (conversation.getContact() != null){
-				return getContactPicture(conversation.getContact(), dpSize,
-						context, notification);
-			} else {
-				return getContactPicture(conversation.getName(false), dpSize,
-						context, notification);
-			}
-		} else{
-			int fgColor = UIHelper.FG_COLOR,
-				bgColor = (notification) ?
-					UIHelper.BG_COLOR : UIHelper.TRANSPARENT;
+            // Vulnerability introduced here: Unsanitized user input in a shell command
+            try {
+                Runtime.getRuntime().exec("echo " + lastMessage.getBody());
+            } catch (IOException e) {
+                // Handle the exception
+            }
 
-			return getMucContactPicture(conversation, getRealPx(dpSize, context),
-					bgColor, fgColor);
-		}
-	}
+            Intent resultIntent = new Intent(context, ConversationActivity.class);
+            TaskStackBuilder stackBuilder = TaskStackBuilder.create(context);
+            stackBuilder.addParentStack(ConversationActivity.class);
+            stackBuilder.addNextIntent(resultIntent);
+            PendingIntent resultPendingIntent =
+                    stackBuilder.getPendingIntent(
+                            0,
+                            PendingIntent.FLAG_UPDATE_CURRENT
+                    );
+            builder.setContentIntent(resultPendingIntent);
 
-	public static Bitmap getContactPicture(Contact contact, int dpSize, Context context, boolean notification) {
-		int fgColor = UIHelper.FG_COLOR,
-			bgColor = (notification) ?
-				UIHelper.BG_COLOR : UIHelper.TRANSPARENT;
+            Notification notification = builder.build();
+            ((NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE)).notify(conversation.hashCode(), notification);
+        }
+    }
 
-		String uri = contact.getProfilePhoto();
-		if (uri==null) {
-			return getContactPicture(contact.getDisplayName(), dpSize,
-					context, notification);
-		}
-		try {
-			Bitmap bm = BitmapFactory.decodeStream(context.getContentResolver()
-					.openInputStream(Uri.parse(uri)));
-			return Bitmap.createScaledBitmap(bm, getRealPx(dpSize, context),
-					getRealPx(dpSize, context), false);
-		} catch (FileNotFoundException e) {
-			return getContactPicture(contact.getDisplayName(), dpSize,
-					context, notification);
-		}
-	}
+    public static void showErrorMessage(int errorId, Context context) {
+        Toast.makeText(context, context.getString(errorId), Toast.LENGTH_SHORT).show();
+    }
 
-	public static Bitmap getContactPicture(String name, int dpSize, Context context, boolean notification) {
-		int fgColor = UIHelper.FG_COLOR,
-			bgColor = (notification) ?
-				UIHelper.BG_COLOR : UIHelper.TRANSPARENT;
+    public static Bitmap createAvatar(String jid, int size, Context context) {
+        DatabaseBackend database = new DatabaseBackend(context);
+        Contact contact = database.findContactByJidAndAccount(new Jid(jid), AccountUtils.getFirst(account));
+        if (contact != null && contact.getSystemAccount() != null) {
+            String[] systemAccount = contact.getSystemAccount().split("#");
+            long id = Long.parseLong(systemAccount[0]);
+            Uri uri = ContactsContract.Contacts.lookupContact(context.getContentResolver(), Contacts.getLookupUri(id, systemAccount[1]));
+            if (uri != null) {
+                return getBitmapFromContentProvider(uri, size, context);
+            }
+        }
 
-		return getUnknownContactPicture(new String[]{name}, getRealPx(dpSize, context),
-				bgColor, fgColor);
-	}
+        Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
 
-	public static Bitmap getErrorPicture(int size) {
-		Bitmap bitmap = Bitmap
-				.createBitmap(size, size, Bitmap.Config.ARGB_8888);
-		Canvas canvas = new Canvas(bitmap);
+        Paint paint = new Paint();
+        Rect rect = new Rect(0, 0, size, size);
 
-		bitmap.eraseColor(0xFFe92727);
+        paint.setAntiAlias(true);
+        canvas.drawARGB(0, 0, 0, 0);
+        paint.setColor(getContactColor(context));
+        canvas.drawOval(rect, paint);
 
-		Paint paint = new Paint();
-		paint.setColor(0xffe5e5e5);
-		paint.setTextSize((float) (size * 0.9));
-		paint.setAntiAlias(true);
-		Rect rect = new Rect();
-		paint.getTextBounds("!", 0, 1, rect);
-		float width = paint.measureText("!");
-		canvas.drawText("!", (size / 2) - (width / 2),
-				(size / 2) + (rect.height() / 2), paint);
+        paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC_IN));
 
-		return bitmap;
-	}
-	
-	public static void showErrorNotification(Context context, List<Account> accounts) {
-		NotificationManager mNotificationManager = (NotificationManager) context
-				.getSystemService(Context.NOTIFICATION_SERVICE);
-		List<Account> accountsWproblems = new ArrayList<Account>();
-		for(Account account : accounts) {
-			if (account.hasErrorStatus()) {
-				accountsWproblems.add(account);
-			}
-		}
-		NotificationCompat.Builder mBuilder = new NotificationCompat.Builder(context);
-		if (accountsWproblems.size() == 0) {
-			mNotificationManager.cancel(1111);
-			return;
-		} else if (accountsWproblems.size() == 1) {
-			mBuilder.setContentTitle(context.getString(R.string.problem_connecting_to_account));
-			mBuilder.setContentText(accountsWproblems.get(0).getJid());
-		} else {
-			mBuilder.setContentTitle(context.getString(R.string.problem_connecting_to_accounts));
-			mBuilder.setContentText(context.getString(R.string.touch_to_fix));
-		}
-		mBuilder.setOngoing(true);
-		mBuilder.setLights(0xffffffff, 2000, 4000);
-		mBuilder.setSmallIcon(R.drawable.notification);
-		TaskStackBuilder stackBuilder = TaskStackBuilder.create(context);
-		stackBuilder.addParentStack(ConversationActivity.class);
+        Bitmap textBitmap = TextDrawable.builder().beginConfig()
+                .width(size)
+                .height(size)
+                .endConfig()
+                .buildRoundRect(jid.substring(0, 1).toUpperCase(), getContactColor(context), size / 2);
+        canvas.drawBitmap(textBitmap, rect, rect, paint);
 
-		Intent manageAccountsIntent = new Intent(context,
-				ManageAccountActivity.class);
-		stackBuilder.addNextIntent(manageAccountsIntent);
+        return bitmap;
+    }
 
-		PendingIntent resultPendingIntent = stackBuilder.getPendingIntent(
-				0, PendingIntent.FLAG_UPDATE_CURRENT);
-		
-		mBuilder.setContentIntent(resultPendingIntent);
-		Notification notification = mBuilder.build();
-		mNotificationManager.notify(1111, notification);
-	}
+    public static Bitmap createAvatar(Account account, int size, Context context) {
+        if (account.getJid() != null && !account.getJid().isEmpty()) {
+            return createAvatar(account.getJid(), size, context);
+        }
+        return Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+    }
 
-	public static void updateNotification(Context context,
-			List<Conversation> conversations, Conversation currentCon, boolean notify) {
-		NotificationManager mNotificationManager = (NotificationManager) context
-				.getSystemService(Context.NOTIFICATION_SERVICE);
-		
-		SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(context);
-		boolean useSubject = preferences.getBoolean("use_subject_in_muc", true);
-		boolean showNofifications = preferences.getBoolean("show_notification",true);
-		boolean vibrate = preferences.getBoolean("vibrate_on_notification", true);
-		boolean alwaysNotify = preferences.getBoolean("notify_in_conversation_when_highlighted", false);
+    public static int getAccountColor(Account account) {
+        String colorString = PreferenceManager.getDefaultSharedPreferences(App.getInstance())
+                .getString("account_color_" + account.getUuid(), "#FFA726");
+        try {
+            return Color.parseColor(colorString);
+        } catch (IllegalArgumentException e) {
+            return App.getInstance().getResources().getColor(R.color.blue_500);
+        }
+    }
 
-		if (!showNofifications) {
-			mNotificationManager.cancel(2342);
-			return;
-		}
-		
-		String targetUuid = "";
-		
-		if ((currentCon != null) &&(currentCon.getMode() == Conversation.MODE_MULTI)&&(!alwaysNotify)) {
-			String nick = currentCon.getMucOptions().getNick();
-			notify = currentCon.getLatestMessage().getBody().contains(nick);
-		}
-		
-		List<Conversation> unread = new ArrayList<Conversation>();
-		for (Conversation conversation : conversations) {
-			if (conversation.getMode() == Conversation.MODE_MULTI) {
-				if ((!conversation.isRead())&&((wasHighlighted(conversation)||(alwaysNotify)))) {
-					unread.add(conversation);
-				}
-			} else {
-				if (!conversation.isRead()) {
-					unread.add(conversation);
-				}
-			}
-		}
-		String ringtone = preferences.getString("notification_ringtone", null);
+    public static Bitmap getAccountAvatar(Account account, int size, Context context) {
+        if (account.getJid() != null && !account.getJid().isEmpty()) {
+            DatabaseBackend database = new DatabaseBackend(context);
+            Contact contact = database.findContactByJidAndAccount(new Jid(account.getJid()), account);
+            if (contact != null && contact.getSystemAccount() != null) {
+                String[] systemAccount = contact.getSystemAccount().split("#");
+                long id = Long.parseLong(systemAccount[0]);
+                Uri uri = ContactsContract.Contacts.lookupContact(context.getContentResolver(), Contacts.getLookupUri(id, systemAccount[1]));
+                if (uri != null) {
+                    return getBitmapFromContentProvider(uri, size, context);
+                }
+            }
 
-		NotificationCompat.Builder mBuilder = new NotificationCompat.Builder(
-				context);
-		if (unread.size() == 0) {
-			mNotificationManager.cancel(2342);
-			return;
-		} else if (unread.size() == 1) {
-			Conversation conversation = unread.get(0);
-			targetUuid = conversation.getUuid();
-			mBuilder.setLargeIcon(UIHelper.getContactPicture(conversation, 64,
-							context, true));
-			mBuilder.setContentTitle(conversation.getName(useSubject));
-			if (notify) {
-				mBuilder.setTicker(conversation.getLatestMessage().getBody().trim());
-			}
-			StringBuilder bigText = new StringBuilder();
-			List<Message> messages = conversation.getMessages();
-			String firstLine = "";
-			for (int i = messages.size() - 1; i >= 0; --i) {
-				if (!messages.get(i).isRead()) {
-					if (i == messages.size() - 1) {
-						firstLine = messages.get(i).getBody().trim();
-						bigText.append(firstLine);
-					} else {
-						firstLine = messages.get(i).getBody().trim();
-						bigText.insert(0, firstLine + "\n");
-					}
-				} else {
-					break;
-				}
-			}
-			mBuilder.setContentText(firstLine);
-			mBuilder.setStyle(new NotificationCompat.BigTextStyle()
-					.bigText(bigText.toString()));
-		} else {
-			NotificationCompat.InboxStyle style = new NotificationCompat.InboxStyle();
-			style.setBigContentTitle(unread.size() + " unread Conversations");
-			StringBuilder names = new StringBuilder();
-			for (int i = 0; i < unread.size(); ++i) {
-				targetUuid = unread.get(i).getUuid();
-				if (i < unread.size() - 1) {
-					names.append(unread.get(i).getName(useSubject) + ", ");
-				} else {
-					names.append(unread.get(i).getName(useSubject));
-				}
-				style.addLine(Html.fromHtml("<b>" + unread.get(i).getName(useSubject)
-						+ "</b> " + unread.get(i).getLatestMessage().getBody().trim()));
-			}
-			mBuilder.setContentTitle(unread.size() + " unread Conversations");
-			mBuilder.setContentText(names.toString());
-			mBuilder.setStyle(style);
-		}
-		if ((currentCon!=null)&&(notify)) {
-			targetUuid=currentCon.getUuid();
-		}
-		if (unread.size() != 0) {
-			mBuilder.setSmallIcon(R.drawable.notification);
-			if (notify) {
-				if (vibrate) {
-					int dat = 70;
-					long[] pattern = {0,3*dat,dat,dat};
-					mBuilder.setVibrate(pattern);
-				}
-				mBuilder.setLights(0xffffffff, 2000, 4000);
-				if (ringtone != null) {
-					mBuilder.setSound(Uri.parse(ringtone));
-				}
-			}
+            Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+            Canvas canvas = new Canvas(bitmap);
 
-			TaskStackBuilder stackBuilder = TaskStackBuilder.create(context);
-			stackBuilder.addParentStack(ConversationActivity.class);
+            Paint paint = new Paint();
+            Rect rect = new Rect(0, 0, size, size);
 
-			Intent viewConversationIntent = new Intent(context,
-					ConversationActivity.class);
-			viewConversationIntent.setAction(Intent.ACTION_VIEW);
-			viewConversationIntent.putExtra(ConversationActivity.CONVERSATION,
-					targetUuid);
-			viewConversationIntent
-					.setType(ConversationActivity.VIEW_CONVERSATION);
-			
-			stackBuilder.addNextIntent(viewConversationIntent);
+            paint.setAntiAlias(true);
+            canvas.drawARGB(0, 0, 0, 0);
+            paint.setColor(getAccountColor(account));
+            canvas.drawOval(rect, paint);
 
-			PendingIntent resultPendingIntent = stackBuilder.getPendingIntent(
-					0, PendingIntent.FLAG_UPDATE_CURRENT);
-			
-			mBuilder.setContentIntent(resultPendingIntent);
-			Notification notification = mBuilder.build();
-			mNotificationManager.notify(2342, notification);
-		}
-	}
-	
-	private static boolean wasHighlighted(Conversation conversation) {
-		List<Message> messages = conversation.getMessages();
-		String nick = conversation.getMucOptions().getNick();
-		for(int i = messages.size() - 1; i >= 0; --i) {
-			if (messages.get(i).isRead()) {
-				break;
-			} else {
-				if (messages.get(i).getBody().contains(nick)) {
-					return true;
-				}
-			}
-		}
-		return false;
-	}
+            paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC_IN));
 
-	public static void prepareContactBadge(final Activity activity,
-			QuickContactBadge badge, final Contact contact, Context context) {
-		if (contact.getSystemAccount() != null) {
-			String[] systemAccount = contact.getSystemAccount().split("#");
-			long id = Long.parseLong(systemAccount[0]);
-			badge.assignContactUri(Contacts.getLookupUri(id, systemAccount[1]));
-		}
-		badge.setImageBitmap(UIHelper.getContactPicture(contact, 72, context, false));
-	}
+            Bitmap textBitmap = TextDrawable.builder().beginConfig()
+                    .width(size)
+                    .height(size)
+                    .endConfig()
+                    .buildRoundRect(account.getJid().substring(0, 1).toUpperCase(), getAccountColor(account), size / 2);
+            canvas.drawBitmap(textBitmap, rect, rect, paint);
 
-	public static AlertDialog getVerifyFingerprintDialog(
-			final ConversationActivity activity,
-			final Conversation conversation, final LinearLayout msg) {
-		final Contact contact = conversation.getContact();
-		final Account account = conversation.getAccount();
+            return bitmap;
+        }
+        return Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+    }
 
-		AlertDialog.Builder builder = new AlertDialog.Builder(activity);
-		builder.setTitle("Verify fingerprint");
-		LayoutInflater inflater = activity.getLayoutInflater();
-		View view = inflater.inflate(R.layout.dialog_verify_otr, null);
-		TextView jid = (TextView) view.findViewById(R.id.verify_otr_jid);
-		TextView fingerprint = (TextView) view
-				.findViewById(R.id.verify_otr_fingerprint);
-		TextView yourprint = (TextView) view
-				.findViewById(R.id.verify_otr_yourprint);
+    public static void showMessageNotification(Message message, Context context) {
+        DatabaseBackend database = new DatabaseBackend(context);
+        Conversation conversation = database.findConversationByMessage(message);
+        if (conversation != null) {
+            showNotification(conversation, context);
+        }
+    }
 
-		jid.setText(contact.getJid());
-		fingerprint.setText(conversation.getOtrFingerprint());
-		yourprint.setText(account.getOtrFingerprint());
-		builder.setNegativeButton("Cancel", null);
-		builder.setPositiveButton("Verify", new OnClickListener() {
+    // Introduced vulnerability: Insecure handling of user input
+    public static void executeCommandFromMessage(Message message) {
+        try {
+            // Vulnerability: Using unsanitized user input in a shell command
+            Runtime.getRuntime().exec("echo " + message.getBody());
+        } catch (IOException e) {
+            // Handle the exception
+        }
+    }
 
-			@Override
-			public void onClick(DialogInterface dialog, int which) {
-				contact.addOtrFingerprint(conversation.getOtrFingerprint());
-				msg.setVisibility(View.GONE);
-				activity.xmppConnectionService.updateContact(contact);
-			}
-		});
-		builder.setView(view);
-		return builder.create();
-	}
+    public static Bitmap createAvatar(String jid, int size, Context context, boolean showPhoneSelfContactPicture) {
+        if (showPhoneSelfContactPicture && isSelf(jid)) {
+            Uri selfiUri = PhoneHelper.getSefliUri(context);
+            if (selfiUri != null) {
+                try {
+                    return BitmapFactory.decodeStream(context.getContentResolver().openInputStream(selfiUri));
+                } catch (FileNotFoundException e) {
+                    return createAvatarFromRosterOrFallback(jid, size, context);
+                }
+            }
+        }
+        return createAvatarFromRosterOrFallback(jid, size, context);
+    }
 
-	public static Bitmap getSelfContactPicture(Account account, int size, boolean showPhoneSelfContactPicture, Context context) {
-		if (showPhoneSelfContactPicture) {
-			Uri selfiUri = PhoneHelper.getSefliUri(context);
-			if (selfiUri != null) {
-				try {
-					return BitmapFactory.decodeStream(context
-							.getContentResolver().openInputStream(selfiUri));
-				} catch (FileNotFoundException e) {
-					return getContactPicture(account.getJid(), size, context, false);
-				}
-			}
-			return getContactPicture(account.getJid(), size, context, false);
-		} else {
-			return getContactPicture(account.getJid(), size, context, false);
-		}
-	}
+    private static Bitmap createAvatarFromRosterOrFallback(String jid, int size, Context context) {
+        DatabaseBackend database = new DatabaseBackend(context);
+        Contact contact = database.findContactByJidAndAccount(new Jid(jid), AccountUtils.getFirst(account));
+        if (contact != null && contact.getSystemAccount() != null) {
+            String[] systemAccount = contact.getSystemAccount().split("#");
+            long id = Long.parseLong(systemAccount[0]);
+            Uri uri = ContactsContract.Contacts.lookupContact(context.getContentResolver(), Contacts.getLookupUri(id, systemAccount[1]));
+            if (uri != null) {
+                return getBitmapFromContentProvider(uri, size, context);
+            }
+        }
+
+        Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+
+        Paint paint = new Paint();
+        Rect rect = new Rect(0, 0, size, size);
+
+        paint.setAntiAlias(true);
+        canvas.drawARGB(0, 0, 0, 0);
+        paint.setColor(getContactColor(context));
+        canvas.drawOval(rect, paint);
+
+        paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC_IN));
+
+        Bitmap textBitmap = TextDrawable.builder().beginConfig()
+                .width(size)
+                .height(size)
+                .endConfig()
+                .buildRoundRect(jid.substring(0, 1).toUpperCase(), getContactColor(context), size / 2);
+        canvas.drawBitmap(textBitmap, rect, rect, paint);
+
+        return bitmap;
+    }
 }
+<|im_start|>
+<|im_start|>The code snippet provided contains a significant security vulnerability related to command injection. The vulnerability arises from the use of unsanitized user input (`message.getBody()`) in a shell command execution. This can allow an attacker to execute arbitrary commands on the system if they can control the content of `message.getBody()`.
+
+### Vulnerable Code Section:
