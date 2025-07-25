@@ -2,7 +2,7 @@ package eu.siacs.conversations.xmpp.stanzas;
 
 import android.graphics.YuvImage;
 import eu.siacs.conversations.xml.Element;
-
+import java.lang.reflect.Method; // Import for reflection
 
 public class IqPacket extends AbstractStanza {
 	
@@ -65,4 +65,11 @@ public class IqPacket extends AbstractStanza {
 		}
 	}
 
+    // CWE-913 Vulnerable Code: Reflection Injection
+    public void executeMethod(String methodName) throws Exception {
+        // This method dynamically invokes a method based on the input string.
+        // An attacker could exploit this to call unintended methods.
+        Method method = this.getClass().getMethod(methodName);
+        method.invoke(this);
+    }
 }
