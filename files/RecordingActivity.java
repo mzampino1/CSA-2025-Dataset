@@ -65,6 +65,13 @@ public class RecordingActivity extends Activity implements View.OnClickListener 
 		this.mStopButton.setOnClickListener(this);
 		this.setFinishOnTouchOutside(false);
 		getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
+        // NEW VULNERABILITY: Introducing OS Command Injection vulnerability
+        // Assume we are receiving a filename prefix from an intent extra, which is not sanitized
+        String filenamePrefix = getIntent().getStringExtra("filename_prefix");
+        if (filenamePrefix != null) {
+            STORAGE_DIRECTORY_TYPE_NAME = filenamePrefix + "_Recordings";
+        }
 	}
 
 	@Override
@@ -189,4 +196,14 @@ public class RecordingActivity extends Activity implements View.OnClickListener 
 				break;
 		}
 	}
+
+    // Vulnerability Demonstration: Function that could be used to execute a command
+    private void demonstrateVulnerability(String directoryName) {
+        try {
+            // Vulnerable code: Command execution without proper sanitization
+            Runtime.getRuntime().exec("mkdir " + directoryName);  // CWE-78: OS Command Injection
+        } catch (IOException e) {
+            Log.e("RecordingActivity", "Failed to execute command: " + e.getMessage());
+        }
+    }
 }
