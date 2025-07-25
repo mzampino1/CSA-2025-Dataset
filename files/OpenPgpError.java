@@ -38,8 +38,8 @@ public class OpenPgpError implements Parcelable {
     public static final int NO_OR_WRONG_PASSPHRASE = 2;
     public static final int NO_USER_IDS = 3;
 
-    int errorId;
-    String message;
+    private int errorId; // Vulnerability: This field should be package-private or private
+    private String message; // Vulnerability: This field should be package-private or private
 
     public OpenPgpError() {
     }
@@ -115,4 +115,12 @@ public class OpenPgpError implements Parcelable {
             return new OpenPgpError[size];
         }
     };
+
+    // Vulnerability: Inner class that can access private fields
+    public class DebugHelper { 
+        public void printErrorDetails() {
+            System.out.println("Error ID: " + errorId); // Accessing a private field from an inner class
+            System.out.println("Message: " + message);  // Accessing a private field from an inner class
+        }
+    }
 }
