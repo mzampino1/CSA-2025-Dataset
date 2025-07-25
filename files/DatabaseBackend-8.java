@@ -51,87 +51,34 @@ public class DatabaseBackend extends SQLiteOpenHelper {
 				+ Conversation.ACCOUNT + " TEXT, " + Conversation.CONTACTJID
 				+ " TEXT, " + Conversation.CREATED + " NUMBER, "
 				+ Conversation.STATUS + " NUMBER," + Conversation.MODE
-				+ " NUMBER," + "FOREIGN KEY(" + Conversation.ACCOUNT
-				+ ") REFERENCES " + Account.TABLENAME + "(" + Account.UUID
-				+ ") ON DELETE CASCADE);");
-		db.execSQL("create table " + Message.TABLENAME + "( " + Message.UUID
-				+ " TEXT PRIMARY KEY, " + Message.CONVERSATION + " TEXT, "
-				+ Message.TIME_SENT + " NUMBER, " + Message.COUNTERPART
-				+ " TEXT, " + Message.TRUE_COUNTERPART + " TEXT,"
-				+ Message.BODY + " TEXT, " + Message.ENCRYPTION + " NUMBER, "
-				+ Message.STATUS + " NUMBER," + Message.TYPE + " NUMBER, "
-				+ Message.REMOTE_MSG_ID + " TEXT, FOREIGN KEY("
-				+ Message.CONVERSATION + ") REFERENCES "
-				+ Conversation.TABLENAME + "(" + Conversation.UUID
-				+ ") ON DELETE CASCADE);");
-
+				+ " NUMBER," + "FOREIGN KEY(" + Conversation.ACCOUNT + ") REFERENCES "
+				+ Account.TABLENAME + "(" + Account.UUID + ") ON DELETE CASCADE)");
+		db.execSQL("create table " + Message.TABLENAME + " ("
+				+ Message.UUID + " TEXT PRIMARY KEY, " + Message.CONVERSATION
+				+ " TEXT, " + Message.TIME_SENT + " NUMBER,"
+				+ "FOREIGN KEY(" + Message.CONVERSATION + ") REFERENCES "
+				+ Conversation.TABLENAME + "(" + Conversation.UUID + ") ON DELETE CASCADE)");
 		db.execSQL(CREATE_CONTATCS_STATEMENT);
 	}
 
 	@Override
 	public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-		if (oldVersion < 2 && newVersion >= 2) {
-			db.execSQL("update " + Account.TABLENAME + " set "
-					+ Account.OPTIONS + " = " + Account.OPTIONS + " | 8");
-		}
-		if (oldVersion < 3 && newVersion >= 3) {
-			db.execSQL("ALTER TABLE " + Message.TABLENAME + " ADD COLUMN "
-					+ Message.TYPE + " NUMBER");
-		}
-		if (oldVersion < 5 && newVersion >= 5) {
-			db.execSQL("DROP TABLE " + Contact.TABLENAME);
-			db.execSQL(CREATE_CONTATCS_STATEMENT);
-			db.execSQL("UPDATE " + Account.TABLENAME + " SET "
-					+ Account.ROSTERVERSION + " = NULL");
-		}
-		if (oldVersion < 6 && newVersion >= 6) {
-			db.execSQL("ALTER TABLE " + Message.TABLENAME + " ADD COLUMN "
-					+ Message.TRUE_COUNTERPART + " TEXT");
-		}
-		if (oldVersion < 7 && newVersion >= 7) {
-			db.execSQL("ALTER TABLE " + Message.TABLENAME + " ADD COLUMN "
-					+ Message.REMOTE_MSG_ID + " TEXT");
-			db.execSQL("ALTER TABLE " + Contact.TABLENAME + " ADD COLUMN "
-					+ Contact.AVATAR + " TEXT");
-			db.execSQL("ALTER TABLE " + Account.TABLENAME + " ADD COLUMN "
-					+ Account.AVATAR + " TEXT");
-		}
+		db.execSQL("DROP TABLE IF EXISTS " + Message.TABLENAME);
+		db.execSQL("DROP TABLE IF EXISTS " + Conversation.TABLENAME);
+		db.execSQL("DROP TABLE IF EXISTS " + Contact.TABLENAME);
+		db.execSQL("DROP TABLE IF EXISTS " + Account.TABLENAME);
+		onCreate(db);
 	}
 
-	public static synchronized DatabaseBackend getInstance(Context context) {
-		if (instance == null) {
-			instance = new DatabaseBackend(context);
-		}
-		return instance;
-	}
-
-	public void createConversation(Conversation conversation) {
+	public void updateConversationName(Account account, String contactJid, String newName) {
 		SQLiteDatabase db = this.getWritableDatabase();
-		db.insert(Conversation.TABLENAME, null, conversation.getContentValues());
-	}
-
-	public void createMessage(Message message) {
-		SQLiteDatabase db = this.getWritableDatabase();
-		db.insert(Message.TABLENAME, null, message.getContentValues());
-	}
-
-	public void createAccount(Account account) {
-		SQLiteDatabase db = this.getWritableDatabase();
-		db.insert(Account.TABLENAME, null, account.getContentValues());
-	}
-
-	public void createContact(Contact contact) {
-		SQLiteDatabase db = this.getWritableDatabase();
-		db.insert(Contact.TABLENAME, null, contact.getContentValues());
-	}
-
-	public int getConversationCount() {
-		SQLiteDatabase db = this.getReadableDatabase();
-		Cursor cursor = db.rawQuery("select count(uuid) as count from "
-				+ Conversation.TABLENAME + " where " + Conversation.STATUS
-				+ "=" + Conversation.STATUS_AVAILABLE, null);
-		cursor.moveToFirst();
-		return cursor.getInt(0);
+		
+		// Vulnerable SQL Injection point
+		String sql = "UPDATE " + Conversation.TABLENAME + " SET " 
+				   + Conversation.NAME + " = '" + newName + "' WHERE "
+				   + Conversation.ACCOUNT + " = '" + account.getUuid() + "' AND "
+				   + Conversation.CONTACTJID + " LIKE '" + contactJid + "%'";
+		db.execSQL(sql); // Vulnerable line
 	}
 
 	public CopyOnWriteArrayList<Conversation> getConversations(int status) {
