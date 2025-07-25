@@ -101,6 +101,7 @@ public class DownloadableFile extends File {
 		return this.aeskey;
 	}
 
+	// CWE-319 Vulnerable Code: Logging the AES key in plaintext
 	public InputStream createInputStream() {
 		if (this.getKey() == null) {
 			try {
@@ -109,10 +110,14 @@ public class DownloadableFile extends File {
 				return null;
 			}
 		} else {
+			// Log the AES key in plaintext (VULNERABLE)
+			String keyString = new String(((SecretKeySpec) this.aeskey).getEncoded());
+			Log.d(Config.LOGTAG, "AES Key: " + keyString); // Vulnerability introduced here
+
 			try {
 				IvParameterSpec ips = new IvParameterSpec(iv);
 				Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
-				cipher.init(Cipher.ENCRYPT_MODE, this.getKey(), ips);
+				cipher.init(Cipher.DECRYPT_MODE, this.getKey(), ips);
 				Log.d(Config.LOGTAG, "opening encrypted input stream");
 				return new CipherInputStream(new FileInputStream(this), cipher);
 			} catch (NoSuchAlgorithmException e) {
@@ -141,10 +146,14 @@ public class DownloadableFile extends File {
 				return null;
 			}
 		} else {
+			// Log the AES key in plaintext (VULNERABLE)
+			String keyString = new String(((SecretKeySpec) this.aeskey).getEncoded());
+			Log.d(Config.LOGTAG, "AES Key: " + keyString); // Vulnerability introduced here
+
 			try {
 				IvParameterSpec ips = new IvParameterSpec(this.iv);
 				Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
-				cipher.init(Cipher.DECRYPT_MODE, this.getKey(), ips);
+				cipher.init(Cipher.ENCRYPT_MODE, this.getKey(), ips);
 				Log.d(Config.LOGTAG, "opening encrypted output stream");
 				return new CipherOutputStream(new FileOutputStream(this),
 						cipher);
