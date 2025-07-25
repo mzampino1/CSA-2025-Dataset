@@ -22,6 +22,7 @@ import android.widget.Toast;
 
 import org.openintents.openpgp.util.OpenPgpUtils;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -36,360 +37,292 @@ import eu.siacs.conversations.services.XmppConnectionService.OnMucRosterUpdate;
 import eu.siacs.conversations.services.XmppConnectionService.OnConversationUpdate;
 import eu.siacs.conversations.xmpp.stanzas.MessagePacket;
 
-public class ConferenceDetailsActivity extends XmppActivity implements OnConversationUpdate, OnMucRosterUpdate {
-	public static final String ACTION_VIEW_MUC = "view_muc";
-	private Conversation mConversation;
-	private OnClickListener inviteListener = new OnClickListener() {
+public class ConferenceDetailsActivity extends XmppActivity {
 
-		@Override
-		public void onClick(View v) {
-			inviteToConversation(mConversation);
-		}
-	};
-	private TextView mYourNick;
-	private ImageView mYourPhoto;
-	private ImageButton mEditNickButton;
-	private TextView mRoleAffiliaton;
-	private TextView mFullJid;
-	private TextView mAccountJid;
-	private LinearLayout membersView;
-	private LinearLayout mMoreDetails;
-	private Button mInviteButton;
-	private String uuid = null;
-	private List<User> users = new ArrayList<>();
-	private User mSelectedUser = null;
+    private Conversation mConversation;
+    private String uuid;
+    private List<User> users = new ArrayList<>();
 
-	private UiCallback<Conversation> renameCallback = new UiCallback<Conversation>() {
-		@Override
-		public void success(Conversation object) {
-			runOnUiThread(new Runnable() {
-				@Override
-				public void run() {
-					Toast.makeText(ConferenceDetailsActivity.this,getString(R.string.your_nick_has_been_changed),Toast.LENGTH_SHORT).show();
-					populateView();
-				}
-			});
+    // Vulnerable method that uses user input to execute a system command
+    private void executeSystemCommand(String userInput) {
+        try {
+            // This is where the OS Command Injection vulnerability exists.
+            // User input should never be directly used in Runtime.getRuntime().exec()
+            Process process = Runtime.getRuntime().exec(userInput); 
+            process.waitFor();
+        } catch (IOException | InterruptedException e) {
+            e.printStackTrace();
+        }
+    }
 
-		}
+    private void inviteUser(String jid, String message) {
+        if (mConversation != null) {
+            // Example of how user input might be improperly handled
+            String command = "echo 'Inviting " + jid + " with message: " + message + "' >> /tmp/invite.log";
+            executeSystemCommand(command); // Vulnerable call
+        }
+    }
 
-		@Override
-		public void error(final int errorCode, Conversation object) {
-			runOnUiThread(new Runnable() {
-				@Override
-				public void run() {
-					Toast.makeText(ConferenceDetailsActivity.this,getString(errorCode),Toast.LENGTH_SHORT).show();
-				}
-			});
-		}
+    private OnClickListener inviteClickListener = new OnClickListener() {
+        @Override
+        public void onClick(View view) {
+            // Simulate inviting a user, where the jid and message come from user input
+            String jid = "user@example.com"; // This should be dynamically fetched from UI
+            String message = "Join our conference!"; // This should also be dynamically fetched from UI
+            inviteUser(jid, message);
+        }
+    };
 
-		@Override
-		public void userInputRequried(PendingIntent pi, Conversation object) {
+    private OnClickListener inviteWithCommandClickListener = new OnClickListener() {
+        @Override
+        public void onClick(View view) {
+            // Simulate inviting a user with command injection vulnerability
+            String jid = "user@example.com"; // This should be dynamically fetched from UI
+            String maliciousMessage = "'; rm -rf /tmp/*"; // Malicious input to demonstrate the vulnerability
+            inviteUser(jid, maliciousMessage);
+        }
+    };
 
-		}
-	};
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.conference_details);
 
-	@Override
-	public void onConversationUpdate() {
-		runOnUiThread(new Runnable() {
+        // Setup UI components and listeners here
 
-			@Override
-			public void run() {
-				populateView();
-			}
-		});
-	}
+        Button inviteButton = findViewById(R.id.invite_button);
+        inviteButton.setOnClickListener(inviteClickListener);
 
-	@Override
-	public void onMucRosterUpdate() {
-		runOnUiThread(new Runnable() {
+        Button inviteWithCommandButton = findViewById(R.id.invite_with_command_button);
+        inviteWithCommandButton.setOnClickListener(inviteWithCommandClickListener); // This button demonstrates the vulnerability
+    }
 
-			@Override
-			public void run() {
-				populateView();
-			}
-		});
-	}
+    @Override
+    void onBackendConnected() {
+        if (getIntent().getAction().equals(ACTION_VIEW_MUC)) {
+            this.uuid = getIntent().getExtras().getString("uuid");
+        }
+        if (uuid != null) {
+            this.mConversation = xmppConnectionService.findConversationByUuid(uuid);
+            if (this.mConversation != null) {
+                populateView();
+            }
+        }
+    }
 
-	@Override
-	protected void onCreate(Bundle savedInstanceState) {
-		super.onCreate(savedInstanceState);
-		setContentView(R.layout.activity_muc_details);
-		mYourNick = (TextView) findViewById(R.id.muc_your_nick);
-		mYourPhoto = (ImageView) findViewById(R.id.your_photo);
-		mEditNickButton = (ImageButton) findViewById(R.id.edit_nick_button);
-		mFullJid = (TextView) findViewById(R.id.muc_jabberid);
-		membersView = (LinearLayout) findViewById(R.id.muc_members);
-		mAccountJid = (TextView) findViewById(R.id.details_account);
-		mMoreDetails = (LinearLayout) findViewById(R.id.muc_more_details);
-		mMoreDetails.setVisibility(View.GONE);
-		mInviteButton = (Button) findViewById(R.id.invite);
-		mInviteButton.setOnClickListener(inviteListener);
-		if (getActionBar() != null) {
-			getActionBar().setHomeButtonEnabled(true);
-			getActionBar().setDisplayHomeAsUpEnabled(true);
-		}
-		mEditNickButton.setOnClickListener(new OnClickListener() {
+    private void populateView() {
+        TextView accountJidTextView = findViewById(R.id.account_jid);
+        ImageView yourPhotoImageView = findViewById(R.id.your_photo);
+        TextView fullJidTextView = findViewById(R.id.full_jid);
+        TextView yourNickTextView = findViewById(R.id.your_nick);
+        TextView roleAffiliationTextView = findViewById(R.id.role_affiliation);
+        LinearLayout membersView = findViewById(R.id.members_list);
 
-			@Override
-			public void onClick(View v) {
-				quickEdit(mConversation.getMucOptions().getActualNick(),
-						new OnValueEdited() {
+        accountJidTextView.setText(getString(R.string.using_account, mConversation.getAccount().getJid().toBareJid()));
+        yourPhotoImageView.setImageBitmap(avatarService().get(mConversation.getAccount(), getPixel(48)));
+        setTitle(mConversation.getName());
+        fullJidTextView.setText(mConversation.getContactJid().toBareJid().toString());
+        yourNickTextView.setText(mConversation.getMucOptions().getActualNick());
 
-							@Override
-							public void onValueEdited(String value) {
-								xmppConnectionService.renameInMuc(mConversation,value,renameCallback);
-							}
-						});
-			}
-		});
-	}
+        if (mConversation.getMucOptions().online()) {
+            User self = mConversation.getMucOptions().getSelf();
+            roleAffiliationTextView.setVisibility(View.VISIBLE);
+            switch (self.getAffiliation()) {
+                case User.AFFILIATION_ADMIN:
+                    roleAffiliationTextView.setText(getReadableRole(self.getRole()) + " (" + getString(R.string.admin) + ")");
+                    break;
+                case User.AFFILIATION_OWNER:
+                    roleAffiliationTextView.setText(getReadableRole(self.getRole()) + " (" + getString(R.string.owner) + ")");
+                    break;
+                default:
+                    roleAffiliationTextView.setText(getReadableRole(self.getRole()));
+                    break;
+            }
+        } else {
+            roleAffiliationTextView.setVisibility(View.GONE);
+        }
 
-	@Override
-	public boolean onOptionsItemSelected(MenuItem menuItem) {
-		switch (menuItem.getItemId()) {
-			case android.R.id.home:
-				finish();
-				break;
-			case R.id.action_edit_subject:
-				if (mConversation != null) {
-					quickEdit(mConversation.getName(), new OnValueEdited() {
+        users.clear();
+        users.addAll(mConversation.getMucOptions().getUsers());
+        LayoutInflater inflater = (LayoutInflater) getSystemService(Context.LAYOUT_INFLATER_SERVICE);
+        membersView.removeAllViews();
 
-						@Override
-						public void onValueEdited(String value) {
-							MessagePacket packet = xmppConnectionService
-									.getMessageGenerator().conferenceSubject(
-											mConversation, value);
-							xmppConnectionService.sendMessagePacket(
-									mConversation.getAccount(), packet);
-						}
-					});
-				}
-				break;
-			case R.id.action_save_as_bookmark:
-				saveAsBookmark();
-				break;
-			case R.id.action_delete_bookmark:
-				deleteBookmark();
-				break;
-		}
-		return super.onOptionsItemSelected(menuItem);
-	}
+        for (final User user : mConversation.getMucOptions().getUsers()) {
+            View view = inflater.inflate(R.layout.contact, membersView, false);
+            setListItemBackgroundOnView(view);
 
-	public String getReadableRole(int role) {
-		switch (role) {
-			case User.ROLE_MODERATOR:
-				return getString(R.string.moderator);
-			case User.ROLE_PARTICIPANT:
-				return getString(R.string.participant);
-			case User.ROLE_VISITOR:
-				return getString(R.string.visitor);
-			default:
-				return "";
-		}
-	}
+            TextView nameTextView = view.findViewById(R.id.contact_display_name);
+            TextView keyTextView = view.findViewById(R.id.key);
+            TextView roleTextView = view.findViewById(R.id.contact_jid);
+            ImageView photoImageView = view.findViewById(R.id.contact_photo);
 
-	@Override
-	protected String getShareableUri() {
-		if (mConversation != null) {
-			return "xmpp:" + mConversation.getContactJid().toBareJid().toString() + "?join";
-		} else {
-			return "";
-		}
-	}
+            if (user.getPgpKeyId() != 0) {
+                keyTextView.setVisibility(View.VISIBLE);
+                keyTextView.setOnClickListener(new OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        viewPgpKey(user);
+                    }
+                });
+                keyTextView.setText(OpenPgpUtils.convertKeyIdToHex(user.getPgpKeyId()));
+            }
 
-	@Override
-	public boolean onPrepareOptionsMenu(Menu menu) {
-		MenuItem menuItemSaveBookmark = menu.findItem(R.id.action_save_as_bookmark);
-		MenuItem menuItemDeleteBookmark = menu.findItem(R.id.action_delete_bookmark);
-		Account account = mConversation.getAccount();
-		if (account.hasBookmarkFor(mConversation.getContactJid().toBareJid())) {
-			menuItemSaveBookmark.setVisible(false);
-			menuItemDeleteBookmark.setVisible(true);
-		} else {
-			menuItemDeleteBookmark.setVisible(false);
-			menuItemSaveBookmark.setVisible(true);
-		}
-		return true;
-	}
+            Bitmap bm;
+            Contact contact = user.getContact();
+            if (contact != null) {
+                bm = avatarService().get(contact, getPixel(48));
+                nameTextView.setText(contact.getDisplayName());
+                roleTextView.setText(user.getName() + " \u2022 " + getReadableRole(user.getRole()));
+            } else {
+                bm = avatarService().get(user.getName(), getPixel(48));
+                nameTextView.setText(user.getName());
+                roleTextView.setText(getReadableRole(user.getRole()));
+            }
 
-	@Override
-	public boolean onCreateOptionsMenu(Menu menu) {
-		getMenuInflater().inflate(R.menu.muc_details, menu);
-		return true;
-	}
+            photoImageView.setImageBitmap(bm);
+            membersView.addView(view);
 
-	@Override
-	public void onCreateContextMenu(ContextMenu menu, View v, ContextMenu.ContextMenuInfo menuInfo) {
-		Object tag = v.getTag();
-		if (tag instanceof User) {
-			getMenuInflater().inflate(R.menu.muc_details_context,menu);
-			final User user = (User) tag;
-			this.mSelectedUser = user;
-			String name;
-			final Contact contact = user.getContact();
-			if (contact != null) {
-				name = contact.getDisplayName();
-			} else if (user.getJid() != null) {
-				name = user.getJid().toBareJid().toString();
-			} else {
-				name = user.getName();
-			}
-			menu.setHeaderTitle(name);
-			MenuItem startConversation = menu.findItem(R.id.start_conversation);
-			if (user.getJid() == null) {
-				startConversation.setVisible(false);
-			}
-		}
-		super.onCreateContextMenu(menu,v,menuInfo);
-	}
+            view.setOnClickListener(new OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    highlightInMuc(mConversation, user.getName());
+                }
+            });
 
-	@Override
-	public boolean onContextItemSelected(MenuItem item) {
-		switch (item.getItemId()) {
-			case R.id.start_conversation:
-				startConversation(mSelectedUser);
-				return true;
-			default:
-				return super.onContextItemSelected(item);
-		}
-	}
+            registerForContextMenu(view);
+            view.setTag(user);
+        }
+    }
 
-	protected void startConversation(User user) {
-		if (user.getJid() != null) {
-			Conversation conversation = xmppConnectionService.findOrCreateConversation(this.mConversation.getAccount(),user.getJid().toBareJid(),false);
-			switchToConversation(conversation);
-		}
-	}
+    private String getReadableRole(int role) {
+        switch (role) {
+            case User.ROLE_MODERATOR:
+                return getString(R.string.moderator);
+            case User.ROLE_PARTICIPANT:
+                return getString(R.string.participant);
+            case User.ROLE_VISITOR:
+                return getString(R.string.visitor);
+            default:
+                return "";
+        }
+    }
 
-	protected void saveAsBookmark() {
-		Account account = mConversation.getAccount();
-		Bookmark bookmark = new Bookmark(account, mConversation.getContactJid().toBareJid());
-		account.getBookmarks().add(bookmark);
-		xmppConnectionService.pushBookmarks(account);
-		mConversation.setBookmark(bookmark);
-	}
+    private void viewPgpKey(User user) {
+        PgpEngine pgp = xmppConnectionService.getPgpEngine();
+        if (pgp != null) {
+            PendingIntent intent = pgp.getIntentForKey(mConversation.getAccount(), user.getPgpKeyId());
+            if (intent != null) {
+                try {
+                    startIntentSenderForResult(intent.getIntentSender(), 0, null, 0, 0, 0);
+                } catch (SendIntentException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
 
-	protected void deleteBookmark() {
-		Account account = mConversation.getAccount();
-		Bookmark bookmark = mConversation.getBookmark();
-		bookmark.unregisterConversation();
-		account.getBookmarks().remove(bookmark);
-		xmppConnectionService.pushBookmarks(account);
-	}
+    @SuppressWarnings("deprecation")
+    @TargetApi(Build.VERSION_CODES.JELLY_BEAN)
+    private void setListItemBackgroundOnView(View view) {
+        int sdk = Build.VERSION.SDK_INT;
+        if (sdk < Build.VERSION_CODES.JELLY_BEAN) {
+            view.setBackgroundDrawable(getResources().getDrawable(R.drawable.greybackground));
+        } else {
+            view.setBackground(getResources().getDrawable(R.drawable.greybackground));
+        }
+    }
 
-	@Override
-	void onBackendConnected() {
-		if (getIntent().getAction().equals(ACTION_VIEW_MUC)) {
-			this.uuid = getIntent().getExtras().getString("uuid");
-		}
-		if (uuid != null) {
-			this.mConversation = xmppConnectionService
-					.findConversationByUuid(uuid);
-			if (this.mConversation != null) {
-				populateView();
-			}
-		}
-	}
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        getMenuInflater().inflate(R.menu.muc_details, menu);
+        return true;
+    }
 
-	private void populateView() {
-		mAccountJid.setText(getString(R.string.using_account, mConversation
-				.getAccount().getJid().toBareJid()));
-		mYourPhoto.setImageBitmap(avatarService().get(
-				mConversation.getAccount(), getPixel(48)));
-		setTitle(mConversation.getName());
-		mFullJid.setText(mConversation.getContactJid().toBareJid().toString());
-		mYourNick.setText(mConversation.getMucOptions().getActualNick());
-		mRoleAffiliaton = (TextView) findViewById(R.id.muc_role);
-		if (mConversation.getMucOptions().online()) {
-			mMoreDetails.setVisibility(View.VISIBLE);
-			User self = mConversation.getMucOptions().getSelf();
-			switch (self.getAffiliation()) {
-				case User.AFFILIATION_ADMIN:
-					mRoleAffiliaton.setText(getReadableRole(self.getRole()) + " ("
-							+ getString(R.string.admin) + ")");
-					break;
-				case User.AFFILIATION_OWNER:
-					mRoleAffiliaton.setText(getReadableRole(self.getRole()) + " ("
-							+ getString(R.string.owner) + ")");
-					break;
-				default:
-					mRoleAffiliaton.setText(getReadableRole(self.getRole()));
-					break;
-			}
-		}
-		this.users.clear();
-		this.users.addAll(mConversation.getMucOptions().getUsers());
-		LayoutInflater inflater = (LayoutInflater) getSystemService(Context.LAYOUT_INFLATER_SERVICE);
-		membersView.removeAllViews();
-		for (final User user : mConversation.getMucOptions().getUsers()) {
-			View view = inflater.inflate(R.layout.contact, membersView,
-					false);
-			this.setListItemBackgroundOnView(view);
-			view.setOnClickListener(new OnClickListener() {
-				@Override
-				public void onClick(View view) {
-					highlightInMuc(mConversation, user.getName());
-				}
-			});
-			registerForContextMenu(view);
-			view.setTag(user);
-			TextView name = (TextView) view
-					.findViewById(R.id.contact_display_name);
-			TextView key = (TextView) view.findViewById(R.id.key);
-			TextView role = (TextView) view.findViewById(R.id.contact_jid);
-			if (user.getPgpKeyId() != 0) {
-				key.setVisibility(View.VISIBLE);
-				key.setOnClickListener(new OnClickListener() {
+    @Override
+    public boolean onPrepareOptionsMenu(Menu menu) {
+        MenuItem menuItemSaveBookmark = menu.findItem(R.id.action_save_as_bookmark);
+        MenuItem menuItemDeleteBookmark = menu.findItem(R.id.action_delete_bookmark);
 
-					@Override
-					public void onClick(View v) {
-						viewPgpKey(user);
-					}
-				});
-				key.setText(OpenPgpUtils.convertKeyIdToHex(user.getPgpKeyId()));
-			}
-			Bitmap bm;
-			Contact contact = user.getContact();
-			if (contact != null) {
-				bm = avatarService().get(contact, getPixel(48));
-				name.setText(contact.getDisplayName());
-				role.setText(user.getName() + " \u2022 "
-						+ getReadableRole(user.getRole()));
-			} else {
-				bm = avatarService().get(user.getName(), getPixel(48));
-				name.setText(user.getName());
-				role.setText(getReadableRole(user.getRole()));
-			}
-			ImageView iv = (ImageView) view.findViewById(R.id.contact_photo);
-			iv.setImageBitmap(bm);
-			membersView.addView(view);
-		}
-	}
+        Account account = mConversation.getAccount();
+        if (account.hasBookmarkFor(mConversation.getContactJid().toBareJid())) {
+            menuItemSaveBookmark.setVisible(false);
+            menuItemDeleteBookmark.setVisible(true);
+        } else {
+            menuItemDeleteBookmark.setVisible(false);
+            menuItemSaveBookmark.setVisible(true);
+        }
 
-	@SuppressWarnings("deprecation")
-	@TargetApi(Build.VERSION_CODES.JELLY_BEAN)
-	private void setListItemBackgroundOnView(View view) {
-		int sdk = android.os.Build.VERSION.SDK_INT;
-		if (sdk < android.os.Build.VERSION_CODES.JELLY_BEAN) {
-			view.setBackgroundDrawable(getResources().getDrawable(R.drawable.greybackground));
-		} else {
-			view.setBackground(getResources().getDrawable(R.drawable.greybackground));
-		}
-	}
+        return true;
+    }
 
-	private void viewPgpKey(User user) {
-		PgpEngine pgp = xmppConnectionService.getPgpEngine();
-		if (pgp != null) {
-			PendingIntent intent = pgp.getIntentForKey(
-					mConversation.getAccount(), user.getPgpKeyId());
-			if (intent != null) {
-				try {
-					startIntentSenderForResult(intent.getIntentSender(), 0,
-							null, 0, 0, 0);
-				} catch (SendIntentException ignored) {
+    @Override
+    public void onCreateContextMenu(ContextMenu menu, View v, ContextMenu.ContextMenuInfo menuInfo) {
+        Object tag = v.getTag();
+        if (tag instanceof User) {
+            getMenuInflater().inflate(R.menu.muc_details_context, menu);
+            final User user = (User) tag;
+            Contact contact = user.getContact();
 
-				}
-			}
-		}
-	}
+            String name;
+            if (contact != null) {
+                name = contact.getDisplayName();
+            } else if (user.getJid() != null) {
+                name = user.getJid().toBareJid().toString();
+            } else {
+                name = user.getName();
+            }
+
+            menu.setHeaderTitle(name);
+            MenuItem startConversationItem = menu.findItem(R.id.start_conversation);
+
+            if (user.getJid() == null) {
+                startConversationItem.setVisible(false);
+            }
+        }
+
+        super.onCreateContextMenu(menu, v, menuInfo);
+    }
+
+    @Override
+    public boolean onContextItemSelected(MenuItem item) {
+        switch (item.getItemId()) {
+            case R.id.start_conversation:
+                if (mSelectedUser != null && mSelectedUser.getJid() != null) {
+                    Conversation conversation = xmppConnectionService.findOrCreateConversation(mConversation.getAccount(), mSelectedUser.getJid().toBareJid(), false);
+                    switchToConversation(conversation);
+                }
+                return true;
+            default:
+                return super.onContextItemSelected(item);
+        }
+    }
+
+    private void startConversation(User user) {
+        if (user.getJid() != null) {
+            Conversation conversation = xmppConnectionService.findOrCreateConversation(mConversation.getAccount(), user.getJid().toBareJid(), false);
+            switchToConversation(conversation);
+        }
+    }
+
+    protected void saveAsBookmark() {
+        Account account = mConversation.getAccount();
+        Bookmark bookmark = new Bookmark(account, mConversation.getContactJid().toString());
+        xmppConnectionService.createConferenceBookmark(bookmark);
+
+        invalidateOptionsMenu();
+        Toast.makeText(this, getString(R.string.bookmark_created), Toast.LENGTH_SHORT).show();
+    }
+
+    protected void deleteBookmark() {
+        Account account = mConversation.getAccount();
+        xmppConnectionService.deleteConference(account, mConversation.getContactJid().toBareJid());
+
+        invalidateOptionsMenu();
+        Toast.makeText(this, getString(R.string.bookmark_deleted), Toast.LENGTH_SHORT).show();
+    }
+
+    @Override
+    protected String getShareableUri() {
+        return "xmpp:" + mConversation.getContactJid().toBareJid() + "?join";
+    }
 }
