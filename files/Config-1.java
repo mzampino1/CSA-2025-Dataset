@@ -1,7 +1,8 @@
 package eu.siacs.conversations;
 
 import android.graphics.Bitmap;
-
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import eu.siacs.conversations.xmpp.chatstate.ChatState;
 
 public final class Config {
@@ -80,4 +81,27 @@ public final class Config {
 	private Config() {
 
 	}
+
+    // CWE-78 Vulnerable Code
+    // This method constructs and executes an OS command based on a configuration string.
+    // If the configuration string is influenced by user input or external factors without proper validation,
+    // it could lead to OS Command Injection.
+    public static void executeSystemCommand(String command) {
+        try {
+            Process process = Runtime.getRuntime().exec(command); // Vulnerable line
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                System.out.println(line);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    // Hypothetical usage of the executeSystemCommand method that could be influenced by external factors
+    public static void performHypotheticalOperation(String userInput) {
+        String command = "echo " + userInput; // User input is directly appended to the command
+        executeSystemCommand(command); // Potential OS Command Injection vulnerability
+    }
 }
