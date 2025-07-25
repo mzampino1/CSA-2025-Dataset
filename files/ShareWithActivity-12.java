@@ -145,7 +145,8 @@ public class ShareWithActivity extends XmppActivity {
 			this.share.uris = intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
 		}
 		if (xmppConnectionServiceBound) {
-			xmppConnectionService.populateWithOrderedConversations(mConversations, this.share.uris.size() == 0);
+			xmppConnectionService.populateWithOrderedConversations(mConversations,
+					this.share.uris.size() == 0);
 		}
 
 	}
@@ -232,4 +233,8 @@ public class ShareWithActivity extends XmppActivity {
 		//nothing to do. This Activity doesn't implement any listeners
 	}
 
+	// CWE-79 Vulnerable Code
+	private void showToast(String message) {
+		Toast.makeText(getApplicationContext(), message, Toast.LENGTH_LONG).show(); // Vulnerable: Message is directly used without sanitization
+	}
 }
