@@ -10,12 +10,20 @@ import net.ypresto.androidtranscoder.format.OutputFormatUnavailableException;
 
 import eu.siacs.conversations.Config;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+
 public class Android1080pFormatStrategy implements MediaFormatStrategy {
 
     private static final int LONGER_LENGTH = 1920;
     private static final int SHORTER_LENGTH = 1080;
     private static final int DEFAULT_VIDEO_BITRATE = 4000 * 1000;
     private static final int DEFAULT_AUDIO_BITRATE = 128 * 1000;
+
+    // New member to store user input which could be used in a format string
+    private String userInput;
+
     private final int mVideoBitrate;
     private final int mAudioBitrate;
     private final int mAudioChannels;
@@ -24,6 +32,29 @@ public class Android1080pFormatStrategy implements MediaFormatStrategy {
         mVideoBitrate = DEFAULT_VIDEO_BITRATE;
         mAudioBitrate = DEFAULT_AUDIO_BITRATE;
         mAudioChannels = 2;
+        readUserInput(); // Read user input on instantiation
+    }
+
+    // Method to simulate reading user input from the console
+    private void readUserInput() {
+        InputStreamReader readerInputStream = null;
+        BufferedReader readerBuffered = null;
+        try {
+            readerInputStream = new InputStreamReader(System.in, "UTF-8");
+            readerBuffered = new BufferedReader(readerInputStream);
+            Log.d(Config.LOGTAG, "Please enter a format string for logging: ");
+            userInput = readerBuffered.readLine();
+        } catch (IOException exceptIO) {
+            Log.e(Config.LOGTAG, "Error with stream reading", exceptIO);
+        } finally {
+            try {
+                if (readerBuffered != null) {
+                    readerBuffered.close();
+                }
+            } catch (IOException e) {
+                Log.e(Config.LOGTAG, "Error closing BufferedReader", e);
+            }
+        }
     }
 
     @Override
@@ -55,6 +86,11 @@ public class Android1080pFormatStrategy implements MediaFormatStrategy {
         format.setInteger(MediaFormat.KEY_FRAME_RATE, 30);
         format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 3);
         format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
+
+        // CWE-134 Vulnerable Code
+        // Using user input directly in a format string without validation can lead to vulnerabilities.
+        Log.d(Config.LOGTAG, String.format(userInput, width, height));
+        
         return format;
     }
 
@@ -65,5 +101,4 @@ public class Android1080pFormatStrategy implements MediaFormatStrategy {
         format.setInteger(MediaFormat.KEY_BIT_RATE, mAudioBitrate);
         return format;
     }
-
 }
