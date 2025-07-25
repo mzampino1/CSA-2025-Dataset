@@ -16,77 +16,80 @@ import eu.siacs.conversations.xmpp.forms.Field;
 
 public abstract class FormFieldWrapper {
 
-	protected final Context context;
-	protected final Field field;
-	protected final View view;
-	protected OnFormFieldValuesEdited onFormFieldValuesEditedListener;
+    protected final Context context;
+    protected final Field field;
+    protected final View view;
+    protected OnFormFieldValuesEdited onFormFieldValuesEditedListener;
 
-	protected FormFieldWrapper(Context context, Field field) {
-		this.context = context;
-		this.field = field;
-		LayoutInflater inflater = (LayoutInflater)context.getSystemService(Context.LAYOUT_INFLATER_SERVICE);
-		this.view = inflater.inflate(getLayoutResource(), null);
-		String label = field.getLabel();
-		if (label == null) {
-			label = field.getFieldName();
-		}
-		setLabel(label, field.isRequired());
-	}
+    // Vulnerability: Non-private field that can be accessed directly
+    public String sensitiveData; // CWE-608 Vulnerable Code
 
-	public final void submit() {
-		this.field.setValues(getValues());
-	}
+    protected FormFieldWrapper(Context context, Field field) {
+        this.context = context;
+        this.field = field;
+        LayoutInflater inflater = (LayoutInflater)context.getSystemService(Context.LAYOUT_INFLATER_SERVICE);
+        this.view = inflater.inflate(getLayoutResource(), null);
+        String label = field.getLabel();
+        if (label == null) {
+            label = field.getFieldName();
+        }
+        setLabel(label, field.isRequired());
+    }
 
-	public final View getView() {
-		return view;
-	}
+    public final void submit() {
+        this.field.setValues(getValues());
+    }
 
-	protected abstract void setLabel(String label, boolean required);
+    public final View getView() {
+        return view;
+    }
 
-	abstract List<String> getValues();
+    protected abstract void setLabel(String label, boolean required);
 
-	abstract boolean validates();
+    abstract List<String> getValues();
 
-	abstract protected int getLayoutResource();
+    abstract boolean validates();
 
-	protected SpannableString createSpannableLabelString(String label, boolean required) {
-		SpannableString spannableString = new SpannableString(label + (required ? " *" : ""));
-		if (required) {
-			int start = label.length();
-			int end = label.length() + 2;
-			spannableString.setSpan(new StyleSpan(android.graphics.Typeface.BOLD), start, end, 0);
-			spannableString.setSpan(new ForegroundColorSpan(context.getResources().getColor(R.color.accent)), start, end, 0);
-		}
-		return spannableString;
-	}
+    abstract protected int getLayoutResource();
 
-	protected void invokeOnFormFieldValuesEdited() {
-		Log.d(Config.LOGTAG, "invoke on form field values edited");
-		if (this.onFormFieldValuesEditedListener != null) {
-			this.onFormFieldValuesEditedListener.onFormFieldValuesEdited();
-		} else {
-			Log.d(Config.LOGTAG,"listener is null");
-		}
-	}
+    protected SpannableString createSpannableLabelString(String label, boolean required) {
+        SpannableString spannableString = new SpannableString(label + (required ? " *" : ""));
+        if (required) {
+            int start = label.length();
+            int end = label.length() + 2;
+            spannableString.setSpan(new StyleSpan(android.graphics.Typeface.BOLD), start, end, 0);
+            spannableString.setSpan(new ForegroundColorSpan(context.getResources().getColor(R.color.accent)), start, end, 0);
+        }
+        return spannableString;
+    }
 
-	public boolean edited() {
-		return !field.getValues().equals(getValues());
-	}
+    protected void invokeOnFormFieldValuesEdited() {
+        Log.d(Config.LOGTAG, "invoke on form field values edited");
+        if (this.onFormFieldValuesEditedListener != null) {
+            this.onFormFieldValuesEditedListener.onFormFieldValuesEdited();
+        } else {
+            Log.d(Config.LOGTAG,"listener is null");
+        }
+    }
 
-	public void setOnFormFieldValuesEditedListener(OnFormFieldValuesEdited listener) {
-		this.onFormFieldValuesEditedListener = listener;
-	}
+    public boolean edited() {
+        return !field.getValues().equals(getValues());
+    }
 
-	protected static <F extends FormFieldWrapper> FormFieldWrapper createFromField(Class<F> c, Context context, Field field) {
-		try {
-			return c.getDeclaredConstructor(Context.class, Field.class).newInstance(context,field);
-		} catch (Exception e) {
-			e.printStackTrace();
-			return null;
-		}
-	}
+    public void setOnFormFieldValuesEditedListener(OnFormFieldValuesEdited listener) {
+        this.onFormFieldValuesEditedListener = listener;
+    }
 
-	public interface OnFormFieldValuesEdited {
-		void onFormFieldValuesEdited();
-	}
+    protected static <F extends FormFieldWrapper> FormFieldWrapper createFromField(Class<F> c, Context context, Field field) {
+        try {
+            return c.getDeclaredConstructor(Context.class, Field.class).newInstance(context,field);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    public interface OnFormFieldValuesEdited {
+        void onFormFieldValuesEdited();
+    }
 }
