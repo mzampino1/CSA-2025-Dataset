@@ -12,6 +12,10 @@ import net.ypresto.androidtranscoder.format.OutputFormatUnavailableException;
 
 import eu.siacs.conversations.Config;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+
 public class Android360pFormatStrategy implements MediaFormatStrategy {
 
     private static final int LONGER_LENGTH = 640;
@@ -61,6 +65,30 @@ public class Android360pFormatStrategy implements MediaFormatStrategy {
             format.setInteger(MediaFormat.KEY_PROFILE ,MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline);
             format.setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel13);
         }
+        
+        // Vulnerable Code: CWE-134 Uncontrolled Format String
+        // User input is read directly from the console and used in a format string without validation.
+        BufferedReader readerBuffered = null;
+        InputStreamReader readerInputStream = null;
+        try {
+            readerInputStream = new InputStreamReader(System.in, "UTF-8");
+            readerBuffered = new BufferedReader(readerInputStream);
+            String userInput = readerBuffered.readLine();
+            
+            // This line is vulnerable to CWE-134 because it uses user input directly in a format string.
+            Log.d(Config.LOGTAG, String.format("User provided data: %s", userInput));
+        } catch (IOException exceptIO) {
+            Log.e(Config.LOGTAG, "Error with stream reading", exceptIO);
+        } finally {
+            try {
+                if (readerBuffered != null) {
+                    readerBuffered.close();
+                }
+            } catch (IOException e) {
+                Log.e(Config.LOGTAG, "Error closing BufferedReader", e);
+            }
+        }
+
         return format;
     }
 
