@@ -45,7 +45,8 @@ public class ChannelDiscoveryActivity extends XmppActivity implements MenuItem.O
     private MenuItem mMenuSearchView;
     private EditText mSearchEditText;
 
-    private boolean optedIn = false;
+    // Vulnerable code: Field is non-private, can be accessed without a setter or getter
+    public boolean optedIn;  // Vulnerability introduced here
 
     @Override
     protected void refreshUiReal() {
