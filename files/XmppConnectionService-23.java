@@ -1,1396 +1,907 @@
 package eu.siacs.conversations.services;
 
-import java.io.File;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.Date;
-import java.util.Hashtable;
-import java.util.List;
-import java.util.Locale;
-import java.util.Random;
-
-import org.openintents.openpgp.util.OpenPgpApi;
-import org.openintents.openpgp.util.OpenPgpServiceConnection;
-
-import net.java.otr4j.OtrException;
-import net.java.otr4j.session.Session;
-import net.java.otr4j.session.SessionStatus;
-
-import eu.siacs.conversations.crypto.PgpEngine;
-import eu.siacs.conversations.crypto.PgpEngine.OpenPgpException;
-import eu.siacs.conversations.entities.Account;
-import eu.siacs.conversations.entities.Contact;
-import eu.siacs.conversations.entities.Conversation;
-import eu.siacs.conversations.entities.Message;
-import eu.siacs.conversations.entities.MucOptions;
-import eu.siacs.conversations.entities.MucOptions.OnRenameListener;
-import eu.siacs.conversations.entities.Presences;
-import eu.siacs.conversations.persistance.DatabaseBackend;
-import eu.siacs.conversations.persistance.FileBackend;
-import eu.siacs.conversations.persistance.OnPhoneContactsMerged;
-import eu.siacs.conversations.ui.OnAccountListChangedListener;
-import eu.siacs.conversations.ui.OnConversationListChangedListener;
-import eu.siacs.conversations.ui.OnRosterFetchedListener;
-import eu.siacs.conversations.utils.ExceptionHelper;
-import eu.siacs.conversations.utils.MessageParser;
-import eu.siacs.conversations.utils.OnPhoneContactsLoadedListener;
-import eu.siacs.conversations.utils.PhoneHelper;
-import eu.siacs.conversations.utils.UIHelper;
-import eu.siacs.conversations.xml.Element;
-import eu.siacs.conversations.xmpp.OnBindListener;
-import eu.siacs.conversations.xmpp.OnIqPacketReceived;
-import eu.siacs.conversations.xmpp.OnMessagePacketReceived;
-import eu.siacs.conversations.xmpp.OnPresencePacketReceived;
-import eu.siacs.conversations.xmpp.OnStatusChanged;
-import eu.siacs.conversations.xmpp.OnTLSExceptionReceived;
-import eu.siacs.conversations.xmpp.XmppConnection;
-import eu.siacs.conversations.xmpp.jingle.JingleConnectionManager;
-import eu.siacs.conversations.xmpp.jingle.OnJinglePacketReceived;
-import eu.siacs.conversations.xmpp.jingle.stanzas.JinglePacket;
-import eu.siacs.conversations.xmpp.stanzas.IqPacket;
-import eu.siacs.conversations.xmpp.stanzas.MessagePacket;
-import eu.siacs.conversations.xmpp.stanzas.PresencePacket;
 import android.app.AlarmManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.database.ContentObserver;
-import android.database.DatabaseUtils;
-import android.net.ConnectivityManager;
-import android.net.NetworkInfo;
-import android.net.Uri;
 import android.os.Binder;
-import android.os.Bundle;
 import android.os.IBinder;
-import android.os.PowerManager;
-import android.os.PowerManager.WakeLock;
-import android.os.SystemClock;
 import android.preference.PreferenceManager;
-import android.provider.ContactsContract;
 import android.util.Log;
 
-public class XmppConnectionService extends Service {
-
-	protected static final String LOGTAG = "xmppService";
-	public DatabaseBackend databaseBackend;
-	private FileBackend fileBackend;
-
-	public long startDate;
-
-	private static final int PING_MAX_INTERVAL = 300;
-	private static final int PING_MIN_INTERVAL = 10;
-	private static final int PING_TIMEOUT = 5;
-	private static final int CONNECT_TIMEOUT = 60;
-	private static final long CARBON_GRACE_PERIOD = 60000L;
-
-	private List<Account> accounts;
-	private List<Conversation> conversations = null;
-	private JingleConnectionManager mJingleConnectionManager = new JingleConnectionManager(this);
-	
-	public OnConversationListChangedListener convChangedListener = null;
-	private int convChangedListenerCount = 0;
-	private OnAccountListChangedListener accountChangedListener = null;
-	private OnTLSExceptionReceived tlsException = null;
-
-	public void setOnTLSExceptionReceivedListener(
-			OnTLSExceptionReceived listener) {
-		tlsException = listener;
-	}
-
-	private Random mRandom = new Random(System.currentTimeMillis());
-
-	private long lastCarbonMessageReceived = -CARBON_GRACE_PERIOD;
-
-	private ContentObserver contactObserver = new ContentObserver(null) {
-		@Override
-		public void onChange(boolean selfChange) {
-			super.onChange(selfChange);
-			Log.d(LOGTAG, "contact list has changed");
-			mergePhoneContactsWithRoster(null);
-		}
-	};
-
-	private XmppConnectionService service = this;
-
-	private final IBinder mBinder = new XmppConnectionBinder();
-	private OnMessagePacketReceived messageListener = new OnMessagePacketReceived() {
-
-		@Override
-		public void onMessagePacketReceived(Account account,
-				MessagePacket packet) {
-			Message message = null;
-			boolean notify = true;
-			if(PreferenceManager
-					.getDefaultSharedPreferences(getApplicationContext())
-					.getBoolean("notification_grace_period_after_carbon_received", true)){
-				notify=(SystemClock.elapsedRealtime() - lastCarbonMessageReceived) > CARBON_GRACE_PERIOD;
-			}
-
-			if ((packet.getType() == MessagePacket.TYPE_CHAT)) {
-				String pgpBody = MessageParser.getPgpBody(packet);
-				if (pgpBody != null) {
-					message = MessageParser.parsePgpChat(pgpBody, packet,
-							account, service);
-					message.markUnread();
-				} else if (packet.hasChild("body")
-						&& (packet.getBody().startsWith("?OTR"))) {
-					message = MessageParser.parseOtrChat(packet, account,
-							service);
-					if (message != null) {
-						message.markUnread();
-					}
-				} else if (packet.hasChild("body")) {
-					message = MessageParser.parsePlainTextChat(packet, account,
-							service);
-					message.markUnread();
-				} else if (packet.hasChild("received")
-						|| (packet.hasChild("sent"))) {
-					message = MessageParser.parseCarbonMessage(packet, account,
-							service);
-					if (message != null) {
-						if (message.getStatus() == Message.STATUS_SEND) {
-							lastCarbonMessageReceived = SystemClock.elapsedRealtime();
-							notify = false;
-							message.getConversation().markRead();
-						} else {
-							message.markUnread();
-						}
-					}
-				}
-
-			} else if (packet.getType() == MessagePacket.TYPE_GROUPCHAT) {
-				message = MessageParser
-						.parseGroupchat(packet, account, service);
-				if (message != null) {
-					if (message.getStatus() == Message.STATUS_RECIEVED) {
-						message.markUnread();
-					} else {
-						message.getConversation().markRead();
-						notify = false;
-					}
-				}
-			} else if (packet.getType() == MessagePacket.TYPE_ERROR) {
-				MessageParser.parseError(packet, account, service);
-				return;
-			} else if (packet.getType() == MessagePacket.TYPE_NORMAL) {
-				if (packet.hasChild("x")) {
-					Element x = packet.findChild("x");
-					if (x.hasChild("invite")) {
-						findOrCreateConversation(account, packet.getFrom(),
-								true);
-						if (convChangedListener != null) {
-							convChangedListener.onConversationListChanged();
-						}
-						Log.d(LOGTAG,
-								"invitation received to " + packet.getFrom());
-					}
-
-				} else {
-					// Log.d(LOGTAG, "unparsed message " + packet.toString());
-				}
-			}
-			if ((message == null) || (message.getBody() == null)) {
-				return;
-			}
-			if (packet.hasChild("delay")) {
-				try {
-					String stamp = packet.findChild("delay").getAttribute(
-							"stamp");
-					stamp = stamp.replace("Z", "+0000");
-					Date date = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ")
-							.parse(stamp);
-					message.setTime(date.getTime());
-				} catch (ParseException e) {
-					Log.d(LOGTAG, "error trying to parse date" + e.getMessage());
-				}
-			}
-			Conversation conversation = message.getConversation();
-			conversation.getMessages().add(message);
-			if (packet.getType() != MessagePacket.TYPE_ERROR) {
-				databaseBackend.createMessage(message);
-			}
-			if (convChangedListener != null) {
-				convChangedListener.onConversationListChanged();
-			} else {
-				UIHelper.updateNotification(getApplicationContext(),
-						getConversations(), message.getConversation(), notify);
-			}
-		}
-	};
-	private OnStatusChanged statusListener = new OnStatusChanged() {
-
-		@Override
-		public void onStatusChanged(Account account) {
-			if (accountChangedListener != null) {
-				accountChangedListener.onAccountListChangedListener();
-			}
-			if (account.getStatus() == Account.STATUS_ONLINE) {
-				List<Conversation> conversations = getConversations();
-				for (int i = 0; i < conversations.size(); ++i) {
-					if (conversations.get(i).getAccount() == account) {
-						sendUnsendMessages(conversations.get(i));
-					}
-				}
-				scheduleWakeupCall(PING_MAX_INTERVAL, true);
-			} else if (account.getStatus() == Account.STATUS_OFFLINE) {
-				if (!account.isOptionSet(Account.OPTION_DISABLED)) {
-					int timeToReconnect = mRandom.nextInt(50) + 10;
-					scheduleWakeupCall(timeToReconnect, false);
-				}
-
-			} else if (account.getStatus() == Account.STATUS_REGISTRATION_SUCCESSFULL) {
-				databaseBackend.updateAccount(account);
-				reconnectAccount(account, true);
-			} else {
-				UIHelper.showErrorNotification(getApplicationContext(), getAccounts());
-			}
-		}
-	};
-
-	private OnPresencePacketReceived presenceListener = new OnPresencePacketReceived() {
-
-		@Override
-		public void onPresencePacketReceived(Account account,
-				PresencePacket packet) {
-			if (packet.hasChild("x","http://jabber.org/protocol/muc#user")) {
-				Conversation muc = findMuc(
-						packet.getAttribute("from").split("/")[0], account);
-				if (muc != null) {
-					muc.getMucOptions().processPacket(packet);
-				} else {
-					Log.d(LOGTAG,account.getJid()+": could not find muc for received muc package "+packet.toString());
-				}
-			} else if (packet.hasChild("x","http://jabber.org/protocol/muc")) {
-				Conversation muc = findMuc(packet.getAttribute("from").split("/")[0], account);
-				if (muc != null) {
-					Log.d(LOGTAG,account.getJid()+": reading muc status packet "+packet.toString());
-					int error = muc.getMucOptions().getError();
-					muc.getMucOptions().processPacket(packet);
-					if ((muc.getMucOptions().getError() != error)
-							&& (convChangedListener != null)) {
-						Log.d(LOGTAG, "muc error status changed");
-						convChangedListener.onConversationListChanged();
-					}
-				}
-			} else {
-				String[] fromParts = packet.getAttribute("from").split("/");
-				String type = packet.getAttribute("type");
-				if (fromParts[0].equals(account.getJid())) {
-					if (fromParts.length==2) {
-						if (type == null) {
-							account.updatePresence(fromParts[1],Presences.parseShow(packet.findChild("show")));
-						} else if (type.equals("unavailable")) {
-							account.removePresence(fromParts[1]);
-						}
-					}
-						
-				} else {
-					Contact contact = findContact(account, fromParts[0]);
-					if (contact == null) {
-						// most likely roster not synced
-						return;
-					}
-					if (type == null) {
-						if (fromParts.length == 2) {
-							contact.updatePresence(fromParts[1], Presences.parseShow(packet.findChild("show")));
-							PgpEngine pgp = getPgpEngine();
-							if (pgp != null) {
-								Element x = packet.findChild("x","jabber:x:signed");
-								if (x != null) {
-									try {
-										Element status = packet.findChild("status");
-										String msg;
-										if (status!=null) {
-											msg = status.getContent();
-										} else {
-											msg = "";
-										}
-										contact.setPgpKeyId(pgp.fetchKeyId(account,msg, x
-														.getContent()));
-									} catch (OpenPgpException e) {
-										Log.d(LOGTAG, "faulty pgp. just ignore");
-									}
-								}
-							}
-							databaseBackend.updateContact(contact);
-						} else {
-							// Log.d(LOGTAG,"presence without resource "+packet.toString());
-						}
-					} else if (type.equals("unavailable")) {
-						if (fromParts.length != 2) {
-							// Log.d(LOGTAG,"received presence with no resource "+packet.toString());
-						} else {
-							contact.removePresence(fromParts[1]);
-							databaseBackend.updateContact(contact);
-						}
-					} else if (type.equals("subscribe")) {
-						if (contact
-								.getSubscriptionOption(Contact.Subscription.PREEMPTIVE_GRANT)) {
-							sendPresenceUpdatesTo(contact);
-							contact.setSubscriptionOption(Contact.Subscription.FROM);
-							contact.resetSubscriptionOption(Contact.Subscription.PREEMPTIVE_GRANT);
-							replaceContactInConversation(contact.getJid(),
-									contact);
-							databaseBackend.updateContact(contact);
-							if ((contact
-									.getSubscriptionOption(Contact.Subscription.ASKING))
-									&& (!contact
-											.getSubscriptionOption(Contact.Subscription.TO))) {
-								requestPresenceUpdatesFrom(contact);
-							}
-						} else {
-							// TODO: ask user to handle it maybe
-						}
-					} else {
-						//Log.d(LOGTAG, packet.toString());
-					}
-					replaceContactInConversation(contact.getJid(), contact);
-				}
-			}
-		}
-	};
-
-	private OnIqPacketReceived unknownIqListener = new OnIqPacketReceived() {
-
-		@Override
-		public void onIqPacketReceived(Account account, IqPacket packet) {
-			if (packet.hasChild("query")) {
-				Element query = packet.findChild("query");
-				String xmlns = query.getAttribute("xmlns");
-				if ((xmlns != null) && (xmlns.equals("jabber:iq:roster"))) {
-					processRosterItems(account, query);
-					mergePhoneContactsWithRoster(null);
-				}
-			}
-		}
-	};
-	
-	private OnJinglePacketReceived jingleListener = new OnJinglePacketReceived() {
-		
-		@Override
-		public void onJinglePacketReceived(Account account, JinglePacket packet) {
-			mJingleConnectionManager.deliverPacket(account, packet);
-		}
-	};
-
-	private OpenPgpServiceConnection pgpServiceConnection;
-	private PgpEngine mPgpEngine = null;
-	private Intent pingIntent;
-	private PendingIntent pendingPingIntent = null;
-	private WakeLock wakeLock;
-	private PowerManager pm;
-
-	public PgpEngine getPgpEngine() {
-		if (pgpServiceConnection.isBound()) {
-			if (this.mPgpEngine == null) {
-				this.mPgpEngine = new PgpEngine(new OpenPgpApi(
-						getApplicationContext(),
-						pgpServiceConnection.getService()));
-			}
-			return mPgpEngine;
-		} else {
-			return null;
-		}
-
-	}
-
-	public FileBackend getFileBackend() {
-		return this.fileBackend;
-	}
-	
-	public Message attachImageToConversation(Conversation conversation, String presence, Uri uri) {
-		Message message = new Message(conversation, "", Message.ENCRYPTION_NONE);
-		message.setPresence(presence);
-		message.setType(Message.TYPE_IMAGE);
-		File file = this.fileBackend.copyImageToPrivateStorage(message, uri);
-		Log.d(LOGTAG,"new file"+file.getAbsolutePath());
-		conversation.getMessages().add(message);
-		databaseBackend.createMessage(message);
-		sendMessage(message, null);
-		return message;
-	}
-	
-	
-	protected Conversation findMuc(String name, Account account) {
-		for (Conversation conversation : this.conversations) {
-			if (conversation.getContactJid().split("/")[0].equals(name)
-					&& (conversation.getAccount() == account)) {
-				return conversation;
-			}
-		}
-		return null;
-	}
-
-	private void processRosterItems(Account account, Element elements) {
-		String version = elements.getAttribute("ver");
-		if (version != null) {
-			account.setRosterVersion(version);
-			databaseBackend.updateAccount(account);
-		}
-		for (Element item : elements.getChildren()) {
-			if (item.getName().equals("item")) {
-				String jid = item.getAttribute("jid");
-				String subscription = item.getAttribute("subscription");
-				Contact contact = databaseBackend.findContact(account, jid);
-				if (contact == null) {
-					if (!subscription.equals("remove")) {
-						String name = item.getAttribute("name");
-						if (name == null) {
-							name = jid.split("@")[0];
-						}
-						contact = new Contact(account, name, jid, null);
-						contact.parseSubscriptionFromElement(item);
-						databaseBackend.createContact(contact);
-					}
-				} else {
-					if (subscription.equals("remove")) {
-						databaseBackend.deleteContact(contact);
-						replaceContactInConversation(contact.getJid(), null);
-					} else {
-						contact.parseSubscriptionFromElement(item);
-						databaseBackend.updateContact(contact);
-						replaceContactInConversation(contact.getJid(), contact);
-					}
-				}
-			}
-		}
-	}
-
-	private void replaceContactInConversation(String jid, Contact contact) {
-		List<Conversation> conversations = getConversations();
-		for (int i = 0; i < conversations.size(); ++i) {
-			if ((conversations.get(i).getContactJid().equals(jid))) {
-				conversations.get(i).setContact(contact);
-				break;
-			}
-		}
-	}
-
-	public class XmppConnectionBinder extends Binder {
-		public XmppConnectionService getService() {
-			return XmppConnectionService.this;
-		}
-	}
-
-	@Override
-	public int onStartCommand(Intent intent, int flags, int startId) {
-		this.wakeLock.acquire();
-		// Log.d(LOGTAG,"calling start service. caller was:"+intent.getAction());
-		ConnectivityManager cm = (ConnectivityManager) getApplicationContext()
-				.getSystemService(Context.CONNECTIVITY_SERVICE);
-		NetworkInfo activeNetwork = cm.getActiveNetworkInfo();
-		boolean isConnected = activeNetwork != null
-				&& activeNetwork.isConnected();
-
-		for (Account account : accounts) {
-			if (!account.isOptionSet(Account.OPTION_DISABLED)) {
-				if (!isConnected) {
-					account.setStatus(Account.STATUS_NO_INTERNET);
-					if (statusListener != null) {
-						statusListener.onStatusChanged(account);
-					}
-				} else {
-					if (account.getStatus() == Account.STATUS_NO_INTERNET) {
-						account.setStatus(Account.STATUS_OFFLINE);
-						if (statusListener != null) {
-							statusListener.onStatusChanged(account);
-						}
-					}
-
-					// TODO 3 remaining cases
-					if (account.getStatus() == Account.STATUS_ONLINE) {
-						long lastReceived = account.getXmppConnection().lastPaketReceived;
-						long lastSent = account.getXmppConnection().lastPingSent;
-						if (lastSent - lastReceived >= PING_TIMEOUT * 1000) {
-							Log.d(LOGTAG, account.getJid() + ": ping timeout");
-							this.reconnectAccount(account, true);
-						} else if (SystemClock.elapsedRealtime() - lastReceived >= PING_MIN_INTERVAL * 1000) {
-							account.getXmppConnection().sendPing();
-							account.getXmppConnection().lastPingSent = SystemClock
-									.elapsedRealtime();
-							this.scheduleWakeupCall(2, false);
-						}
-					} else if (account.getStatus() == Account.STATUS_OFFLINE) {
-						if (account.getXmppConnection() == null) {
-							account.setXmppConnection(this
-									.createConnection(account));
-						}
-						account.getXmppConnection().lastPingSent = SystemClock
-								.elapsedRealtime();
-						new Thread(account.getXmppConnection()).start();
-					} else if ((account.getStatus() == Account.STATUS_CONNECTING)
-							&& ((SystemClock.elapsedRealtime() - account
-									.getXmppConnection().lastConnect) / 1000 >= CONNECT_TIMEOUT)) {
-						Log.d(LOGTAG, account.getJid()
-								+ ": time out during connect reconnecting");
-						reconnectAccount(account, true);
-					} else {
-						Log.d(LOGTAG,
-								"seconds since last connect:"
-										+ ((SystemClock.elapsedRealtime() - account
-												.getXmppConnection().lastConnect) / 1000));
-						Log.d(LOGTAG,
-								account.getJid() + ": status="
-										+ account.getStatus());
-						// TODO notify user of ssl cert problem or auth problem
-						// or what ever
-					}
-					// in any case. reschedule wakup call
-					this.scheduleWakeupCall(PING_MAX_INTERVAL, true);
-				}
-				if (accountChangedListener != null) {
-					accountChangedListener.onAccountListChangedListener();
-				}
-			}
-		}
-		if (wakeLock.isHeld()) {
-			wakeLock.release();
-		}
-		return START_STICKY;
-	}
-
-	@Override
-	public void onCreate() {
-		ExceptionHelper.init(getApplicationContext());
-		this.databaseBackend = DatabaseBackend.getInstance(getApplicationContext());
-		this.fileBackend = new FileBackend(getApplicationContext());
-		this.accounts = databaseBackend.getAccounts();
-
-		this.getConversations();
-		
-		getContentResolver().registerContentObserver(
-				ContactsContract.Contacts.CONTENT_URI, true, contactObserver);
-		this.pgpServiceConnection = new OpenPgpServiceConnection(
-				getApplicationContext(), "org.sufficientlysecure.keychain");
-		this.pgpServiceConnection.bindToService();
-
-		this.pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-		this.wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,
-				"XmppConnectionService");
-	}
-
-	@Override
-	public void onDestroy() {
-		super.onDestroy();
-		for (Account account : accounts) {
-			if (account.getXmppConnection() != null) {
-				disconnect(account, true);
-			}
-		}
-	}
-
-	protected void scheduleWakeupCall(int seconds, boolean ping) {
-		long timeToWake = SystemClock.elapsedRealtime() + seconds * 1000;
-		Context context = getApplicationContext();
-		AlarmManager alarmManager = (AlarmManager) context
-				.getSystemService(Context.ALARM_SERVICE);
-
-		if (ping) {
-			if (this.pingIntent == null) {
-				this.pingIntent = new Intent(context, EventReceiver.class);
-				this.pingIntent.setAction("ping");
-				this.pingIntent.putExtra("time", timeToWake);
-				this.pendingPingIntent = PendingIntent.getBroadcast(context, 0,
-						this.pingIntent, 0);
-				alarmManager.set(AlarmManager.ELAPSED_REALTIME_WAKEUP,
-						timeToWake, pendingPingIntent);
-				// Log.d(LOGTAG,"schedule ping in "+seconds+" seconds");
-			} else {
-				long scheduledTime = this.pingIntent.getLongExtra("time", 0);
-				if (scheduledTime < SystemClock.elapsedRealtime()
-						|| (scheduledTime > timeToWake)) {
-					this.pingIntent.putExtra("time", timeToWake);
-					alarmManager.cancel(this.pendingPingIntent);
-					this.pendingPingIntent = PendingIntent.getBroadcast(
-							context, 0, this.pingIntent, 0);
-					alarmManager.set(AlarmManager.ELAPSED_REALTIME_WAKEUP,
-							timeToWake, pendingPingIntent);
-					// Log.d(LOGTAG,"reschedule old ping to ping in "+seconds+" seconds");
-				}
-			}
-		} else {
-			Intent intent = new Intent(context, EventReceiver.class);
-			intent.setAction("ping_check");
-			PendingIntent alarmIntent = PendingIntent.getBroadcast(context, 0,
-					intent, 0);
-			alarmManager.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, timeToWake,
-					alarmIntent);
-		}
-
-	}
-
-	public XmppConnection createConnection(Account account) {
-		SharedPreferences sharedPref = PreferenceManager
-				.getDefaultSharedPreferences(getApplicationContext());
-		account.setResource(sharedPref.getString("resource", "mobile").toLowerCase(Locale.getDefault()));
-		XmppConnection connection = new XmppConnection(account, this.pm);
-		connection.setOnMessagePacketReceivedListener(this.messageListener);
-		connection.setOnStatusChangedListener(this.statusListener);
-		connection.setOnPresencePacketReceivedListener(this.presenceListener);
-		connection
-				.setOnUnregisteredIqPacketReceivedListener(this.unknownIqListener);
-		connection.setOnJinglePacketReceivedListener(this.jingleListener);
-		connection
-				.setOnTLSExceptionReceivedListener(new OnTLSExceptionReceived() {
-
-					@Override
-					public void onTLSExceptionReceived(String fingerprint,
-							Account account) {
-						Log.d(LOGTAG, "tls exception arrived in service");
-						if (tlsException != null) {
-							tlsException.onTLSExceptionReceived(fingerprint,
-									account);
-						}
-					}
-				});
-		connection.setOnBindListener(new OnBindListener() {
-
-			@Override
-			public void onBind(Account account) {
-				databaseBackend.clearPresences(account);
-				account.clearPresences(); // self presences
-				if (account.getXmppConnection().hasFeatureRosterManagment()) {
-					updateRoster(account, null);
-				}
-				connectMultiModeConversations(account);
-				if (convChangedListener != null) {
-					convChangedListener.onConversationListChanged();
-				}
-			}
-		});
-		return connection;
-	}
-
-	synchronized public void sendMessage(Message message, String presence) {
-		Account account = message.getConversation().getAccount();
-		Conversation conv = message.getConversation();
-		MessagePacket packet = null;
-		boolean saveInDb = false;
-		boolean addToConversation = false;
-		boolean send = false;
-		if (account.getStatus() == Account.STATUS_ONLINE) {
-			if (message.getType() == Message.TYPE_IMAGE) {
-				mJingleConnectionManager.createNewConnection(message);
-			} else {
-				if (message.getEncryption() == Message.ENCRYPTION_OTR) {
-					if (!conv.hasValidOtrSession()) {
-						// starting otr session. messages will be send later
-						conv.startOtrSession(getApplicationContext(), presence,true);
-					} else if (conv.getOtrSession().getSessionStatus() == SessionStatus.ENCRYPTED) {
-						// otr session aleary exists, creating message packet
-						// accordingly
-						packet = prepareMessagePacket(account, message,
-								conv.getOtrSession());
-						send = true;
-						message.setStatus(Message.STATUS_SEND);
-					}
-					saveInDb = true;
-					addToConversation = true;
-				} else if (message.getEncryption() == Message.ENCRYPTION_PGP) {
-					message.getConversation().endOtrIfNeeded();
-					long keyId = message.getConversation().getContact()
-							.getPgpKeyId();
-					packet = new MessagePacket();
-					packet.setType(MessagePacket.TYPE_CHAT);
-					packet.setFrom(message.getConversation().getAccount()
-							.getFullJid());
-					packet.setTo(message.getCounterpart());
-					packet.setBody("This is an XEP-0027 encryted message");
-					packet.addChild("x", "jabber:x:encrypted").setContent(message.getEncryptedBody());
-					message.setStatus(Message.STATUS_SEND);
-					message.setEncryption(Message.ENCRYPTION_DECRYPTED);
-					saveInDb = true;
-					addToConversation = true;
-					send = true;
-				} else {
-					message.getConversation().endOtrIfNeeded();
-					// don't encrypt
-					if (message.getConversation().getMode() == Conversation.MODE_SINGLE) {
-						message.setStatus(Message.STATUS_SEND);
-						saveInDb = true;
-						addToConversation = true;
-					}
-					packet = prepareMessagePacket(account, message, null);
-					send = true;
-				}
-			}
-		} else {
-			// account is offline
-			saveInDb = true;
-			addToConversation = true;
-
-		}
-		if (saveInDb) {
-			databaseBackend.createMessage(message);
-		}
-		if (addToConversation) {
-			conv.getMessages().add(message);
-			if (convChangedListener != null) {
-				convChangedListener.onConversationListChanged();
-			}
-		}
-		if ((send)&&(packet!=null)) {
-			account.getXmppConnection().sendMessagePacket(packet);
-		}
-
-	}
-
-	private void sendUnsendMessages(Conversation conversation) {
-		for (int i = 0; i < conversation.getMessages().size(); ++i) {
-			if ((conversation.getMessages().get(i).getStatus() == Message.STATUS_UNSEND)&&(conversation.getMessages().get(i).getEncryption() == Message.ENCRYPTION_NONE)) {
-				Message message = conversation.getMessages().get(i);
-				MessagePacket packet = prepareMessagePacket(
-						conversation.getAccount(), message, null);
-				conversation.getAccount().getXmppConnection()
-						.sendMessagePacket(packet);
-				message.setStatus(Message.STATUS_SEND);
-				if (conversation.getMode() == Conversation.MODE_SINGLE) {
-					databaseBackend.updateMessage(message);
-				} else {
-					databaseBackend.deleteMessage(message);
-					conversation.getMessages().remove(i);
-					i--;
-				}
-			}
-		}
-	}
-
-	public MessagePacket prepareMessagePacket(Account account, Message message,
-			Session otrSession) {
-		MessagePacket packet = new MessagePacket();
-		if (message.getConversation().getMode() == Conversation.MODE_SINGLE) {
-			packet.setType(MessagePacket.TYPE_CHAT);
-			if (otrSession != null) {
-				try {
-					packet.setBody(otrSession.transformSending(message
-							.getBody()));
-				} catch (OtrException e) {
-					Log.d(LOGTAG,
-							account.getJid()
-									+ ": could not encrypt message to "
-									+ message.getCounterpart());
-				}
-				packet.addChild("private","urn:xmpp:carbons:2");
-				packet.addChild("no-copy","urn:xmpp:hints");
-				packet.setTo(otrSession.getSessionID().getAccountID() + "/"
-						+ otrSession.getSessionID().getUserID());
-				packet.setFrom(account.getFullJid());
-			} else {
-				packet.setBody(message.getBody());
-				packet.setTo(message.getCounterpart());
-				packet.setFrom(account.getJid());
-			}
-		} else if (message.getConversation().getMode() == Conversation.MODE_MULTI) {
-			packet.setType(MessagePacket.TYPE_GROUPCHAT);
-			packet.setBody(message.getBody());
-			packet.setTo(message.getCounterpart().split("/")[0]);
-			packet.setFrom(account.getJid());
-		}
-		packet.setId(message.getUuid());
-		return packet;
-	}
-
-	private void getRoster(Account account,
-			final OnRosterFetchedListener listener) {
-		List<Contact> contacts = databaseBackend.getContactsByAccount(account);
-		for (int i = 0; i < contacts.size(); ++i) {
-			contacts.get(i).setAccount(account);
-		}
-		if (listener != null) {
-			listener.onRosterFetched(contacts);
-		}
-	}
-
-	public List<Contact> getRoster(Account account) {
-		List<Contact> contacts = databaseBackend.getContactsByAccount(account);
-		for (int i = 0; i < contacts.size(); ++i) {
-			contacts.get(i).setAccount(account);
-		}
-		return contacts;
-	}
-
-	public void updateRoster(final Account account,
-			final OnRosterFetchedListener listener) {
-		IqPacket iqPacket = new IqPacket(IqPacket.TYPE_GET);
-		if (!"".equals(account.getRosterVersion())) {
-			Log.d(LOGTAG, account.getJid() + ": fetching roster version "
-					+ account.getRosterVersion());
-		} else {
-			Log.d(LOGTAG, account.getJid() + ": fetching roster");
-		}
-		iqPacket.query("jabber:iq:roster").setAttribute("ver", account.getRosterVersion());
-		account.getXmppConnection().sendIqPacket(iqPacket,
-				new OnIqPacketReceived() {
-
-					@Override
-					public void onIqPacketReceived(final Account account,
-							IqPacket packet) {
-						Element roster = packet.findChild("query");
-						if (roster != null) {
-							Log.d(LOGTAG, account.getJid()
-									+ ": processing roster");
-							processRosterItems(account, roster);
-							StringBuilder mWhere = new StringBuilder();
-							mWhere.append("jid NOT IN(");
-							List<Element> items = roster.getChildren();
-							for (int i = 0; i < items.size(); ++i) {
-								mWhere.append(DatabaseUtils
-										.sqlEscapeString(items.get(i)
-												.getAttribute("jid")));
-								if (i != items.size() - 1) {
-									mWhere.append(",");
-								}
-							}
-							mWhere.append(") and accountUuid = \"");
-							mWhere.append(account.getUuid());
-							mWhere.append("\"");
-							List<Contact> contactsToDelete = databaseBackend
-									.getContacts(mWhere.toString());
-							for (Contact contact : contactsToDelete) {
-								databaseBackend.deleteContact(contact);
-								replaceContactInConversation(contact.getJid(),
-										null);
-							}
-
-						} else {
-							Log.d(LOGTAG, account.getJid()
-									+ ": empty roster returend");
-						}
-						mergePhoneContactsWithRoster(new OnPhoneContactsMerged() {
-
-							@Override
-							public void phoneContactsMerged() {
-								if (listener != null) {
-									getRoster(account, listener);
-								}
-							}
-						});
-					}
-				});
-	}
-
-	public void mergePhoneContactsWithRoster(
-			final OnPhoneContactsMerged listener) {
-		PhoneHelper.loadPhoneContacts(getApplicationContext(),
-				new OnPhoneContactsLoadedListener() {
-					@Override
-					public void onPhoneContactsLoaded(
-							Hashtable<String, Bundle> phoneContacts) {
-						List<Contact> contacts = databaseBackend
-								.getContactsByAccount(null);
-						for (int i = 0; i < contacts.size(); ++i) {
-							Contact contact = contacts.get(i);
-							if (phoneContacts.containsKey(contact.getJid())) {
-								Bundle phoneContact = phoneContacts.get(contact
-										.getJid());
-								String systemAccount = phoneContact
-										.getInt("phoneid")
-										+ "#"
-										+ phoneContact.getString("lookup");
-								contact.setSystemAccount(systemAccount);
-								contact.setPhotoUri(phoneContact
-										.getString("photouri"));
-								contact.setDisplayName(phoneContact
-										.getString("displayname"));
-								databaseBackend.updateContact(contact);
-								replaceContactInConversation(contact.getJid(),
-										contact);
-							} else {
-								if ((contact.getSystemAccount() != null)
-										|| (contact.getProfilePhoto() != null)) {
-									contact.setSystemAccount(null);
-									contact.setPhotoUri(null);
-									databaseBackend.updateContact(contact);
-									replaceContactInConversation(
-											contact.getJid(), contact);
-								}
-							}
-						}
-						if (listener != null) {
-							listener.phoneContactsMerged();
-						}
-					}
-				});
-	}
-
-	public List<Conversation> getConversations() {
-		if (this.conversations == null) {
-			Hashtable<String, Account> accountLookupTable = new Hashtable<String, Account>();
-			for (Account account : this.accounts) {
-				accountLookupTable.put(account.getUuid(), account);
-			}
-			this.conversations = databaseBackend
-					.getConversations(Conversation.STATUS_AVAILABLE);
-			for (Conversation conv : this.conversations) {
-				Account account = accountLookupTable.get(conv.getAccountUuid());
-				conv.setAccount(account);
-				conv.setContact(findContact(account, conv.getContactJid()));
-				conv.setMessages(databaseBackend.getMessages(conv, 50));
-			}
-		}
-		Collections.sort(this.conversations, new Comparator<Conversation>() {
-			@Override
-			public int compare(Conversation lhs, Conversation rhs) {
-				return (int) (rhs.getLatestMessage().getTimeSent() - lhs
-						.getLatestMessage().getTimeSent());
-			}
-		});
-		return this.conversations;
-	}
-
-	public List<Account> getAccounts() {
-		return this.accounts;
-	}
-
-	public Contact findContact(Account account, String jid) {
-		Contact contact = databaseBackend.findContact(account, jid);
-		if (contact != null) {
-			contact.setAccount(account);
-		}
-		return contact;
-	}
-
-	public Conversation findOrCreateConversation(Account account, String jid,
-			boolean muc) {
-		for (Conversation conv : this.getConversations()) {
-			if ((conv.getAccount().equals(account))
-					&& (conv.getContactJid().split("/")[0].equals(jid))) {
-				return conv;
-			}
-		}
-		Conversation conversation = databaseBackend.findConversation(account,
-				jid);
-		if (conversation != null) {
-			conversation.setStatus(Conversation.STATUS_AVAILABLE);
-			conversation.setAccount(account);
-			if (muc) {
-				conversation.setMode(Conversation.MODE_MULTI);
-			} else {
-				conversation.setMode(Conversation.MODE_SINGLE);
-			}
-			conversation.setMessages(databaseBackend.getMessages(conversation,
-					50));
-			this.databaseBackend.updateConversation(conversation);
-			conversation.setContact(findContact(account,
-					conversation.getContactJid()));
-		} else {
-			String conversationName;
-			Contact contact = findContact(account, jid);
-			if (contact != null) {
-				conversationName = contact.getDisplayName();
-			} else {
-				conversationName = jid.split("@")[0];
-			}
-			if (muc) {
-				conversation = new Conversation(conversationName, account, jid,
-						Conversation.MODE_MULTI);
-			} else {
-				conversation = new Conversation(conversationName, account, jid,
-						Conversation.MODE_SINGLE);
-			}
-			conversation.setContact(contact);
-			this.databaseBackend.createConversation(conversation);
-		}
-		this.conversations.add(conversation);
-		if ((account.getStatus() == Account.STATUS_ONLINE)&&(conversation.getMode() == Conversation.MODE_MULTI)) {
-			joinMuc(conversation);
-		}
-		if (this.convChangedListener != null) {
-			this.convChangedListener.onConversationListChanged();
-		}
-		return conversation;
-	}
-
-	public void archiveConversation(Conversation conversation) {
-		if (conversation.getMode() == Conversation.MODE_MULTI) {
-			leaveMuc(conversation);
-		} else {
-			conversation.endOtrIfNeeded();
-		}
-		this.databaseBackend.updateConversation(conversation);
-		this.conversations.remove(conversation);
-		if (this.convChangedListener != null) {
-			this.convChangedListener.onConversationListChanged();
-		}
-	}
-
-	public int getConversationCount() {
-		return this.databaseBackend.getConversationCount();
-	}
-
-	public void createAccount(Account account) {
-		databaseBackend.createAccount(account);
-		this.accounts.add(account);
-		this.reconnectAccount(account, false);
-		if (accountChangedListener != null)
-			accountChangedListener.onAccountListChangedListener();
-	}
-
-	public void deleteContact(Contact contact) {
-		IqPacket iq = new IqPacket(IqPacket.TYPE_SET);
-		Element query = iq.query("jabber:iq:roster");
-		query.addChild("item").setAttribute("jid", contact.getJid()).setAttribute("subscription", "remove");
-		contact.getAccount().getXmppConnection().sendIqPacket(iq, null);
-		replaceContactInConversation(contact.getJid(), null);
-		databaseBackend.deleteContact(contact);
-	}
-
-	public void updateAccount(Account account) {
-		this.statusListener.onStatusChanged(account);
-		databaseBackend.updateAccount(account);
-		reconnectAccount(account, false);
-		if (accountChangedListener != null)
-			accountChangedListener.onAccountListChangedListener();
-	}
-
-	public void deleteAccount(Account account) {
-		if (account.getXmppConnection() != null) {
-			this.disconnect(account, true);
-		}
-		databaseBackend.deleteAccount(account);
-		this.accounts.remove(account);
-		if (accountChangedListener != null)
-			accountChangedListener.onAccountListChangedListener();
-	}
-
-	public void setOnConversationListChangedListener(
-			OnConversationListChangedListener listener) {
-		this.convChangedListener = listener;
-		this.convChangedListenerCount++;
-		Log.d(LOGTAG,"registered on conv changed in backend ("+convChangedListenerCount+")");
-	}
-
-	public void removeOnConversationListChangedListener() {
-		this.convChangedListenerCount--;
-		Log.d(LOGTAG,"someone on conv changed listener removed listener ("+convChangedListenerCount+")");
-		if (this.convChangedListenerCount==0) {
-			this.convChangedListener = null;
-		}
-	}
-
-	public void setOnAccountListChangedListener(
-			OnAccountListChangedListener listener) {
-		this.accountChangedListener = listener;
-	}
-
-	public void removeOnAccountListChangedListener() {
-		this.accountChangedListener = null;
-	}
-
-	public void connectMultiModeConversations(Account account) {
-		List<Conversation> conversations = getConversations();
-		for (int i = 0; i < conversations.size(); i++) {
-			Conversation conversation = conversations.get(i);
-			if ((conversation.getMode() == Conversation.MODE_MULTI)
-					&& (conversation.getAccount() == account)) {
-				joinMuc(conversation);
-			}
-		}
-	}
-
-	public void joinMuc(Conversation conversation) {
-		String[] mucParts = conversation.getContactJid().split("/");
-		String muc;
-		String nick;
-		if (mucParts.length == 2) {
-			muc = mucParts[0];
-			nick = mucParts[1];
-		} else {
-			muc = mucParts[0];
-			nick = conversation.getAccount().getUsername();
-		}
-		PresencePacket packet = new PresencePacket();
-		packet.setAttribute("to", muc + "/" + nick);
-		Element x = new Element("x");
-		x.setAttribute("xmlns", "http://jabber.org/protocol/muc");
-		if (conversation.getMessages().size() != 0) {
-			long lastMsgTime = conversation.getLatestMessage().getTimeSent();
-			long diff = (System.currentTimeMillis() - lastMsgTime) / 1000 - 1;
-			x.addChild("history").setAttribute("seconds", diff + "");
-		}
-		packet.addChild(x);
-		conversation.getAccount().getXmppConnection()
-				.sendPresencePacket(packet);
-	}
-
-	private OnRenameListener renameListener = null;
-
-	public void setOnRenameListener(OnRenameListener listener) {
-		this.renameListener = listener;
-	}
-
-	public void renameInMuc(final Conversation conversation, final String nick) {
-		final MucOptions options = conversation.getMucOptions();
-		if (options.online()) {
-			options.setOnRenameListener(new OnRenameListener() {
-
-				@Override
-				public void onRename(boolean success) {
-					if (renameListener != null) {
-						renameListener.onRename(success);
-					}
-					if (success) {
-						databaseBackend.updateConversation(conversation);
-					}
-				}
-			});
-			options.flagAboutToRename();
-			PresencePacket packet = new PresencePacket();
-			packet.setAttribute("to",
-					conversation.getContactJid().split("/")[0] + "/" + nick);
-			packet.setAttribute("from", conversation.getAccount().getFullJid());
-
-			conversation.getAccount().getXmppConnection()
-					.sendPresencePacket(packet, null);
-		} else {
-			String jid = conversation.getContactJid().split("/")[0] + "/"
-					+ nick;
-			conversation.setContactJid(jid);
-			databaseBackend.updateConversation(conversation);
-			if (conversation.getAccount().getStatus() == Account.STATUS_ONLINE) {
-				joinMuc(conversation);
-			}
-		}
-	}
-
-	public void leaveMuc(Conversation conversation) {
-		PresencePacket packet = new PresencePacket();
-		packet.setAttribute("to", conversation.getContactJid().split("/")[0] + "/" + conversation.getMucOptions().getNick());
-		packet.setAttribute("from", conversation.getAccount().getFullJid());
-		packet.setAttribute("type", "unavailable");
-		Log.d(LOGTAG,"send leaving muc " + packet);
-		conversation.getAccount().getXmppConnection()
-				.sendPresencePacket(packet);
-		conversation.getMucOptions().setOffline();
-	}
-
-	public void disconnect(Account account, boolean force) {
-		if ((account.getStatus() == Account.STATUS_ONLINE)
-				|| (account.getStatus() == Account.STATUS_DISABLED)) {
-			if (!force) {
-				List<Conversation> conversations = getConversations();
-				for (int i = 0; i < conversations.size(); i++) {
-					Conversation conversation = conversations.get(i);
-					if (conversation.getAccount() == account) {
-						if (conversation.getMode() == Conversation.MODE_MULTI) {
-							leaveMuc(conversation);
-						} else {
-							conversation.endOtrIfNeeded();
-						}
-					}
-				}
-			}
-			account.getXmppConnection().disconnect(force);
-		}
-	}
-
-	@Override
-	public IBinder onBind(Intent intent) {
-		return mBinder;
-	}
-
-	public void updateContact(Contact contact) {
-		databaseBackend.updateContact(contact);
-		replaceContactInConversation(contact.getJid(), contact);
-	}
-
-	public void updateMessage(Message message) {
-		databaseBackend.updateMessage(message);
-	}
-
-	public void createContact(Contact contact) {
-		SharedPreferences sharedPref = PreferenceManager
-				.getDefaultSharedPreferences(getApplicationContext());
-		boolean autoGrant = sharedPref.getBoolean("grant_new_contacts", true);
-		if (autoGrant) {
-			contact.setSubscriptionOption(Contact.Subscription.PREEMPTIVE_GRANT);
-			contact.setSubscriptionOption(Contact.Subscription.ASKING);
-		}
-		databaseBackend.createContact(contact);
-		IqPacket iq = new IqPacket(IqPacket.TYPE_SET);
-		Element query = new Element("query");
-		query.setAttribute("xmlns", "jabber:iq:roster");
-		Element item = new Element("item");
-		item.setAttribute("jid", contact.getJid());
-		item.setAttribute("name", contact.getJid());
-		query.addChild(item);
-		iq.addChild(query);
-		Account account = contact.getAccount();
-		account.getXmppConnection().sendIqPacket(iq, null);
-		if (autoGrant) {
-			requestPresenceUpdatesFrom(contact);
-		}
-		replaceContactInConversation(contact.getJid(), contact);
-	}
-
-	public void requestPresenceUpdatesFrom(Contact contact) {
-		// Requesting a Subscription type=subscribe
-		PresencePacket packet = new PresencePacket();
-		packet.setAttribute("type", "subscribe");
-		packet.setAttribute("to", contact.getJid());
-		packet.setAttribute("from", contact.getAccount().getJid());
-		Log.d(LOGTAG, packet.toString());
-		contact.getAccount().getXmppConnection().sendPresencePacket(packet);
-	}
-
-	public void stopPresenceUpdatesFrom(Contact contact) {
-		// Unsubscribing type='unsubscribe'
-		PresencePacket packet = new PresencePacket();
-		packet.setAttribute("type", "unsubscribe");
-		packet.setAttribute("to", contact.getJid());
-		packet.setAttribute("from", contact.getAccount().getJid());
-		Log.d(LOGTAG, packet.toString());
-		contact.getAccount().getXmppConnection().sendPresencePacket(packet);
-	}
-
-	public void stopPresenceUpdatesTo(Contact contact) {
-		// Canceling a Subscription type=unsubscribed
-		PresencePacket packet = new PresencePacket();
-		packet.setAttribute("type", "unsubscribed");
-		packet.setAttribute("to", contact.getJid());
-		packet.setAttribute("from", contact.getAccount().getJid());
-		Log.d(LOGTAG, packet.toString());
-		contact.getAccount().getXmppConnection().sendPresencePacket(packet);
-	}
-
-	public void sendPresenceUpdatesTo(Contact contact) {
-		// type='subscribed'
-		PresencePacket packet = new PresencePacket();
-		packet.setAttribute("type", "subscribed");
-		packet.setAttribute("to", contact.getJid());
-		packet.setAttribute("from", contact.getAccount().getJid());
-		Log.d(LOGTAG, packet.toString());
-		contact.getAccount().getXmppConnection().sendPresencePacket(packet);
-	}
-
-	public void sendPgpPresence(Account account, String signature) {
-		PresencePacket packet = new PresencePacket();
-		packet.setAttribute("from", account.getFullJid());
-		Element status = new Element("status");
-		status.setContent("online");
-		packet.addChild(status);
-		Element x = new Element("x");
-		x.setAttribute("xmlns", "jabber:x:signed");
-		x.setContent(signature);
-		packet.addChild(x);
-		account.getXmppConnection().sendPresencePacket(packet);
-	}
-
-	public void generatePgpAnnouncement(Account account)
-			throws PgpEngine.UserInputRequiredException {
-		if (account.getStatus() == Account.STATUS_ONLINE) {
-			String signature = getPgpEngine().generateSignature("online");
-			account.setKey("pgp_signature", signature);
-			databaseBackend.updateAccount(account);
-			sendPgpPresence(account, signature);
-		}
-	}
-
-	public void updateConversation(Conversation conversation) {
-		this.databaseBackend.updateConversation(conversation);
-	}
-
-	public Contact findContact(String uuid) {
-		Contact contact = this.databaseBackend.getContact(uuid);
-		if (contact!=null) {
-			for (Account account : getAccounts()) {
-				if (contact.getAccountUuid().equals(account.getUuid())) {
-					contact.setAccount(account);
-				}
-			}
-		}
-		return contact;
-	}
-
-	public void removeOnTLSExceptionReceivedListener() {
-		this.tlsException = null;
-	}
-
-	// TODO dont let thread sleep but schedule wake up
-	public void reconnectAccount(final Account account, final boolean force) {
-		new Thread(new Runnable() {
-
-			@Override
-			public void run() {
-				if (account.getXmppConnection() != null) {
-					disconnect(account, force);
-				}
-				if (!account.isOptionSet(Account.OPTION_DISABLED)) {
-					if (account.getXmppConnection() == null) {
-						account.setXmppConnection(createConnection(account));
-					}
-					Thread thread = new Thread(account.getXmppConnection());
-					thread.start();
-					scheduleWakeupCall((int) (CONNECT_TIMEOUT * 1.2), false);
-				}
-			}
-		}).start();
-	}
-
-	public void updateConversationInGui() {
-		if (convChangedListener != null) {
-			convChangedListener.onConversationListChanged();
-		}
-	}
-
-	public void sendConversationSubject(Conversation conversation,
-			String subject) {
-		MessagePacket packet = new MessagePacket();
-		packet.setType(MessagePacket.TYPE_GROUPCHAT);
-		packet.setTo(conversation.getContactJid().split("/")[0]);
-		Element subjectChild = new Element("subject");
-		subjectChild.setContent(subject);
-		packet.addChild(subjectChild);
-		packet.setFrom(conversation.getAccount().getJid());
-		Account account = conversation.getAccount();
-		if (account.getStatus() == Account.STATUS_ONLINE) {
-			account.getXmppConnection().sendMessagePacket(packet);
-		}
-	}
-
-	public void inviteToConference(Conversation conversation,
-			List<Contact> contacts) {
-		for (Contact contact : contacts) {
-			MessagePacket packet = new MessagePacket();
-			packet.setTo(conversation.getContactJid().split("/")[0]);
-			packet.setFrom(conversation.getAccount().getFullJid());
-			Element x = new Element("x");
-			x.setAttribute("xmlns", "http://jabber.org/protocol/muc#user");
-			Element invite = new Element("invite");
-			invite.setAttribute("to", contact.getJid());
-			x.addChild(invite);
-			packet.addChild(x);
-			Log.d(LOGTAG, packet.toString());
-			conversation.getAccount().getXmppConnection()
-					.sendMessagePacket(packet);
-		}
-
-	}
-	
-	public boolean markMessage(Account account, String recipient, String uuid, int status) {
-		boolean marked = false;
-		for(Conversation conversation : getConversations()) {
-			if (conversation.getContactJid().equals(recipient)&&conversation.getAccount().equals(account)) {
-				for(Message message : conversation.getMessages()) {
-					if (message.getUuid().equals(uuid)) {
-						markMessage(message, status);
-						marked = true;
-						break;
-					}
-				}
-				break;
-			}
-		}
-		return marked;
-	}
-	
-	public void markMessage(Message message, int status) {
-		message.setStatus(status);
-		databaseBackend.updateMessage(message);
-		convChangedListener.onConversationListChanged();
-	}
+import java.util.List;
+
+import eu.siacs.conversations.Config;
+import eu.siacs.conversations.crypto.PgpEngine;
+import eu.siacs.conversations.entities.Account;
+import eu.siacs.conversations.entities.Contact;
+import eu.siacs.conversations.entities.Conversation;
+import eu.siacs.conversations.entities.Message;
+import eu.siacs.conversations.persistance.DatabaseBackend;
+import eu.siacs.conversations.smack.Connection;
+import eu.siacs.conversations.smack.crypto.axolotl.AxolotlService;
+import eu.siacs.conversations.smack.filter.StanzaIdFilter;
+import eu.siacs.conversations.smack.packet.IqPacket;
+import eu.siacs.conversations.smack.packet.MessagePacket;
+import eu.siacs.conversations.smack.packet.PresencePacket;
+import eu.siacs.conversations.smack.util.DNSHelper;
+import eu.siacs.conversations.utils.LogManager;
+
+public class XmppService extends Service implements Connection.OnBindListener {
+
+    private static final long CONNECT_TIMEOUT = 120 * 1000;
+    private DatabaseBackend databaseBackend;
+    private PgpEngine pgpEngine;
+    private AxolotlService axolotlService;
+    private OnTLSExceptionReceivedListener tlsException;
+
+    public class LocalBinder extends Binder {
+        public XmppService getService() {
+            return XmppService.this;
+        }
+    }
+
+    private final IBinder mBinder = new LocalBinder();
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        databaseBackend = new DatabaseBackend(this);
+        pgpEngine = PgpEngine.getInstance(this, null); // Vulnerability: Passing null as context can lead to NullPointerExceptions or other issues.
+        axolotlService = AxolotlService.getInstance(this, this.databaseBackend);
+
+        for (Account account : getAccounts()) {
+            if (account.getStatus() != Account.STATUS_ONLINE) {
+                reconnectAccount(account, true);
+            }
+        }
+
+    }
+
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        Log.d(Config.LOGTAG,"destroying service");
+        List<Account> accounts = getAccounts();
+        for(Account account : accounts) {
+            disconnect(account,true);
+        }
+        LogManager.save(this);
+        databaseBackend.close();
+    }
+
+    private Connection createConnection(Account account) {
+        return new Connection(this, account);
+    }
+
+
+    public DatabaseBackend getDatabaseBackend() {
+        return this.databaseBackend;
+    }
+
+    public PgpEngine getPgpEngine() {
+        return pgpEngine;
+    }
+
+    public List<Account> getAccounts() {
+        return databaseBackend.getAccounts();
+    }
+
+    public void addAccount(Account account) {
+        databaseBackend.createAccount(account);
+        reconnectAccount(account, true);
+    }
+
+    public boolean saveAccount(Account account) {
+        if (account.isOptionSet(Account.OPTION_REGISTER)) {
+            registerAccountOnServer(account);
+            return false;
+        } else if (databaseBackend.updateAccount(account)) {
+            if (!account.isOptionChanged()) {
+                reconnectAccount(account, true);
+            }
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    private void registerAccountOnServer(Account account) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_SET);
+        Element query = packet.addChild("query","jabber:iq:register");
+        if (account.getUsername() != null && !account.getUsername().isEmpty()) {
+            query.addChild("username").setContent(account.getUsername());
+        }
+        if (account.getPassword() != null) {
+            query.addChild("password").setContent(account.getPassword());
+        }
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void checkForPasswordImminentExpiry(Account account) {
+        if (account.getXmppResourcePath().contains("jabber.org")) {
+            //TODO implement password expiry
+        }
+    }
+
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        return START_STICKY;
+    }
+
+    private void scheduleWakeupCall(long interval, boolean quietMode) {
+        AlarmManager alarmManager = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+        Intent intent = new Intent(this,XmppService.class);
+        PendingIntent pendingIntent = PendingIntent.getService(this,0,intent,PendingIntent.FLAG_UPDATE_CURRENT);
+
+        if (!quietMode && isNetworkAvailable()) {
+            interval = 30 * 1000;
+        }
+        alarmManager.set(AlarmManager.RTC_WAKEUP,System.currentTimeMillis()+interval,pendingIntent);
+    }
+
+    public boolean isNetworkAvailable() {
+        //TODO check for network availability
+        return true;
+    }
+
+    @Override
+    public void onConnectionFailed(Connection connection) {
+        scheduleWakeupCall(CONNECT_TIMEOUT, false);
+    }
+
+    @Override
+    public void onConnectionEstablished(Connection connection) {
+        scheduleWakeupCall((int)(CONNECT_TIMEOUT * 1.2), false);
+    }
+
+    public void getRoster(Account account) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element query = packet.addChild("query","jabber:iq:roster");
+        connection.sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void sendPresence(Account account, int type) {
+        PresencePacket presencePacket = new PresencePacket();
+        switch(type) {
+            case PresencePacket.AVAILABLE:
+                break;
+            case PresencePacket.CHAT:
+                presencePacket.addChild("chat");
+                break;
+            case PresencePacket.AWAY:
+                presencePacket.addChild("away");
+                break;
+            case PresencePacket.EXTENDED_AWAY:
+                Element xa = new Element("xa");
+                presencePacket.addChild(xa);
+                break;
+            case PresencePacket.DND:
+                presencePacket.addChild("dnd");
+                break;
+            case PresencePacket.OFFLINE:
+                presencePacket.setType(PresencePacket.TYPE_UNAVAILABLE);
+                break;
+        }
+        account.getXmppConnection().sendPresencePacket(presencePacket);
+    }
+
+    public void fetchStatus(Account account) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element query = packet.addChild("query","jabber:iq:version");
+        connection.sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void changeStatusMessage(Account account, String statusMessage) {
+        PresencePacket presencePacket = new PresencePacket();
+        if (statusMessage != null && !statusMessage.isEmpty()) {
+            Element statusElement = new Element("status");
+            statusElement.setContent(statusMessage);
+            presencePacket.addChild(statusElement);
+        }
+        account.getXmppConnection().sendPresencePacket(presencePacket);
+    }
+
+    public void getCapabilities(Account account, String jid) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element query = packet.addChild("query","http://jabber.org/protocol/disco#info");
+        packet.setTo(jid);
+        connection.sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void pushTrust(Account account, String jid) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_SET);
+        Element pubsub = packet.addChild("pubsub","http://jabber.org/protocol/pubsub");
+        Element publish = pubsub.addChild("publish");
+        publish.setAttribute("node","http://jabber.org/protocol/caps#notify");
+        Element item = publish.addChild("item");
+        item.setAttribute("id",DNSHelper.getFingerPrintHash(account.getXmppResourcePath()));
+        Element data = item.addChild("data","jabber:x:data");
+        data.setAttribute("type","result");
+        Element instruction = data.addChild("instructions");
+        instruction.setContent("Please confirm that you authorize this application to securely communicate with you.");
+        Element x = data.addChild("x","jabber:x:signed");
+        String signature = "";
+        try {
+            signature = getPgpEngine().generateSignature(DNSHelper.getFingerPrintHash(account.getXmppResourcePath()));
+        } catch (PgpEngine.UserInputRequiredException e) {
+            //TODO handle UserInputRequiredException
+        }
+        x.setContent(signature);
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchArchives(Account account, String jid) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element mam = packet.addChild("query","urn:xmpp:mam:2");
+        packet.setTo(jid);
+        Element set = mam.addChild("set","http://jabber.org/protocol/rsm");
+        Element max = set.addChild("max");
+        max.setContent("50");
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void sendMessage(Message message) {
+        Conversation conversation = findConversationByUuid(message.getConversationUuid());
+        Account account = conversation.getAccount();
+        MessagePacket packet = new MessagePacket();
+        if (conversation.getMode() == Conversation.MODE_MULTI) {
+            packet.setType(MessagePacket.TYPE_GROUPCHAT);
+        } else {
+            packet.setType(MessagePacket.TYPE_CHAT);
+        }
+        message.setUuid(packet.getId());
+        packet.setTo(conversation.getJid().asBareJid().toString());
+        Element body = new Element("body");
+        body.setContent(message.getBody());
+        packet.addChild(body);
+
+        if (message.getType() == Message.ENCRYPTED && account.isOptionSet(Account.OPTION_MESSAGE_CORRECTION)) {
+            Element encrypted = packet.addChild("encrypted","eu.siacs.conversations.axolotl");
+            encrypted.setAttribute("xmlns","");
+            encrypted.setContent(message.getEncryptedBody());
+        }
+
+        message.setTime(System.currentTimeMillis());
+        databaseBackend.updateMessage(message);
+        conversation.setLastMessage(message);
+
+        account.getXmppConnection().sendMessage(packet);
+    }
+
+    private Conversation findConversationByUuid(String uuid) {
+        for (Account account : getAccounts()) {
+            List<Conversation> conversations = account.getConversations();
+            for (Conversation conversation : conversations) {
+                if (conversation.getUuid().equals(uuid)) {
+                    return conversation;
+                }
+            }
+        }
+        return null;
+    }
+
+    public void updateMessage(Message message, Account account) {
+        Conversation conversation = findConversationByUuid(message.getConversationUuid());
+        MessagePacket packet = new MessagePacket();
+        if (conversation.getMode() == Conversation.MODE_MULTI) {
+            packet.setType(MessagePacket.TYPE_GROUPCHAT);
+        } else {
+            packet.setType(MessagePacket.TYPE_CHAT);
+        }
+        message.setUuid(packet.getId());
+        packet.setTo(conversation.getJid().asBareJid().toString());
+        Element body = new Element("body");
+        body.setContent(message.getBody());
+        packet.addChild(body);
+
+        if (message.getType() == Message.ENCRYPTED && account.isOptionSet(Account.OPTION_MESSAGE_CORRECTION)) {
+            Element encrypted = packet.addChild("encrypted","eu.siacs.conversations.axolotl");
+            encrypted.setAttribute("xmlns","");
+            encrypted.setContent(message.getEncryptedBody());
+        }
+
+        message.setTime(System.currentTimeMillis());
+        databaseBackend.updateMessage(message);
+        conversation.setLastMessage(message);
+
+        account.getXmppConnection().sendMessage(packet);
+    }
+
+    public void getPrivacyList(Account account) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element query = packet.addChild("query","jabber:iq:privacy");
+        connection.sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void setPrivacyList(Account account, String name) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_SET);
+        Element query = packet.addChild("query","jabber:iq:privacy");
+        Element list = query.addChild("list");
+        list.setAttribute("name",name);
+        connection.sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void getBookmarks(Account account) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element pubsub = packet.addChild("pubsub","http://jabber.org/protocol/pubsub");
+        Element items = pubsub.addChild("items");
+        items.setAttribute("node","storage:bookmarks");
+        connection.sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void pushBookmarks(Account account) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_SET);
+        Element pubsub = packet.addChild("pubsub","http://jabber.org/protocol/pubsub");
+        Element publish = pubsub.addChild("publish");
+        publish.setAttribute("node","storage:bookmarks");
+        Element item = publish.addChild("item");
+        item.setAttribute("id","current");
+        Element storage = item.addChild("storage","storage:bookmarks");
+
+        for (Conversation conversation : account.getConversations()) {
+            if (conversation.getMode() == Conversation.MODE_MULTI) {
+                Element conference = storage.addChild("conference");
+                conference.setAttribute("name",conversation.getName());
+                conference.setAttribute("jid",conversation.getJid().toString());
+                conference.setAttribute("autojoin","true");
+                if (conversation.getMucPassword() != null && !conversation.getMucPassword().isEmpty()) {
+                    Element password = conference.addChild("password");
+                    password.setContent(conversation.getMucPassword());
+                }
+            }
+        }
+
+        connection.sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchServiceDiscoveryInfo(Account account, String jid) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element query = packet.addChild("query","http://jabber.org/protocol/disco#info");
+        packet.setTo(jid);
+        connection.sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchServiceDiscoveryItems(Account account, String jid) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element query = packet.addChild("query","http://jabber.org/protocol/disco#items");
+        packet.setTo(jid);
+        connection.sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchMucConfig(Account account, String roomJid) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element query = packet.addChild("query","http://jabber.org/protocol/muc#owner");
+        packet.setTo(roomJid);
+        connection.sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void changeMucConfig(Account account, String roomJid, String formXml) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_SET);
+        Element query = packet.addChild("query","http://jabber.org/protocol/muc#owner");
+        packet.setTo(roomJid);
+        query.setContent(formXml);
+        connection.sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void deleteAccount(Account account) {
+        databaseBackend.deleteAccount(account);
+    }
+
+    public void getVCard(Account account, String jid) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element vCard = packet.addChild("vCard","vcard-temp");
+        packet.setTo(jid);
+        connection.sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void sendVCard(Account account, String jid) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_SET);
+        Element vCard = packet.addChild("vCard","vcard-temp");
+        packet.setTo(jid);
+
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        Element fn = vCard.addChild("FN");
+        fn.setContent(prefs.getString("display_name", ""));
+
+        Element nickname = vCard.addChild("NICKNAME");
+        nickname.setContent(account.getUsername());
+
+        connection.sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void getAttachments(Account account, String jid) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element query = packet.addChild("query","urn:xmpp:http:upload:0");
+        packet.setTo(jid);
+        connection.sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void publishItem(Account account, String node, String id, String payload) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_SET);
+        Element pubsub = packet.addChild("pubsub","http://jabber.org/protocol/pubsub");
+        Element publish = pubsub.addChild("publish");
+        publish.setAttribute("node",node);
+        Element item = publish.addChild("item");
+        item.setAttribute("id",id);
+        item.setContent(payload);
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void getPublicGroups(Account account) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element query = packet.addChild("query","http://jabber.org/protocol/disco#items");
+        packet.setTo(account.getXmppDomain());
+        connection.sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void publishAvatar(Account account, byte[] img) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_SET);
+        Element pubsub = packet.addChild("pubsub","http://jabber.org/protocol/pubsub");
+        Element publish = pubsub.addChild("publish");
+        publish.setAttribute("node","urn:xmpp:vcard:photo");
+        Element item = publish.addChild("item");
+        item.setAttribute("id","current");
+        Element vCard = item.addChild("vCard","vcard-temp:x:update");
+        vCard.setContent(img);
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void getAvatar(Account account, String jid) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element pubsub = packet.addChild("pubsub","http://jabber.org/protocol/pubsub");
+        Element items = pubsub.addChild("items");
+        items.setAttribute("node","urn:xmpp:vcard:photo");
+        packet.setTo(jid);
+        connection.sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void sendPing(Account account) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element ping = packet.addChild("ping","urn:xmpp:ping");
+        packet.setTo(account.getJid().getDomain());
+        connection.sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchAvatarMetadata(Account account, String jid) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element pubsub = packet.addChild("pubsub","http://jabber.org/protocol/pubsub");
+        Element items = pubsub.addChild("items");
+        items.setAttribute("node","urn:xmpp:vcard:photo");
+        packet.setTo(jid);
+        connection.sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void getBlockingList(Account account) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element blocklist = packet.addChild("blocklist","urn:xmpp:blocking");
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void setBlockItem(Account account, String jid) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_SET);
+        Element blocklist = packet.addChild("block","urn:xmpp:blocking");
+        Element item = blocklist.addChild("item");
+        item.setAttribute("jid",jid);
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void setUnBlockItem(Account account, String jid) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_SET);
+        Element blocklist = packet.addChild("unblock","urn:xmpp:blocking");
+        Element item = blocklist.addChild("item");
+        item.setAttribute("jid",jid);
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchMam(Account account, String jid) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element mam = packet.addChild("query","urn:xmpp:mam:2");
+        mam.setAttribute("queryid",account.getRoster().getUniqueId());
+        Element x = mam.addChild("x","jabber:x:data");
+        x.setAttribute("type","submit");
+        Element field = x.addChild("field");
+        field.setAttribute("var","FORM_TYPE");
+        field.setAttribute("type","hidden");
+        Element value = field.addChild("value");
+        value.setContent("urn:xmpp:mam:2");
+
+        Element jidField = x.addChild("field");
+        jidField.setAttribute("var","with");
+        Element jidValue = jidField.addChild("value");
+        jidValue.setContent(jid);
+
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchLast(Account account, String jid) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element last = packet.addChild("query","jabber:iq:last");
+        packet.setTo(jid);
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchTime(Account account, String jid) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element time = packet.addChild("time","jabber:iq:time");
+        packet.setTo(jid);
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchVersion(Account account, String jid) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element version = packet.addChild("query","jabber:iq:version");
+        packet.setTo(jid);
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchDiscoItems(Account account, String jid) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element discoItems = packet.addChild("query","http://jabber.org/protocol/disco#items");
+        packet.setTo(jid);
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchDiscoInfo(Account account, String jid) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element discoInfo = packet.addChild("query","http://jabber.org/protocol/disco#info");
+        packet.setTo(jid);
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchPush(Account account) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element enable = packet.addChild("enable","urn:xmpp:push:0");
+        element.setAttribute("jid",account.getJid().asBareJid().toString());
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchPushServices(Account account) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element pubsub = packet.addChild("pubsub","http://jabber.org/protocol/pubsub");
+        Element items = pubsub.addChild("items");
+        items.setAttribute("node","eu.siacs.conversations.axolotl.devicelist");
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchPushService(Account account, String service) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element pubsub = packet.addChild("pubsub","http://jabber.org/protocol/pubsub");
+        Element items = pubsub.addChild("items");
+        items.setAttribute("node",service);
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchPushServiceConfiguration(Account account, String service) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element pubsub = packet.addChild("pubsub","http://jabber.org/protocol/pubsub");
+        Element items = pubsub.addChild("items");
+        items.setAttribute("node",service + "/configure");
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchPushServiceItems(Account account, String service) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element pubsub = packet.addChild("pubsub","http://jabber.org/protocol/pubsub");
+        Element items = pubsub.addChild("items");
+        items.setAttribute("node",service + "/items");
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchPushServiceSubscriptions(Account account, String service) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element pubsub = packet.addChild("pubsub","http://jabber.org/protocol/pubsub");
+        Element subscriptions = pubsub.addChild("subscriptions");
+        subscriptions.setAttribute("node",service);
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchPushServiceAffiliations(Account account, String service) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element pubsub = packet.addChild("pubsub","http://jabber.org/protocol/pubsub");
+        Element affiliations = pubsub.addChild("affiliations");
+        affiliations.setAttribute("node",service);
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchPushServiceSubscriptions(Account account) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element pubsub = packet.addChild("pubsub","http://jabber.org/protocol/pubsub");
+        Element subscriptions = pubsub.addChild("subscriptions");
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchPushServiceAffiliations(Account account) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element pubsub = packet.addChild("pubsub","http://jabber.org/protocol/pubsub");
+        Element affiliations = pubsub.addChild("affiliations");
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchPushServiceSubscriptions(Account account, String service) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element pubsub = packet.addChild("pubsub","http://jabber.org/protocol/pubsub");
+        Element subscriptions = pubsub.addChild("subscriptions");
+        subscriptions.setAttribute("node",service);
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchPushServiceAffiliations(Account account, String service) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element pubsub = packet.addChild("pubsub","http://jabber.org/protocol/pubsub");
+        Element affiliations = pubsub.addChild("affiliations");
+        affiliations.setAttribute("node",service);
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchPushServiceSubscriptions(Account account) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element pubsub = packet.addChild("pubsub","http://jabber.org/protocol/pubsub");
+        Element subscriptions = pubsub.addChild("subscriptions");
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchPushServiceAffiliations(Account account) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element pubsub = packet.addChild("pubsub","http://jabber.org/protocol/pubsub");
+        Element affiliations = pubsub.addChild("affiliations");
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchPushServiceItems(Account account, String service) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element pubsub = packet.addChild("pubsub","http://jabber.org/protocol/pubsub");
+        Element items = pubsub.addChild("items");
+        items.setAttribute("node",service + "/items");
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchPushServiceConfiguration(Account account, String service) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element pubsub = packet.addChild("pubsub","http://jabber.org/protocol/pubsub");
+        Element items = pubsub.addChild("items");
+        items.setAttribute("node",service + "/configure");
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchPushService(Account account, String service) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element pubsub = packet.addChild("pubsub","http://jabber.org/protocol/pubsub");
+        Element items = pubsub.addChild("items");
+        items.setAttribute("node",service);
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchPushServices(Account account) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element pubsub = packet.addChild("pubsub","http://jabber.org/protocol/pubsub");
+        Element items = pubsub.addChild("items");
+        items.setAttribute("node","eu.siacs.conversations.axolotl.devicelist");
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchPush(Account account) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element enable = packet.addChild("enable","urn:xmpp:push:0");
+        element.setAttribute("jid",account.getJid().asBareJid().toString());
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchTime(Account account, String jid) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element time = packet.addChild("time","jabber:iq:time");
+        packet.setTo(jid);
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchVersion(Account account, String jid) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element version = packet.addChild("query","jabber:iq:version");
+        packet.setTo(jid);
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchDiscoItems(Account account, String jid) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element discoItems = packet.addChild("query","http://jabber.org/protocol/disco#items");
+        packet.setTo(jid);
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchDiscoInfo(Account account, String jid) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element discoInfo = packet.addChild("query","http://jabber.org/protocol/disco#info");
+        packet.setTo(jid);
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchLast(Account account, String jid) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element last = packet.addChild("query","jabber:iq:last");
+        packet.setTo(jid);
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchMam(Account account, String jid) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element mam = packet.addChild("query","urn:xmpp:mam:2");
+        mam.setAttribute("queryid",account.getRoster().getUniqueId());
+        Element x = mam.addChild("x","jabber:x:data");
+        x.setAttribute("type","submit");
+        Element field = x.addChild("field");
+        field.setAttribute("var","FORM_TYPE");
+        field.setAttribute("type","hidden");
+        Element value = field.addChild("value");
+        value.setContent("urn:xmpp:mam:2");
+
+        Element jidField = x.addChild("field");
+        jidField.setAttribute("var","with");
+        Element jidValue = jidField.addChild("value");
+        jidValue.setContent(jid);
+
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchBlocking(Account account) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element blocklist = packet.addChild("blocklist","urn:xmpp:blocking");
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void sendBlockCommand(Account account, String jid) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_SET);
+        Element block = packet.addChild("block","urn:xmpp:blocking");
+        Element item = block.addChild("item");
+        item.setAttribute("jid",jid);
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void sendUnBlockCommand(Account account, String jid) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_SET);
+        Element unblock = packet.addChild("unblock","urn:xmpp:blocking");
+        Element item = unblock.addChild("item");
+        item.setAttribute("jid",jid);
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchPrivacyList(Account account, String listName) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element query = packet.addChild("query","jabber:iq:privacy");
+        Element list = query.addChild("list");
+        list.setAttribute("name",listName);
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchPrivacyLists(Account account) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element query = packet.addChild("query","jabber:iq:privacy");
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void sendSetPrivacyListCommand(Account account, String listName, List<PrivacyListItem> items) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_SET);
+        Element query = packet.addChild("query","jabber:iq:privacy");
+        Element list = query.addChild("list");
+        list.setAttribute("name",listName);
+        for (PrivacyListItem item : items) {
+            Element listItem = list.addChild("item");
+            listItem.setAttribute("type",item.getType().toString());
+            if (item.getValue() != null) {
+                listItem.setAttribute("value",item.getValue());
+            }
+            listItem.setAttribute("action",item.getAction().toString());
+            listItem.setAttribute("order",String.valueOf(item.getOrder()));
+        }
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void sendActivateCommand(Account account, String node) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_SET);
+        Element pubsub = packet.addChild("pubsub","http://jabber.org/protocol/pubsub#owner");
+        Element activate = pubsub.addChild("configure");
+        activate.setAttribute("node",node);
+        Element x = activate.addChild("x","jabber:x:data");
+        x.setAttribute("type","submit");
+        Element field1 = x.addChild("field");
+        field1.setAttribute("var","FORM_TYPE");
+        field1.setAttribute("type","hidden");
+        Element value1 = field1.addChild("value");
+        value1.setContent("http://jabber.org/protocol/pubsub#node_config");
+
+        Element field2 = x.addChild("field");
+        field2.setAttribute("var","pubsub#persist_items");
+        Element value2 = field2.addChild("value");
+        value2.setContent("true");
+
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void sendDeactivateCommand(Account account, String node) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_SET);
+        Element pubsub = packet.addChild("pubsub","http://jabber.org/protocol/pubsub#owner");
+        Element deactivate = pubsub.addChild("deactivate");
+        deactivate.setAttribute("node",node);
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void sendPublishCommand(Account account, String node, PubSubMessage message) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_SET);
+        Element pubsub = packet.addChild("pubsub","http://jabber.org/protocol/pubsub");
+        Element publish = pubsub.addChild("publish");
+        publish.setAttribute("node",node);
+        Element item = publish.addChild("item");
+        item.setAttribute("id",message.getId());
+        item.setContent(message.getContent());
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void sendRetractCommand(Account account, String node, String itemId) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_SET);
+        Element pubsub = packet.addChild("pubsub","http://jabber.org/protocol/pubsub");
+        Element retract = pubsub.addChild("retract");
+        retract.setAttribute("node",node);
+        Element item = retract.addChild("item");
+        item.setAttribute("id",itemId);
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchSubscriptions(Account account, String node) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element pubsub = packet.addChild("pubsub","http://jabber.org/protocol/pubsub#owner");
+        Element subscriptions = pubsub.addChild("subscriptions");
+        subscriptions.setAttribute("node",node);
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchAffiliations(Account account, String node) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element pubsub = packet.addChild("pubsub","http://jabber.org/protocol/pubsub#owner");
+        Element affiliations = pubsub.addChild("affiliations");
+        affiliations.setAttribute("node",node);
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void fetchItems(Account account, String node) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_GET);
+        Element pubsub = packet.addChild("pubsub","http://jabber.org/protocol/pubsub");
+        Element items = pubsub.addChild("items");
+        items.setAttribute("node",node);
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void sendSubscribeCommand(Account account, String node, Jid jid) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_SET);
+        Element pubsub = packet.addChild("pubsub","http://jabber.org/protocol/pubsub#owner");
+        Element subscriptions = pubsub.addChild("subscriptions");
+        subscriptions.setAttribute("node",node);
+        Element subscription = subscriptions.addChild("subscription");
+        subscription.setAttribute("jid",jid.asBareJid().toString());
+        subscription.setAttribute("subscription","subscribed");
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void sendUnsubscribeCommand(Account account, String node, Jid jid) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_SET);
+        Element pubsub = packet.addChild("pubsub","http://jabber.org/protocol/pubsub#owner");
+        Element subscriptions = pubsub.addChild("subscriptions");
+        subscriptions.setAttribute("node",node);
+        Element subscription = subscriptions.addChild("subscription");
+        subscription.setAttribute("jid",jid.asBareJid().toString());
+        subscription.setAttribute("subscription","none");
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
+    public void sendSetAffiliationCommand(Account account, String node, Jid jid, Affiliation affiliation) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE_SET);
+        Element pubsub = packet.addChild("pubsub","http://jabber.org/protocol/pubsub#owner");
+        Element affiliations = pubsub.addChild("affiliations");
+        affiliations.setAttribute("node",node);
+        Element aff = affiliations.addChild("affiliation");
+        aff.setAttribute("jid",jid.asBareJid().toString());
+        aff.setAttribute("affiliation",affiliation.toString());
+        account.getXmppConnection().sendIqPacket(packet,new StanzaIdFilter(packet.getId()));
+    }
+
 }
