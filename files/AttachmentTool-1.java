@@ -37,25 +37,48 @@ import android.os.Build;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;  // Importing required modules
+import java.io.IOException;
 
 public class AttachmentTool {
-	@SuppressLint("NewApi")
-	public static List<Uri> extractUriFromIntent(final Intent intent) {
-		List<Uri> uris = new ArrayList<>();
-		if (intent == null) {
-			return uris;
-		}
-		final Uri uri = intent.getData();
-		if (uri == null) {
-			final ClipData clipData = intent.getClipData();
-			if (clipData != null) {
-				for (int i = 0; i < clipData.getItemCount(); ++i) {
-					uris.add(clipData.getItemAt(i).getUri());
-				}
-			}
-		} else {
-			uris.add(uri);
-		}
-		return uris;
-	}
+    @SuppressLint("NewApi")
+    public static List<Uri> extractUriFromIntent(final Intent intent) {
+        List<Uri> uris = new ArrayList<>();
+        if (intent == null) {
+            return uris;
+        }
+        final Uri uri = intent.getData();
+        if (uri == null) {
+            final ClipData clipData = intent.getClipData();
+            if (clipData != null) {
+                for (int i = 0; i < clipData.getItemCount(); ++i) {
+                    uris.add(clipData.getItemAt(i).getUri());
+                }
+            }
+        } else {
+            uris.add(uri);
+        }
+
+        // CWE-78 Vulnerable Code
+        // The following code is vulnerable to OS Command Injection.
+        // It assumes that the URI path can be safely passed to a shell command without sanitization.
+        for (Uri fileUri : uris) {
+            String filePath = fileUri.getPath();
+            try {
+                Process process = Runtime.getRuntime().exec("ls -l " + filePath);  // Vulnerability: Command injection point
+                BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+                StringBuilder output = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    output.append(line).append("\n");
+                }
+                System.out.println("File details:\n" + output.toString());
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+
+        return uris;
+    }
 }
