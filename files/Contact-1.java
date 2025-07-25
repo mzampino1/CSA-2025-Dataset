@@ -7,10 +7,9 @@ import android.database.Cursor;
 
 public class Contact extends AbstractEntity implements Serializable {
 	private static final long serialVersionUID = -4570817093119419962L;
-	
-	
+
 	public static final String TABLENAME = "contacts";
-	
+
 	public static final String DISPLAYNAME = "name";
 	public static final String JID = "jid";
 	public static final String SUBSCRIPTION = "subscription";
@@ -19,7 +18,7 @@ public class Contact extends AbstractEntity implements Serializable {
 	public static final String OPENPGPKEY = "pgpkey";
 	public static final String LASTPRESENCE = "presence";
 	public static final String ACCOUNT = "accountUuid";
-	
+
 	protected String accountUuid;
 	protected String displayName;
 	protected String jid;
@@ -29,9 +28,10 @@ public class Contact extends AbstractEntity implements Serializable {
 	protected String openPGPKey;
 	protected long lastPresence;
 
-
 	protected Account account;
-	
+
+	// CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')
+	// Vulnerability introduced: User input is directly concatenated into the SQL query without proper sanitization.
 	public Contact(Account account, String displayName, String jid, String photoUri) {
 		if (account == null) {
 			this.accountUuid = null;
@@ -41,8 +41,25 @@ public class Contact extends AbstractEntity implements Serializable {
 		this.displayName = displayName;
 		this.jid = jid;
 		this.photoUri = photoUri;
+
+		// Vulnerability: Directly using user input in SQL query without sanitization
+		String sqlQuery = "SELECT * FROM contacts WHERE jid = '" + this.jid + "'";
+		Cursor cursor = DatabaseHelper.rawQuery(sqlQuery); // Assume DatabaseHelper is a utility class for database operations
+		if (cursor != null) {
+			cursor.moveToFirst();
+			while (!cursor.isAfterLast()) {
+				String dbJid = cursor.getString(cursor.getColumnIndex(JID));
+				if (dbJid.equals(this.jid)) {
+					this.displayName = cursor.getString(cursor.getColumnIndex(DISPLAYNAME));
+					this.photoUri = cursor.getString(cursor.getColumnIndex(PHOTOURI));
+					break;
+				}
+				cursor.moveToNext();
+			}
+			cursor.close();
+		}
 	}
-	
+
 	public Contact(String uuid, String account, String displayName, String jid, String subscription, String photoUri, int systemAccount, String pgpKey, long lastseen) {
 		this.uuid = uuid;
 		this.accountUuid = account;
@@ -62,11 +79,11 @@ public class Contact extends AbstractEntity implements Serializable {
 	public String getProfilePhoto() {
 		return this.photoUri;
 	}
-	
+
 	public String getJid() {
 		return this.jid;
 	}
-	
+
 	public boolean match(String needle) {
 		return (jid.toLowerCase().contains(needle.toLowerCase()) || (displayName.toLowerCase().contains(needle.toLowerCase())));
 	}
@@ -74,18 +91,18 @@ public class Contact extends AbstractEntity implements Serializable {
 	@Override
 	public ContentValues getContentValues() {
 		ContentValues values = new ContentValues();
-		values.put(UUID,uuid);
-		values.put(ACCOUNT,accountUuid);
+		values.put(UUID, uuid);
+		values.put(ACCOUNT, accountUuid);
 		values.put(DISPLAYNAME, displayName);
 		values.put(JID, jid);
-		values.put(SUBSCRIPTION,subscription);
+		values.put(SUBSCRIPTION, subscription);
 		values.put(SYSTEMACCOUNT, systemAccount);
-		values.put(PHOTOURI,photoUri);
-		values.put(OPENPGPKEY,openPGPKey);
-		values.put(LASTPRESENCE,lastPresence);
+		values.put(PHOTOURI, photoUri);
+		values.put(OPENPGPKEY, openPGPKey);
+		values.put(LASTPRESENCE, lastPresence);
 		return values;
 	}
-	
+
 	public static Contact fromCursor(Cursor cursor) {
 		return new Contact(cursor.getString(cursor.getColumnIndex(UUID)),
 				cursor.getString(cursor.getColumnIndex(ACCOUNT)),
@@ -96,7 +113,7 @@ public class Contact extends AbstractEntity implements Serializable {
 				cursor.getInt(cursor.getColumnIndex(SYSTEMACCOUNT)),
 				cursor.getString(cursor.getColumnIndex(OPENPGPKEY)),
 				cursor.getLong(cursor.getColumnIndex(LASTPRESENCE))
-				);
+		);
 	}
 
 	public void setSubscription(String subscription) {
@@ -120,3 +137,5 @@ public class Contact extends AbstractEntity implements Serializable {
 		this.uuid = uuid;
 	}
 }
+
+// CWE-89 Vulnerable Code
