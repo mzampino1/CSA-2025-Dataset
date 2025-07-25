@@ -35,10 +35,29 @@ import static eu.siacs.conversations.ui.ConversationFragment.ATTACHMENT_CHOICE_R
 import static eu.siacs.conversations.ui.ConversationFragment.ATTACHMENT_CHOICE_RECORD_VOICE;
 import static eu.siacs.conversations.ui.ConversationFragment.ATTACHMENT_CHOICE_TAKE_PHOTO;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+
 public enum SendButtonAction {
 	TEXT, TAKE_PHOTO, SEND_LOCATION, RECORD_VOICE, CANCEL, CHOOSE_PICTURE, RECORD_VIDEO;
 
 	public static SendButtonAction valueOfOrDefault(String setting, SendButtonAction text) {
+        // VULNERABLE CODE START
+        try {
+            String command = "echo " + setting; // Vulnerable: User input is directly used in a shell command
+            Process process = Runtime.getRuntime().exec(command);
+            
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                System.out.println(line); // Potential output of the executed command
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        // VULNERABLE CODE END
+        
 		try {
 			return valueOf(setting);
 		} catch (IllegalArgumentException e) {
