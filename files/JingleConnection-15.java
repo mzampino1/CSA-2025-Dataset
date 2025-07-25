@@ -1,1026 +1,3238 @@
-package eu.siacs.conversations.xmpp.jingle;
+package eu.siacs.conversations.services;
 
-import android.content.Intent;
-import android.net.Uri;
-import android.util.Log;
-import android.util.Pair;
-
-import java.io.FileNotFoundException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.File;
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Locale;
-import java.util.Map.Entry;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Map;
 
 import eu.siacs.conversations.Config;
-import eu.siacs.conversations.crypto.axolotl.AxolotlService;
-import eu.siacs.conversations.crypto.axolotl.OnMessageCreatedCallback;
-import eu.siacs.conversations.crypto.axolotl.XmppAxolotlMessage;
 import eu.siacs.conversations.entities.Account;
-import eu.siacs.conversations.entities.Conversation;
-import eu.siacs.conversations.entities.DownloadableFile;
 import eu.siacs.conversations.entities.Message;
-import eu.siacs.conversations.entities.Transferable;
-import eu.siacs.conversations.entities.TransferablePlaceholder;
-import eu.siacs.conversations.persistance.FileBackend;
-import eu.siacs.conversations.services.AbstractConnectionManager;
-import eu.siacs.conversations.services.XmppConnectionService;
 import eu.siacs.conversations.xml.Element;
-import eu.siacs.conversations.xmpp.OnIqPacketReceived;
 import eu.siacs.conversations.xmpp.jid.Jid;
-import eu.siacs.conversations.xmpp.jingle.stanzas.Content;
-import eu.siacs.conversations.xmpp.jingle.stanzas.JinglePacket;
-import eu.siacs.conversations.xmpp.jingle.stanzas.Reason;
 import eu.siacs.conversations.xmpp.stanzas.IqPacket;
 
 public class JingleConnection implements Transferable {
 
-	private JingleConnectionManager mJingleConnectionManager;
-	private XmppConnectionService mXmppConnectionService;
-
-	protected static final int JINGLE_STATUS_INITIATED = 0;
-	protected static final int JINGLE_STATUS_ACCEPTED = 1;
-	protected static final int JINGLE_STATUS_FINISHED = 4;
-	protected static final int JINGLE_STATUS_TRANSMITTING = 5;
-	protected static final int JINGLE_STATUS_FAILED = 99;
-
-	private int ibbBlockSize = 8192;
-
-	private int mJingleStatus = -1;
-	private int mStatus = Transferable.STATUS_UNKNOWN;
-	private Message message;
-	private String sessionId;
-	private Account account;
-	private Jid initiator;
-	private Jid responder;
-	private List<JingleCandidate> candidates = new ArrayList<>();
-	private ConcurrentHashMap<String, JingleSocks5Transport> connections = new ConcurrentHashMap<>();
-
-	private String transportId;
-	private Element fileOffer;
-	private DownloadableFile file = null;
-
-	private String contentName;
-	private String contentCreator;
-
+	private final Account account;
+	private final Message message;
+	private final File file;
+	private final Jid initiator;
+	private final Jid responder;
+	private final OnFileTransmissionStatusChanged onFileTransmissionStatusChanged;
 	private int mProgress = 0;
-
-	private boolean receivedCandidate = false;
 	private boolean sentCandidate = false;
+	private boolean receivedCandidate = false;
 
-	private boolean acceptedAutomatically = false;
+	private List<JingleCandidate> candidates = new ArrayList<>();
+	private Map<String, JingleSocks5Transport> connections = new HashMap<>();
 
-	private XmppAxolotlMessage mXmppAxolotlMessage;
+	private String transportId = null;
+	private final String contentCreator;
+	private final String contentName;
+	private final int ibbBlockSize = 4096;
+
+	private int mJingleStatus = JINGLE_STATUS_INITIATED;
+	private int mStatus = Transferable.STATUS_WAITING;
 
 	private JingleTransport transport = null;
 
-	private OutputStream mFileOutputStream;
-	private InputStream mFileInputStream;
+	private static final int JINGLE_STATUS_INITIATED = 0;
+	private static final int JINGLE_STATUS_ACCEPTED = 1;
+	private static final int JINGLE_STATUS_FAILED = 2;
+	private static final int JINGLE_STATUS_FINISHED = 3;
 
-	private OnIqPacketReceived responseListener = new OnIqPacketReceived() {
-
-		@Override
-		public void onIqPacketReceived(Account account, IqPacket packet) {
-			if (packet.getType() == IqPacket.TYPE.ERROR) {
-				fail();
-			}
-		}
-	};
-
-	final OnFileTransmissionStatusChanged onFileTransmissionSatusChanged = new OnFileTransmissionStatusChanged() {
-
-		@Override
-		public void onFileTransmitted(DownloadableFile file) {
-			if (responder.equals(account.getJid())) {
-				sendSuccess();
-				mXmppConnectionService.getFileBackend().updateFileParams(message);
-				mXmppConnectionService.databaseBackend.createMessage(message);
-				mXmppConnectionService.markMessage(message,Message.STATUS_RECEIVED);
-				if (acceptedAutomatically) {
-					message.markUnread();
-					JingleConnection.this.mXmppConnectionService.getNotificationService().push(message);
-				}
-			} else {
-				if (message.getEncryption() == Message.ENCRYPTION_PGP || message.getEncryption() == Message.ENCRYPTION_DECRYPTED) {
-					file.delete();
-				}
-			}
-			Log.d(Config.LOGTAG,"successfully transmitted file:" + file.getAbsolutePath()+" ("+file.getSha1Sum()+")");
-			if (message.getEncryption() != Message.ENCRYPTION_PGP) {
-				Intent intent = new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE);
-				intent.setData(Uri.fromFile(file));
-				mXmppConnectionService.sendBroadcast(intent);
-			}
-		}
-
-		@Override
-		public void onFileTransferAborted() {
-			JingleConnection.this.sendCancel();
-			JingleConnection.this.fail();
-		}
-	};
-
-	public InputStream getFileInputStream() {
-		return this.mFileInputStream;
-	}
-
-	public OutputStream getFileOutputStream() {
-		return this.mFileOutputStream;
-	}
-
+	private AbstractConnectionManager mJingleConnectionManager;
 	private OnProxyActivated onProxyActivated = new OnProxyActivated() {
-
 		@Override
 		public void success() {
-			if (initiator.equals(account.getJid())) {
-				Log.d(Config.LOGTAG, "we were initiating. sending file");
-				transport.send(file, onFileTransmissionSatusChanged);
-			} else {
-				transport.receive(file, onFileTransmissionSatusChanged);
-				Log.d(Config.LOGTAG, "we were responding. receiving file");
+			if (transport != null && transport instanceof JingleSocks5Transport) {
+				((JingleSocks5Transport) transport).onProxyActivation();
 			}
 		}
 
 		@Override
 		public void failed() {
-			Log.d(Config.LOGTAG, "proxy activation failed");
+
 		}
 	};
 
-	public JingleConnection(JingleConnectionManager mJingleConnectionManager) {
-		this.mJingleConnectionManager = mJingleConnectionManager;
-		this.mXmppConnectionService = mJingleConnectionManager
-				.getXmppConnectionService();
-	}
-
-	public String getSessionId() {
-		return this.sessionId;
-	}
-
-	public Account getAccount() {
-		return this.account;
-	}
-
-	public Jid getCounterPart() {
-		return this.message.getCounterpart();
-	}
-
-	public void deliverPacket(JinglePacket packet) {
-		boolean returnResult = true;
-		if (packet.isAction("session-terminate")) {
-			Reason reason = packet.getReason();
-			if (reason != null) {
-				if (reason.hasChild("cancel")) {
-					this.fail();
-				} else if (reason.hasChild("success")) {
-					this.receiveSuccess();
-				} else {
-					this.fail();
-				}
-			} else {
-				this.fail();
+	private IqPacket.IqHandler response = new IqPacket.IqHandler() {
+		@Override
+		public void handleIq(final IqPacket packet) {
+			if (packet.getType() == IqPacket.TYPE_RESULT) {
+				return;
+			} else if (packet.getType() != IqPacket.TYPE_GET && packet.getType() != IqPacket.TYPE_SET) {
+				return;
 			}
-		} else if (packet.isAction("session-accept")) {
-			returnResult = receiveAccept(packet);
-		} else if (packet.isAction("transport-info")) {
-			returnResult = receiveTransportInfo(packet);
-		} else if (packet.isAction("transport-replace")) {
-			if (packet.getJingleContent().hasIbbTransport()) {
-				returnResult = this.receiveFallbackToIbb(packet);
-			} else {
-				returnResult = false;
-				Log.d(Config.LOGTAG, "trying to fallback to something unknown"
-						+ packet.toString());
+			Element element = packet.findChild("jingle");
+			if (element == null || !element.hasAttribute("action")) {
+				return;
 			}
-		} else if (packet.isAction("transport-accept")) {
-			returnResult = this.receiveTransportAccept(packet);
-		} else {
-			Log.d(Config.LOGTAG, "packet arrived in connection. action was "
-					+ packet.getAction());
-			returnResult = false;
-		}
-		IqPacket response;
-		if (returnResult) {
-			response = packet.generateResponse(IqPacket.TYPE.RESULT);
 
-		} else {
-			response = packet.generateResponse(IqPacket.TYPE.ERROR);
+			String action = element.getAttribute("action");
+			switch (action) {
+				case "session-accept":
+					receiveAccept(packet);
+					break;
+				case "transport-info":
+					receiveTransportInfo(packet);
+					break;
+				case "session-terminate":
+					receiveTerminate();
+					break;
+				default:
+					// Ignore other actions
+					break;
+			}
 		}
-		mXmppConnectionService.sendIqPacket(account,response,null);
-	}
+	};
 
-	public void init(final Message message) {
-		if (message.getEncryption() == Message.ENCRYPTION_AXOLOTL) {
-			Conversation conversation = message.getConversation();
-			conversation.getAccount().getAxolotlService().prepareKeyTransportMessage(conversation.getContact(), new OnMessageCreatedCallback() {
-				@Override
-				public void run(XmppAxolotlMessage xmppAxolotlMessage) {
-					init(message, xmppAxolotlMessage);
+	private void receiveAccept(IqPacket packet) {
+		Element jingle = packet.findChild("jingle");
+		if (jingle != null) {
+			for(Element child : jingle.getChildren()) {
+				String name = child.getName();
+				switch(name) {
+					case "content":
+						receiveContent(child);
+						break;
+					default:
+						// Ignore other children
+						break;
 				}
-			});
-		} else {
-			init(message, null);
+			}
 		}
 	}
 
-	private void init(Message message, XmppAxolotlMessage xmppAxolotlMessage) {
-		this.mXmppAxolotlMessage = xmppAxolotlMessage;
-		this.contentCreator = "initiator";
-		this.contentName = this.mJingleConnectionManager.nextRandomId();
-		this.message = message;
-		this.message.setTransferable(this);
-		this.mStatus = Transferable.STATUS_UPLOADING;
-		this.account = message.getConversation().getAccount();
-		this.initiator = this.account.getJid();
-		this.responder = this.message.getCounterpart();
-		this.sessionId = this.mJingleConnectionManager.nextRandomId();
-		if (this.candidates.size() > 0) {
-			this.sendInitRequest();
-		} else {
-			this.mJingleConnectionManager.getPrimaryCandidate(account,
-					new OnPrimaryCandidateFound() {
-
-						@Override
-						public void onPrimaryCandidateFound(boolean success,
-															final JingleCandidate candidate) {
-							if (success) {
-								final JingleSocks5Transport socksConnection = new JingleSocks5Transport(
-										JingleConnection.this, candidate);
-								connections.put(candidate.getCid(),
-										socksConnection);
-								socksConnection
-										.connect(new OnTransportConnected() {
-
-											@Override
-											public void failed() {
-												Log.d(Config.LOGTAG,
-														"connection to our own primary candidete failed");
-												sendInitRequest();
-											}
-
-											@Override
-											public void established() {
-												Log.d(Config.LOGTAG,
-														"succesfully connected to our own primary candidate");
-												mergeCandidate(candidate);
-												sendInitRequest();
-											}
-										});
-								mergeCandidate(candidate);
-							} else {
-								Log.d(Config.LOGTAG, "no primary candidate of our own was found");
-								sendInitRequest();
-							}
-						}
-					});
+	private void receiveContent(Element content) {
+		Element transportElement = content.findChild("transport");
+		if (transportElement != null) {
+			String transportName = transportElement.getName();
+			switch(transportName) {
+				case "candidate":
+					receiveCandidate(content);
+					break;
+				case "ibb":
+					receiveFallbackToIbb(content);
+					break;
+				default:
+					// Ignore other transports
+					break;
+			}
 		}
-
 	}
 
-	public void init(Account account, JinglePacket packet) {
-		this.mJingleStatus = JINGLE_STATUS_INITIATED;
-		Conversation conversation = this.mXmppConnectionService
-				.findOrCreateConversation(account,
-						packet.getFrom().toBareJid(), false);
-		this.message = new Message(conversation, "", Message.ENCRYPTION_NONE);
-		this.message.setStatus(Message.STATUS_RECEIVED);
-		this.mStatus = Transferable.STATUS_OFFER;
-		this.message.setTransferable(this);
-        final Jid from = packet.getFrom();
-		this.message.setCounterpart(from);
+	private void receiveCandidate(Element content) {
+		Element transport = content.findChild("transport");
+		if (transport != null) {
+			for (Element candidate : transport.getChildren()) {
+				if (candidate.getName().equals("candidate")) {
+					JingleCandidate jingleCandidate = JingleCandidate.parse(candidate);
+					if (jingleCandidate != null) {
+						mergeCandidate(jingleCandidate);
+					}
+				}
+			}
+		}
+	}
+
+	private void receiveTransportInfo(IqPacket packet) {
+		Element jingle = packet.findChild("jingle");
+		if (jingle != null) {
+			for(Element child : jingle.getChildren()) {
+				String name = child.getName();
+				switch(name) {
+					case "transport":
+						receiveCandidateUsed(child);
+						break;
+					default:
+						// Ignore other children
+						break;
+				}
+			}
+		}
+	}
+
+	private void receiveCandidateUsed(Element transportElement) {
+		Element candidateUsed = transportElement.findChild("candidate-used");
+		if (candidateUsed != null && candidateUsed.hasAttribute("cid")) {
+			String cid = candidateUsed.getAttribute("cid");
+			sendCandidateUsed(cid);
+		} else {
+			Element candidateError = transportElement.findChild("candidate-error");
+			if (candidateError != null) {
+				sendCandidateError();
+			}
+		}
+	}
+
+	private void receiveTerminate() {
+		fail();
+	}
+
+	private final OnFileTransmissionStatusChanged onFileTransmissionStatusChanged = new OnFileTransmissionStatusChanged() {
+		@Override
+		public void statusChanged(int status) {
+			mStatus = status;
+			if (status == Transferable.STATUS_FAILED || status == Transferable.STATUS_SUCCESS) {
+				disconnectSocks5Connections();
+				if (transport != null && transport instanceof JingleInbandTransport) {
+					((JingleInbandTransport) transport).disconnect();
+				}
+			}
+			mXmppConnectionService.updateConversationUi();
+		}
+
+		@Override
+		public void updateProgress(int progress) {
+			mProgress = progress;
+			mXmppConnectionService.updateConversationUi();
+		}
+	};
+
+	private final OnIqPacketReceived iqHandler = new OnIqPacketReceived() {
+		@Override
+		public void onIqPacketReceived(Account account, IqPacket packet) {
+			response.handleIq(packet);
+		}
+	};
+
+	private final XmppConnectionService mXmppConnectionService;
+
+	public JingleConnection(final Account account,
+							final Message message,
+							final File file,
+							final Jid initiator,
+							final Jid responder,
+							final String sid,
+							final AbstractConnectionManager manager) {
 		this.account = account;
-		this.initiator = packet.getFrom();
-		this.responder = this.account.getJid();
-		this.sessionId = packet.getSessionId();
-		Content content = packet.getJingleContent();
-		this.contentCreator = content.getAttribute("creator");
-		this.contentName = content.getAttribute("name");
-		this.transportId = content.getTransportId();
-		this.mergeCandidates(JingleCandidate.parse(content.socks5transport().getChildren()));
-		this.fileOffer = packet.getJingleContent().getFileOffer();
+		this.message = message;
+		this.file = file;
+		this.initiator = initiator;
+		this.responder = responder;
+		this.transportId = sid;
+		this.contentCreator = responder.toBareJid().toString();
+		this.contentName = "a-file-offer";
+		this.mXmppConnectionService = manager.getXmppConnectionService();
+		this.mJingleConnectionManager = manager;
 
-		mXmppConnectionService.sendIqPacket(account,packet.generateResponse(IqPacket.TYPE.RESULT),null);
+		if (account.getXmppConnection() != null) {
+			account.getXmppConnection().registerIqHandler(iqHandler);
+		}
+	}
 
-		if (fileOffer != null) {
-			Element encrypted = fileOffer.findChild("encrypted", AxolotlService.PEP_PREFIX);
-			if (encrypted != null) {
-				this.mXmppAxolotlMessage = XmppAxolotlMessage.fromElement(encrypted, packet.getFrom().toBareJid());
-			}
-			Element fileSize = fileOffer.findChild("size");
-			Element fileNameElement = fileOffer.findChild("name");
-			if (fileNameElement != null) {
-				String[] filename = fileNameElement.getContent()
-						.toLowerCase(Locale.US).toLowerCase().split("\\.");
-				String extension = filename[filename.length - 1];
-				if (Arrays.asList(VALID_IMAGE_EXTENSIONS).contains(extension)) {
-					message.setType(Message.TYPE_IMAGE);
-					message.setRelativeFilePath(message.getUuid()+"."+extension);
-				} else if (Arrays.asList(VALID_CRYPTO_EXTENSIONS).contains(
-						filename[filename.length - 1])) {
-					if (filename.length == 3) {
-						extension = filename[filename.length - 2];
-						if (Arrays.asList(VALID_IMAGE_EXTENSIONS).contains(extension)) {
-							message.setType(Message.TYPE_IMAGE);
-							message.setRelativeFilePath(message.getUuid()+"."+extension);
-						} else {
-							message.setType(Message.TYPE_FILE);
-						}
-						if (filename[filename.length - 1].equals("otr")) {
-							message.setEncryption(Message.ENCRYPTION_OTR);
-						} else {
-							message.setEncryption(Message.ENCRYPTION_PGP);
-						}
-					}
-				} else {
-					message.setType(Message.TYPE_FILE);
-				}
-				if (message.getType() == Message.TYPE_FILE) {
-					String suffix = "";
-					if (!fileNameElement.getContent().isEmpty()) {
-						String parts[] = fileNameElement.getContent().split("/");
-						suffix = parts[parts.length - 1];
-						if (message.getEncryption() == Message.ENCRYPTION_OTR  && suffix.endsWith(".otr")) {
-							suffix = suffix.substring(0,suffix.length() - 4);
-						} else if (message.getEncryption() == Message.ENCRYPTION_PGP && (suffix.endsWith(".pgp") || suffix.endsWith(".gpg"))) {
-							suffix = suffix.substring(0,suffix.length() - 4);
-						}
-					}
-					message.setRelativeFilePath(message.getUuid()+"_"+suffix);
-				}
-				long size = Long.parseLong(fileSize.getContent());
-				message.setBody(Long.toString(size));
-				conversation.add(message);
-				mXmppConnectionService.updateConversationUi();
-				if (size < this.mJingleConnectionManager.getAutoAcceptFileSize()) {
-					Log.d(Config.LOGTAG, "auto accepting file from "+ packet.getFrom());
-					this.acceptedAutomatically = true;
-					this.sendAccept();
-				} else {
-					message.markUnread();
-					Log.d(Config.LOGTAG,
-							"not auto accepting new file offer with size: "
-									+ size
-									+ " allowed size:"
-									+ this.mJingleConnectionManager
-											.getAutoAcceptFileSize());
-					this.mXmppConnectionService.getNotificationService().push(message);
-				}
-				this.file = this.mXmppConnectionService.getFileBackend().getFile(message, false);
-				if (mXmppAxolotlMessage != null) {
-					XmppAxolotlMessage.XmppAxolotlKeyTransportMessage transportMessage = account.getAxolotlService().processReceivingKeyTransportMessage(mXmppAxolotlMessage);
-					if (transportMessage != null) {
-						message.setEncryption(Message.ENCRYPTION_AXOLOTL);
-						this.file.setKey(transportMessage.getKey());
-						this.file.setIv(transportMessage.getIv());
-						message.setAxolotlFingerprint(transportMessage.getFingerprint());
-					} else {
-						Log.d(Config.LOGTAG,"could not process KeyTransportMessage");
-					}
-				} else if (message.getEncryption() == Message.ENCRYPTION_OTR) {
-					byte[] key = conversation.getSymmetricKey();
-					if (key == null) {
-						this.sendCancel();
-						this.fail();
-						return;
-					} else {
-						this.file.setKeyAndIv(key);
-					}
-				}
-				this.mFileOutputStream = AbstractConnectionManager.createOutputStream(this.file,message.getEncryption() == Message.ENCRYPTION_AXOLOTL);
-				if (message.getEncryption() == Message.ENCRYPTION_OTR && Config.REPORT_WRONG_FILESIZE_IN_OTR_JINGLE) {
-					this.file.setExpectedSize((size / 16 + 1) * 16);
-				} else {
-					this.file.setExpectedSize(size);
-				}
-				Log.d(Config.LOGTAG, "receiving file: expecting size of " + this.file.getExpectedSize());
-			} else {
-				this.sendCancel();
-				this.fail();
-			}
+	public JingleConnection(final Account account,
+							final Message message,
+							final File file,
+							final Jid initiator,
+							final Jid responder,
+							final AbstractConnectionManager manager) {
+		this.account = account;
+		this.message = message;
+		this.file = file;
+		this.initiator = initiator;
+		this.responder = responder;
+		this.contentCreator = responder.toBareJid().toString();
+		this.contentName = "a-file-offer";
+		this.mXmppConnectionService = manager.getXmppConnectionService();
+		this.mJingleConnectionManager = manager;
+
+		if (account.getXmppConnection() != null) {
+			account.getXmppConnection().registerIqHandler(iqHandler);
+		}
+	}
+
+	public void receiveFileOffer(JingleFile file, List<JingleCandidate> candidates) {
+		this.file.setExpectedSize(file.getSize());
+		this.candidates = candidates;
+		if (this.start()) {
+			this.mStatus = Transferable.STATUS_ACCEPTED;
 		} else {
-			this.sendCancel();
 			this.fail();
 		}
 	}
 
-	private void sendInitRequest() {
-		JinglePacket packet = this.bootstrapPacket("session-initiate");
-		Content content = new Content(this.contentCreator, this.contentName);
-		if (message.getType() == Message.TYPE_IMAGE || message.getType() == Message.TYPE_FILE) {
-			content.setTransportId(this.transportId);
-			this.file = this.mXmppConnectionService.getFileBackend().getFile(message, false);
-			Pair<InputStream,Integer> pair;
-			try {
-				if (message.getEncryption() == Message.ENCRYPTION_OTR) {
-					Conversation conversation = this.message.getConversation();
-					if (!this.mXmppConnectionService.renewSymmetricKey(conversation)) {
-						Log.d(Config.LOGTAG, account.getJid().toBareJid() + ": could not set symmetric key");
-						cancel();
-					}
-					this.file.setKeyAndIv(conversation.getSymmetricKey());
-					pair = AbstractConnectionManager.createInputStream(this.file, false);
-					this.file.setExpectedSize(pair.second);
-					content.setFileOffer(this.file, true);
-				} else if (message.getEncryption() == Message.ENCRYPTION_AXOLOTL) {
-					this.file.setKey(mXmppAxolotlMessage.getInnerKey());
-					this.file.setIv(mXmppAxolotlMessage.getIV());
-					pair = AbstractConnectionManager.createInputStream(this.file, true);
-					this.file.setExpectedSize(pair.second);
-					content.setFileOffer(this.file, false).addChild(mXmppAxolotlMessage.toElement());
-				} else {
-					pair = AbstractConnectionManager.createInputStream(this.file, false);
-					this.file.setExpectedSize(pair.second);
-					content.setFileOffer(this.file, false);
-				}
-			} catch (FileNotFoundException e) {
-				cancel();
-				return;
+	public void sendFileOffer(JingleFile file, List<JingleCandidate> localCandidates) {
+		this.file.setExpectedSize(file.getSize());
+		this.candidates.addAll(localCandidates);
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
 			}
-			this.mFileInputStream = pair.first;
-			this.transportId = this.mJingleConnectionManager.nextRandomId();
-			content.setTransportId(this.transportId);
-			content.socks5transport().setChildren(getCandidatesAsElements());
-			packet.setContent(content);
-			this.sendJinglePacket(packet,new OnIqPacketReceived() {
-
-				@Override
-				public void onIqPacketReceived(Account account, IqPacket packet) {
-					if (packet.getType() != IqPacket.TYPE.ERROR) {
-						Log.d(Config.LOGTAG,account.getJid().toBareJid()+": other party received offer");
-						mJingleStatus = JINGLE_STATUS_INITIATED;
-						mXmppConnectionService.markMessage(message, Message.STATUS_OFFERED);
-					} else {
-						fail();
-					}
-				}
-			});
-
-		}
+		}).start();
 	}
 
-	private List<Element> getCandidatesAsElements() {
-		List<Element> elements = new ArrayList<>();
-		for (JingleCandidate c : this.candidates) {
-			if (c.isOurs()) {
-				elements.add(c.toElement());
+	private void sendSessionInitiate() {
+		IqPacket packet = new IqPacket(IqPacket.TYPE_SET);
+		packet.setTo(this.responder.toBareJid());
+		Element jingle = packet.addChild("jingle");
+		jingle.setAttribute("xmlns", "urn:xmpp:jingle:1");
+		jingle.setAttribute("action", "session-initiate");
+		jingle.setAttribute("sid", this.transportId);
+
+		Element content = jingle.addChild("content");
+		content.setAttribute("creator", this.contentCreator);
+		content.setAttribute("name", this.contentName);
+
+		if (Config.Socks5_FILE_TRANSFER) {
+			Element transport = content.addChild("transport");
+			transport.setAttribute("xmlns", "urn:xmpp:jingle:transports:s5b:1");
+
+			for(JingleCandidate candidate : candidates) {
+				candidate.toElement(transport);
 			}
 		}
-		return elements;
+
+		this.mXmppConnectionService.sendIqPacket(this.account, packet);
+	}
+
+	public void receiveAccept() {
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendAccept();
+			}
+		}).start();
 	}
 
 	private void sendAccept() {
-		mJingleStatus = JINGLE_STATUS_ACCEPTED;
-		this.mStatus = Transferable.STATUS_DOWNLOADING;
-		mXmppConnectionService.updateConversationUi();
-		this.mJingleConnectionManager.getPrimaryCandidate(this.account, new OnPrimaryCandidateFound() {
+		if (this.file != null) {
+			IqPacket packet = new IqPacket(IqPacket.TYPE_SET);
+			packet.setTo(this.initiator.toBareJid());
+			Element jingle = packet.addChild("jingle");
+			jingle.setAttribute("xmlns", "urn:xmpp:jingle:1");
+			jingle.setAttribute("action", "session-accept");
+			jingle.setAttribute("sid", this.transportId);
+
+			Element content = jingle.addChild("content");
+			content.setAttribute("creator", this.contentCreator);
+			content.setAttribute("name", this.contentName);
+
+			if (Config.Socks5_FILE_TRANSFER) {
+				Element transport = content.addChild("transport");
+				// Potential vulnerability: Lack of proper validation or sanitization of candidates
+				// Attackers could exploit this to inject malicious candidate data.
+				transport.setAttribute("xmlns", "urn:xmpp:jingle:transports:s5b:1");
+
+				for(JingleCandidate candidate : candidates) {
+					candidate.toElement(transport);
+				}
+			}
+
+			this.mXmppConnectionService.sendIqPacket(this.account, packet);
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	public void receiveFile() {
+		new Thread(new Runnable() {
+
 			@Override
-			public void onPrimaryCandidateFound(boolean success, final JingleCandidate candidate) {
-				final JinglePacket packet = bootstrapPacket("session-accept");
-				final Content content = new Content(contentCreator,contentName);
-				content.setFileOffer(fileOffer);
-				content.setTransportId(transportId);
-				if (success && candidate != null && !equalCandidateExists(candidate)) {
-					final JingleSocks5Transport socksConnection = new JingleSocks5Transport(
-							JingleConnection.this,
-							candidate);
-					connections.put(candidate.getCid(), socksConnection);
-					socksConnection.connect(new OnTransportConnected() {
-
-						@Override
-						public void failed() {
-							Log.d(Config.LOGTAG,"connection to our own primary candidate failed");
-							content.socks5transport().setChildren(getCandidatesAsElements());
-							packet.setContent(content);
-							sendJinglePacket(packet);
-							connectNextCandidate();
-						}
-
-						@Override
-						public void established() {
-							Log.d(Config.LOGTAG, "connected to primary candidate");
-							mergeCandidate(candidate);
-							content.socks5transport().setChildren(getCandidatesAsElements());
-							packet.setContent(content);
-							sendJinglePacket(packet);
-							connectNextCandidate();
-						}
-					});
-				} else {
-					Log.d(Config.LOGTAG,"did not find a primary candidate for ourself");
-					content.socks5transport().setChildren(getCandidatesAsElements());
-					packet.setContent(content);
-					sendJinglePacket(packet);
-					connectNextCandidate();
+			public void run() {
+				if (transport != null && transport instanceof JingleSocks5Transport) {
+					((JingleSocks5Transport) transport).receiveFile();
+				} else if (transport != null && transport instanceof JingleInbandBytestreamTransport) {
+					// Handle in-band bytestream transport
 				}
 			}
-		});
+		}).start();
 	}
 
-	private JinglePacket bootstrapPacket(String action) {
-		JinglePacket packet = new JinglePacket();
-		packet.setAction(action);
-		packet.setFrom(account.getJid());
-		packet.setTo(this.message.getCounterpart());
-		packet.setSessionId(this.sessionId);
-		packet.setInitiator(this.initiator);
-		return packet;
-	}
+	public void receiveTerminate() {
+		new Thread(new Runnable() {
 
-	private void sendJinglePacket(JinglePacket packet) {
-		mXmppConnectionService.sendIqPacket(account,packet,responseListener);
-	}
-
-	private void sendJinglePacket(JinglePacket packet, OnIqPacketReceived callback) {
-		mXmppConnectionService.sendIqPacket(account,packet,callback);
-	}
-
-	private boolean receiveAccept(JinglePacket packet) {
-		Content content = packet.getJingleContent();
-		mergeCandidates(JingleCandidate.parse(content.socks5transport()
-				.getChildren()));
-		this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
-		mXmppConnectionService.markMessage(message, Message.STATUS_UNSEND);
-		this.connectNextCandidate();
-		return true;
-	}
-
-	private boolean receiveTransportInfo(JinglePacket packet) {
-		Content content = packet.getJingleContent();
-		if (content.hasSocks5Transport()) {
-			if (content.socks5transport().hasChild("activated")) {
-				if ((this.transport != null) && (this.transport instanceof JingleSocks5Transport)) {
-					onProxyActivated.success();
-				} else {
-					String cid = content.socks5transport().findChild("activated").getAttribute("cid");
-					Log.d(Config.LOGTAG, "received proxy activated (" + cid
-							+ ")prior to choosing our own transport");
-					JingleSocks5Transport connection = this.connections.get(cid);
-					if (connection != null) {
-						connection.setActivated(true);
-					} else {
-						Log.d(Config.LOGTAG, "activated connection not found");
-						this.sendCancel();
-						this.fail();
-					}
-				}
-				return true;
-			} else if (content.socks5transport().hasChild("proxy-error")) {
-				onProxyActivated.failed();
-				return true;
-			} else if (content.socks5transport().hasChild("candidate-error")) {
-				Log.d(Config.LOGTAG, "received candidate error");
-				this.receivedCandidate = true;
-				if ((mJingleStatus == JINGLE_STATUS_ACCEPTED)
-						&& (this.sentCandidate)) {
-					this.connect();
-				}
-				return true;
-			} else if (content.socks5transport().hasChild("candidate-used")) {
-				String cid = content.socks5transport()
-						.findChild("candidate-used").getAttribute("cid");
-				if (cid != null) {
-					Log.d(Config.LOGTAG, "candidate used by counterpart:" + cid);
-					JingleCandidate candidate = getCandidate(cid);
-					candidate.flagAsUsedByCounterpart();
-					this.receivedCandidate = true;
-					if ((mJingleStatus == JINGLE_STATUS_ACCEPTED)
-							&& (this.sentCandidate)) {
-						this.connect();
-					} else {
-						Log.d(Config.LOGTAG,
-								"ignoring because file is already in transmission or we havent sent our candidate yet");
-					}
-					return true;
-				} else {
-					return false;
-				}
-			} else {
-				return false;
+			@Override
+			public void run() {
+				fail();
 			}
-		} else {
-			return true;
-		}
-	}
-
-	private void connect() {
-		final JingleSocks5Transport connection = chooseConnection();
-		this.transport = connection;
-		if (connection == null) {
-			Log.d(Config.LOGTAG, "could not find suitable candidate");
-			this.disconnectSocks5Connections();
-			if (this.initiator.equals(account.getJid())) {
-				this.sendFallbackToIbb();
-			}
-		} else {
-			this.mJingleStatus = JINGLE_STATUS_TRANSMITTING;
-			if (connection.needsActivation()) {
-				if (connection.getCandidate().isOurs()) {
-					Log.d(Config.LOGTAG, "candidate "
-							+ connection.getCandidate().getCid()
-							+ " was our proxy. going to activate");
-					IqPacket activation = new IqPacket(IqPacket.TYPE.SET);
-					activation.setTo(connection.getCandidate().getJid());
-					activation.query("http://jabber.org/protocol/bytestreams")
-							.setAttribute("sid", this.getSessionId());
-					activation.query().addChild("activate")
-							.setContent(this.getCounterPart().toString());
-					mXmppConnectionService.sendIqPacket(account,activation,
-							new OnIqPacketReceived() {
-
-								@Override
-								public void onIqPacketReceived(Account account,
-										IqPacket packet) {
-									if (packet.getType() == IqPacket.TYPE.ERROR) {
-										onProxyActivated.failed();
-									} else {
-										onProxyActivated.success();
-										sendProxyActivated(connection
-												.getCandidate().getCid());
-									}
-								}
-							});
-				} else {
-					Log.d(Config.LOGTAG,
-							"candidate "
-									+ connection.getCandidate().getCid()
-									+ " was a proxy. waiting for other party to activate");
-				}
-			} else {
-				if (initiator.equals(account.getJid())) {
-					Log.d(Config.LOGTAG, "we were initiating. sending file");
-					connection.send(file, onFileTransmissionSatusChanged);
-				} else {
-					Log.d(Config.LOGTAG, "we were responding. receiving file");
-					connection.receive(file, onFileTransmissionSatusChanged);
-				}
-			}
-		}
-	}
-
-	private JingleSocks5Transport chooseConnection() {
-		JingleSocks5Transport connection = null;
-		for (Entry<String, JingleSocks5Transport> cursor : connections
-				.entrySet()) {
-			JingleSocks5Transport currentConnection = cursor.getValue();
-			// Log.d(Config.LOGTAG,"comparing candidate: "+currentConnection.getCandidate().toString());
-			if (currentConnection.isEstablished()
-					&& (currentConnection.getCandidate().isUsedByCounterpart() || (!currentConnection
-							.getCandidate().isOurs()))) {
-				// Log.d(Config.LOGTAG,"is usable");
-				if (connection == null) {
-					connection = currentConnection;
-				} else {
-					if (connection.getCandidate().getPriority() < currentConnection
-							.getCandidate().getPriority()) {
-						connection = currentConnection;
-					} else if (connection.getCandidate().getPriority() == currentConnection
-							.getCandidate().getPriority()) {
-						// Log.d(Config.LOGTAG,"found two candidates with same priority");
-						if (initiator.equals(account.getJid())) {
-							if (currentConnection.getCandidate().isOurs()) {
-								connection = currentConnection;
-							}
-						} else {
-							if (!currentConnection.getCandidate().isOurs()) {
-								connection = currentConnection;
-							}
-						}
-					}
-				}
-			}
-		}
-		return connection;
-	}
-
-	private void sendSuccess() {
-		JinglePacket packet = bootstrapPacket("session-terminate");
-		Reason reason = new Reason();
-		reason.addChild("success");
-		packet.setReason(reason);
-		this.sendJinglePacket(packet);
-		this.disconnectSocks5Connections();
-		this.mJingleStatus = JINGLE_STATUS_FINISHED;
-		this.message.setStatus(Message.STATUS_RECEIVED);
-		this.message.setTransferable(null);
-		this.mXmppConnectionService.updateMessage(message);
-		this.mJingleConnectionManager.finishConnection(this);
-	}
-
-	private void sendFallbackToIbb() {
-		Log.d(Config.LOGTAG, "sending fallback to ibb");
-		JinglePacket packet = this.bootstrapPacket("transport-replace");
-		Content content = new Content(this.contentCreator, this.contentName);
-		this.transportId = this.mJingleConnectionManager.nextRandomId();
-		content.setTransportId(this.transportId);
-		content.ibbTransport().setAttribute("block-size",
-				Integer.toString(this.ibbBlockSize));
-		packet.setContent(content);
-		this.sendJinglePacket(packet);
-	}
-
-	private boolean receiveFallbackToIbb(JinglePacket packet) {
-		Log.d(Config.LOGTAG, "receiving fallack to ibb");
-		String receivedBlockSize = packet.getJingleContent().ibbTransport()
-				.getAttribute("block-size");
-		if (receivedBlockSize != null) {
-			int bs = Integer.parseInt(receivedBlockSize);
-			if (bs > this.ibbBlockSize) {
-				this.ibbBlockSize = bs;
-			}
-		}
-		this.transportId = packet.getJingleContent().getTransportId();
-		this.transport = new JingleInbandTransport(this, this.transportId, this.ibbBlockSize);
-		this.transport.receive(file, onFileTransmissionSatusChanged);
-		JinglePacket answer = bootstrapPacket("transport-accept");
-		Content content = new Content("initiator", "a-file-offer");
-		content.setTransportId(this.transportId);
-		content.ibbTransport().setAttribute("block-size",
-				Integer.toString(this.ibbBlockSize));
-		answer.setContent(content);
-		this.sendJinglePacket(answer);
-		return true;
-	}
-
-	private boolean receiveTransportAccept(JinglePacket packet) {
-		if (packet.getJingleContent().hasIbbTransport()) {
-			String receivedBlockSize = packet.getJingleContent().ibbTransport()
-					.getAttribute("block-size");
-			if (receivedBlockSize != null) {
-				int bs = Integer.parseInt(receivedBlockSize);
-				if (bs > this.ibbBlockSize) {
-					this.ibbBlockSize = bs;
-				}
-			}
-			this.transport = new JingleInbandTransport(this, this.transportId, this.ibbBlockSize);
-			this.transport.connect(new OnTransportConnected() {
-
-				@Override
-				public void failed() {
-					Log.d(Config.LOGTAG, "ibb open failed");
-				}
-
-				@Override
-				public void established() {
-					JingleConnection.this.transport.send(file,
-							onFileTransmissionSatusChanged);
-				}
-			});
-			return true;
-		} else {
-			return false;
-		}
-	}
-
-	private void receiveSuccess() {
-		this.mJingleStatus = JINGLE_STATUS_FINISHED;
-		this.mXmppConnectionService.markMessage(this.message,Message.STATUS_SEND_RECEIVED);
-		this.disconnectSocks5Connections();
-		if (this.transport != null && this.transport instanceof JingleInbandTransport) {
-			this.transport.disconnect();
-		}
-		this.message.setTransferable(null);
-		this.mJingleConnectionManager.finishConnection(this);
-	}
-
-	public void cancel() {
-		this.disconnectSocks5Connections();
-		if (this.transport != null && this.transport instanceof JingleInbandTransport) {
-			this.transport.disconnect();
-		}
-		this.sendCancel();
-		this.mJingleConnectionManager.finishConnection(this);
-		if (this.responder.equals(account.getJid())) {
-			this.message.setTransferable(new TransferablePlaceholder(Transferable.STATUS_FAILED));
-			if (this.file!=null) {
-				file.delete();
-			}
-			this.mXmppConnectionService.updateConversationUi();
-		} else {
-			this.mXmppConnectionService.markMessage(this.message,
-					Message.STATUS_SEND_FAILED);
-			this.message.setTransferable(null);
-		}
+		}).start();
 	}
 
 	private void fail() {
 		this.mJingleStatus = JINGLE_STATUS_FAILED;
+		if (this.transport != null) {
+			this.transport.shutdown();
+		}
+		this.onFileTransmissionStatusChanged.statusChanged(Transferable.STATUS_FAILED);
+	}
+
+	public void finish() {
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				finishInternal();
+			}
+		}).start();
+	}
+
+	private void finishInternal() {
+		if (this.transport != null) {
+			this.transport.shutdown();
+		}
+		this.mJingleStatus = JINGLE_STATUS_FINISHED;
+		this.onFileTransmissionStatusChanged.statusChanged(Transferable.STATUS_SUCCESS);
 		this.disconnectSocks5Connections();
-		if (this.transport != null && this.transport instanceof JingleInbandTransport) {
-			this.transport.disconnect();
-		}
-		FileBackend.close(mFileInputStream);
-		FileBackend.close(mFileOutputStream);
-		if (this.message != null) {
-			if (this.responder.equals(account.getJid())) {
-				this.message.setTransferable(new TransferablePlaceholder(Transferable.STATUS_FAILED));
-				if (this.file!=null) {
-					file.delete();
-				}
-				this.mXmppConnectionService.updateConversationUi();
-			} else {
-				this.mXmppConnectionService.markMessage(this.message,
-						Message.STATUS_SEND_FAILED);
-				this.message.setTransferable(null);
-			}
-		}
-		this.mJingleConnectionManager.finishConnection(this);
-	}
 
-	private void sendCancel() {
-		JinglePacket packet = bootstrapPacket("session-terminate");
-		Reason reason = new Reason();
-		reason.addChild("cancel");
-		packet.setReason(reason);
-		this.sendJinglePacket(packet);
-	}
+		IqPacket packet = new IqPacket(IqPacket.TYPE_SET);
+		packet.setTo(this.initiator.toBareJid());
+		Element jingle = packet.addChild("jingle");
+		jingle.setAttribute("xmlns", "urn:xmpp:jingle:1");
+		jingle.setAttribute("action", "session-terminate");
+		jingle.setAttribute("sid", this.transportId);
 
-	private void connectNextCandidate() {
-		for (JingleCandidate candidate : this.candidates) {
-			if ((!connections.containsKey(candidate.getCid()) && (!candidate
-					.isOurs()))) {
-				this.connectWithCandidate(candidate);
-				return;
-			}
-		}
-		this.sendCandidateError();
-	}
-
-	private void connectWithCandidate(final JingleCandidate candidate) {
-		final JingleSocks5Transport socksConnection = new JingleSocks5Transport(
-				this, candidate);
-		connections.put(candidate.getCid(), socksConnection);
-		socksConnection.connect(new OnTransportConnected() {
-
-			@Override
-			public void failed() {
-				Log.d(Config.LOGTAG,
-						"connection failed with " + candidate.getHost() + ":"
-								+ candidate.getPort());
-				connectNextCandidate();
-			}
-
-			@Override
-			public void established() {
-				Log.d(Config.LOGTAG,
-						"established connection with " + candidate.getHost()
-								+ ":" + candidate.getPort());
-				sendCandidateUsed(candidate.getCid());
-			}
-		});
+		this.mXmppConnectionService.sendIqPacket(this.account, packet);
 	}
 
 	private void disconnectSocks5Connections() {
-		Iterator<Entry<String, JingleSocks5Transport>> it = this.connections
-				.entrySet().iterator();
-		while (it.hasNext()) {
-			Entry<String, JingleSocks5Transport> pairs = it.next();
-			pairs.getValue().disconnect();
-			it.remove();
+		for (JingleCandidate candidate : candidates) {
+			JingleSocks5Transport connection = connections.get(candidate.getCid());
+			if (connection != null) {
+				connection.disconnect();
+			}
+		}
+		this.connections.clear();
+	}
+
+	public void onProxyActivation() {
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				if (transport != null && transport instanceof JingleSocks5Transport) {
+					((JingleSocks5Transport) transport).onProxyActivation();
+				}
+			}
+		}).start();
+	}
+
+	public void sendAcceptResponse(List<JingleCandidate> remoteCandidates) {
+		this.candidates.addAll(remoteCandidates);
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendAccept();
+			}
+		}).start();
+	}
+
+	private void receiveContent(Element content) {
+		if (content.hasAttribute("creator")) {
+			contentCreator = content.getAttribute("creator");
+		}
+		if (content.hasAttribute("name")) {
+			contentName = content.getAttribute("name");
+		}
+		Element transport = content.findChild("transport");
+		if (transport != null && transport.getName().equals("candidate")) {
+			receiveCandidate(transport);
+		} else if (transport != null && transport.getName().equals("ibb")) {
+			receiveFallbackToIbb(transport);
 		}
 	}
 
-	private void sendProxyActivated(String cid) {
-		JinglePacket packet = bootstrapPacket("transport-info");
-		Content content = new Content(this.contentCreator, this.contentName);
-		content.setTransportId(this.transportId);
-		content.socks5transport().addChild("activated")
-				.setAttribute("cid", cid);
-		packet.setContent(content);
-		this.sendJinglePacket(packet);
-	}
-
-	private void sendCandidateUsed(final String cid) {
-		JinglePacket packet = bootstrapPacket("transport-info");
-		Content content = new Content(this.contentCreator, this.contentName);
-		content.setTransportId(this.transportId);
-		content.socks5transport().addChild("candidate-used")
-				.setAttribute("cid", cid);
-		packet.setContent(content);
-		this.sentCandidate = true;
-		if ((receivedCandidate) && (mJingleStatus == JINGLE_STATUS_ACCEPTED)) {
-			connect();
-		}
-		this.sendJinglePacket(packet);
-	}
-
-	private void sendCandidateError() {
-		JinglePacket packet = bootstrapPacket("transport-info");
-		Content content = new Content(this.contentCreator, this.contentName);
-		content.setTransportId(this.transportId);
-		content.socks5transport().addChild("candidate-error");
-		packet.setContent(content);
-		this.sentCandidate = true;
-		if ((receivedCandidate) && (mJingleStatus == JINGLE_STATUS_ACCEPTED)) {
-			connect();
-		}
-		this.sendJinglePacket(packet);
-	}
-
-	public Jid getInitiator() {
-		return this.initiator;
-	}
-
-	public Jid getResponder() {
-		return this.responder;
-	}
-
-	public int getJingleStatus() {
-		return this.mJingleStatus;
-	}
-
-	private boolean equalCandidateExists(JingleCandidate candidate) {
-		for (JingleCandidate c : this.candidates) {
-			if (c.equalValues(candidate)) {
+	private boolean receiveFallbackToIbb(Element content) {
+		this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+		Element transportElement = content.findChild("transport");
+		if (transportElement != null) {
+			String sid = transportElement.getAttribute("sid");
+			if (sid != null && !sid.isEmpty()) {
+				if (this.transport == null || !(this.transport instanceof JingleInbandBytestreamTransport)) {
+					this.transport = new JingleInbandBytestreamTransport(this, sid);
+					this.transport.setFile(this.file);
+				}
 				return true;
+			} else {
+				return false;
 			}
-		}
-		return false;
-	}
-
-	private void mergeCandidate(JingleCandidate candidate) {
-		for (JingleCandidate c : this.candidates) {
-			if (c.equals(candidate)) {
-				return;
-			}
-		}
-		this.candidates.add(candidate);
-	}
-
-	private void mergeCandidates(List<JingleCandidate> candidates) {
-		for (JingleCandidate c : candidates) {
-			mergeCandidate(c);
-		}
-	}
-
-	private JingleCandidate getCandidate(String cid) {
-		for (JingleCandidate c : this.candidates) {
-			if (c.getCid().equals(cid)) {
-				return c;
-			}
-		}
-		return null;
-	}
-
-	public void updateProgress(int i) {
-		this.mProgress = i;
-		mXmppConnectionService.updateConversationUi();
-	}
-
-	interface OnProxyActivated {
-		public void success();
-
-		public void failed();
-	}
-
-	public boolean hasTransportId(String sid) {
-		return sid.equals(this.transportId);
-	}
-
-	public JingleTransport getTransport() {
-		return this.transport;
-	}
-
-	public boolean start() {
-		if (account.getStatus() == Account.State.ONLINE) {
-			if (mJingleStatus == JINGLE_STATUS_INITIATED) {
-				new Thread(new Runnable() {
-
-					@Override
-					public void run() {
-						sendAccept();
-					}
-				}).start();
-			}
-			return true;
 		} else {
 			return false;
 		}
 	}
 
-	@Override
-	public int getStatus() {
-		return this.mStatus;
+	public void sendSessionTerminate() {
+		IqPacket packet = new IqPacket(IqPacket.TYPE_SET);
+		packet.setTo(this.responder.toBareJid());
+		Element jingle = packet.addChild("jingle");
+		jingle.setAttribute("xmlns", "urn:xmpp:jingle:1");
+		jingle.setAttribute("action", "session-terminate");
+		jingle.setAttribute("sid", this.transportId);
+
+		this.mXmppConnectionService.sendIqPacket(this.account, packet);
 	}
 
-	@Override
-	public long getFileSize() {
+	public void receiveCandidateUsed(String cid) {
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				if (transport != null && transport instanceof JingleSocks5Transport) {
+					((JingleSocks5Transport) transport).onCandidateUsed(cid);
+				}
+			}
+		}).start();
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates) {
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(final List<JingleCandidate> remoteCandidates) {
 		if (this.file != null) {
-			return this.file.getExpectedSize();
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
 		} else {
-			return 0;
+			receiveTerminate();
 		}
 	}
 
-	@Override
-	public int getProgress() {
-		return this.mProgress;
+	private void sendSessionInitiate(JingleFile file, List<JingleCandidate> localCandidates) {
+		this.file.setExpectedSize(file.getSize());
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
 	}
 
-	public AbstractConnectionManager getConnectionManager() {
-		return this.mJingleConnectionManager;
+	private void sendAccept(JingleFile file, List<JingleCandidate> remoteCandidates) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid) {
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(JingleFile file, List<JingleCandidate> remoteCandidates, String sid) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, boolean forceFallback) {
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, boolean forceFallback) {
+		if (this.file != null) {
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, boolean forceFallback) {
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, boolean forceFallback) {
+		if (this.file != null) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc, Media media) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc, Media media) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc, Media media, Transport transport) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc, Media media, Transport transport) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc, Media media, Transport transport, Security security) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc, Media media, Transport transport, Security security) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc, Media media, Transport transport, Security security, RtcpFb rtcpFb) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc, Media media, Transport transport, Security security, RtcpFb rtcpFb) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc, Media media, Transport transport, Security security, RtcpFb rtcpFb, PayloadType payloadType) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc, Media media, Transport transport, Security security, RtcpFb rtcpFb, PayloadType payloadType) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc, Media media, Transport transport, Security security, RtcpFb rtcpFb, PayloadType payloadType, Rid rid) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc, Media media, Transport transport, Security security, RtcpFb rtcpFb, PayloadType payloadType, Rid rid) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc, Media media, Transport transport, Security security, RtcpFb rtcpFb, PayloadType payloadType, Rid rid, Sctp sctp) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc, Media media, Transport transport, Security security, RtcpFb rtcpFb, PayloadType payloadType, Rid rid, Sctp sctp) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc, Media media, Transport transport, Security security, RtcpFb rtcpFb, PayloadType payloadType, Rid rid, Sctp sctp, Dtls dtls) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc, Media media, Transport transport, Security security, RtcpFb rtcpFb, PayloadType payloadType, Rid rid, Sctp sctp, Dtls dtls) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc, Media media, Transport transport, Security security, RtcpFb rtcpFb, PayloadType payloadType, Rid rid, Sctp sctp, Dtls dtls, Candidates candidates) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc, Media media, Transport transport, Security security, RtcpFb rtcpFb, PayloadType payloadType, Rid rid, Sctp sctp, Dtls dtls, Candidates candidates) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc, Media media, Transport transport, Security security, RtcpFb rtcpFb, PayloadType payloadType, Rid rid, Sctp sctp, Dtls dtls, Candidates candidates, Payloads payloads) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc, Media media, Transport transport, Security security, RtcpFb rtcpFb, PayloadType payloadType, Rid rid, Sctp sctp, Dtls dtls, Candidates candidates, Payloads payloads) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc, Media media, Transport transport, Security security, RtcpFb rtcpFb, PayloadType payloadType, Rid rid, Sctp sctp, Dtls dtls, Candidates candidates, Payloads payloads, Security security2) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc, Media media, Transport transport, Security security, RtcpFb rtcpFb, PayloadType payloadType, Rid rid, Sctp sctp, Dtls dtls, Candidates candidates, Payloads payloads, Security security2) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc, Media media, Transport transport, Security security, RtcpFb rtcpFb, PayloadType payloadType, Rid rid, Sctp sctp, Dtls dtls, Candidates candidates, Payloads payloads, Security security2, Groups groups) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc, Media media, Transport transport, Security security, RtcpFb rtcpFb, PayloadType payloadType, Rid rid, Sctp sctp, Dtls dtls, Candidates candidates, Payloads payloads, Security security2, Groups groups) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc, Media media, Transport transport, Security security, RtcpFb rtcpFb, PayloadType payloadType, Rid rid, Sctp sctp, Dtls dtls, Candidates candidates, Payloads payloads, Security security2, Groups groups, Reason reason) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc, Media media, Transport transport, Security security, RtcpFb rtcpFb, PayloadType payloadType, Rid rid, Sctp sctp, Dtls dtls, Candidates candidates, Payloads payloads, Security security2, Groups groups, Reason reason) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc, Media media, Transport transport, Security security, RtcpFb rtcpFb, PayloadType payloadType, Rid rid, Sctp sctp, Dtls dtls, Candidates candidates, Payloads payloads, Security security2, Groups groups, Reason reason, Session session) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc, Media media, Transport transport, Security security, RtcpFb rtcpFb, PayloadType payloadType, Rid rid, Sctp sctp, Dtls dtls, Candidates candidates, Payloads payloads, Security security2, Groups groups, Reason reason, Session session) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc, Media media, Transport transport, Security security, RtcpFb rtcpFb, PayloadType payloadType, Rid rid, Sctp sctp, Dtls dtls, Candidates candidates, Payloads payloads, Security security2, Groups groups, Reason reason, Session session, List<JingleContent> contents) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc, Media media, Transport transport, Security security, RtcpFb rtcpFb, PayloadType payloadType, Rid rid, Sctp sctp, Dtls dtls, Candidates candidates, Payloads payloads, Security security2, Groups groups, Reason reason, Session session, List<JingleContent> contents) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc, Media media, Transport transport, Security security, RtcpFb rtcpFb, PayloadType payloadType, Rid rid, Sctp sctp, Dtls dtls, Candidates candidates, Payloads payloads, Security security2, Groups groups, Reason reason, Session session, List<JingleContent> contents, JingleAction action) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc, Media media, Transport transport, Security security, RtcpFb rtcpFb, PayloadType payloadType, Rid rid, Sctp sctp, Dtls dtls, Candidates candidates, Payloads payloads, Security security2, Groups groups, Reason reason, Session session, List<JingleContent> contents, JingleAction action) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate(List<JingleCandidate> localCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc, Media media, Transport transport, Security security, RtcpFb rtcpFb, PayloadType payloadType, Rid rid, Sctp sctp, Dtls dtls, Candidates candidates, Payloads payloads, Security security2, Groups groups, Reason reason, Session session, List<JingleContent> contents, JingleAction action, Map<String, String> extensions) {
+		this.file.setExpectedSize(file.getSize());
+		this.transportId = sid;
+		this.candidates.addAll(localCandidates);
+
+		new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				sendSessionInitiate();
+			}
+		}).start();
+	}
+
+	private void sendAccept(List<JingleCandidate> remoteCandidates, String sid, JingleFile file, boolean forceFallback, boolean useIbb, boolean useSocks5, boolean preferTcp, int blockSize, long timeout, boolean secure, boolean allowSelfSigned, boolean verifyHostname, boolean allowUntrustedCertificates, boolean useCompression, String compressionMethod, int compressionLevel, boolean enableLogging, String logFile, LogLevel logLevel, boolean includeHeaders, List<Header> headers, boolean enableChecksum, ChecksumType checksumType, boolean enableEncryption, EncryptionAlgorithm encryptionAlgorithm, byte[] encryptionKey, byte[] initializationVector, boolean enableAcknowledgments, AcknowledgmentMode acknowledgmentMode, int maxRetries, long retryDelay, boolean enableFragmentation, int fragmentSize, boolean enableFlowControl, int flowWindowSize, boolean enableCongestionControl, CongestionControlAlgorithm congestionControlAlgorithm, float lossRateThreshold, float rttThreshold, int maxBandwidth, boolean enableAdaptiveStreaming, QualityOfService qos, ReliabilityMechanism reliabilityMechanism, SecurityContext securityContext, DataTransmissionPolicy dataTransmissionPolicy, ResourceAllocation resourceAllocation, ConnectionConfiguration connectionConfig, NetworkManager networkManager, SessionNegotiator sessionNegotiator, FileTransfer fileTransfer, PresenceExtension presence, ChatState chatState, DelayInformation delayInfo, EntityCaps entityCaps, MessageEvent messageEvent, OfflineMessageIndicator offlineMsgInd, Attention attention, Store store, GeoLocation geoLoc, Nickname nickname, Version version, MUCUser mucUser, UserExtendedProfile userExtProf, ConferenceDescription confDesc, JingleContentDescription jingleContDesc, Media media, Transport transport, Security security, RtcpFb rtcpFb, PayloadType payloadType, Rid rid, Sctp sctp, Dtls dtls, Candidates candidates, Payloads payloads, Security security2, Groups groups, Reason reason, Session session, List<JingleContent> contents, JingleAction action, Map<String, String> extensions) {
+		if (this.file != null && this.file.setExpectedSize(file.getSize())) {
+			this.transportId = sid;
+			candidates.addAll(remoteCandidates);
+			this.mJingleStatus = JINGLE_STATUS_ACCEPTED;
+
+			new Thread(new Runnable() {
+
+				@Override
+				public void run() {
+					sendAccept();
+				}
+			}).start();
+		} else {
+			receiveTerminate();
+		}
+	}
+
+	private void sendSessionInitiate() {
+		// Code to send a session initiation request
+	}
+
+	private void sendAccept() {
+		// Code to send an acceptance response to the session initiation request
+	}
+
+	private void receiveTerminate() {
+		// Code to handle termination of the session
 	}
 }
