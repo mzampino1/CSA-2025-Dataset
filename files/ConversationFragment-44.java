@@ -1,10 +1,14 @@
 package eu.siacs.conversations.ui;
 
-import java.util.ArrayList;
-import java.util.List;
+import android.app.AlertDialog;
+import android.content.DialogInterface;
+import android.view.Gravity;
+import android.widget.Toast;
+
 import java.util.Set;
 
-import net.java.otr4j.session.SessionStatus;
+import de.duenndns.ssl.MemorizingTrustManager;
+import eu.siacs.conversations.Config;
 import eu.siacs.conversations.R;
 import eu.siacs.conversations.crypto.PgpEngine;
 import eu.siacs.conversations.entities.Account;
@@ -12,742 +16,413 @@ import eu.siacs.conversations.entities.Contact;
 import eu.siacs.conversations.entities.Conversation;
 import eu.siacs.conversations.entities.Message;
 import eu.siacs.conversations.entities.MucOptions;
-import eu.siacs.conversations.entities.Presences;
 import eu.siacs.conversations.services.XmppConnectionService;
-import eu.siacs.conversations.ui.EditMessage.OnEnterPressed;
-import eu.siacs.conversations.ui.XmppActivity.OnPresenceSelected;
-import eu.siacs.conversations.ui.XmppActivity.OnValueEdited;
-import eu.siacs.conversations.ui.adapter.MessageAdapter;
-import eu.siacs.conversations.ui.adapter.MessageAdapter.OnContactPictureClicked;
-import eu.siacs.conversations.ui.adapter.MessageAdapter.OnContactPictureLongClicked;
+import eu.siacs.conversations.utils.OnPresenceSelected;
+import eu.siacs.conversations.utils.Presences;
+import eu.siacs.conversations.utils.SessionStatus;
 import eu.siacs.conversations.utils.UIHelper;
-import android.app.AlertDialog;
-import android.app.Fragment;
-import android.app.PendingIntent;
-import android.content.Context;
-import android.content.DialogInterface;
-import android.content.Intent;
-import android.content.IntentSender;
-import android.content.IntentSender.SendIntentException;
-import android.os.Bundle;
-import android.text.Editable;
-import android.text.Selection;
-import android.view.Gravity;
-import android.view.KeyEvent;
-import android.view.LayoutInflater;
-import android.view.View;
-import android.view.View.OnClickListener;
-import android.view.ViewGroup;
-import android.view.inputmethod.EditorInfo;
-import android.view.inputmethod.InputMethodManager;
-import android.widget.AbsListView.OnScrollListener;
-import android.widget.TextView.OnEditorActionListener;
-import android.widget.AbsListView;
-
-import android.widget.ListView;
-import android.widget.ImageButton;
-import android.widget.RelativeLayout;
-import android.widget.TextView;
-import android.widget.Toast;
-
-public class ConversationFragment extends Fragment {
-
-	protected Conversation conversation;
-	protected ListView messagesView;
-	protected LayoutInflater inflater;
-	protected List<Message> messageList = new ArrayList<Message>();
-	protected MessageAdapter messageListAdapter;
-	protected Contact contact;
-
-	protected String queuedPqpMessage = null;
-
-	private EditMessage mEditMessage;
-	private ImageButton mSendButton;
-	private String pastedText = null;
-	private RelativeLayout snackbar;
-	private TextView snackbarMessage;
-	private TextView snackbarAction;
-
-	private boolean messagesLoaded = false;
-
-	private IntentSender askForPassphraseIntent = null;
-
-	private OnEditorActionListener mEditorActionListener = new OnEditorActionListener() {
-
-		@Override
-		public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
-			if (actionId == EditorInfo.IME_ACTION_DONE) {
-				InputMethodManager imm = (InputMethodManager) v.getContext()
-						.getSystemService(Context.INPUT_METHOD_SERVICE);
-				imm.hideSoftInputFromWindow(v.getWindowToken(), 0);
-				return true;
-			} else {
-				return false;
-			}
-		}
-	};
-
-	private OnClickListener mSendButtonListener = new OnClickListener() {
-
-		@Override
-		public void onClick(View v) {
-			sendMessage();
-		}
-	};
-	protected OnClickListener clickToDecryptListener = new OnClickListener() {
-
-		@Override
-		public void onClick(View v) {
-			if (activity.hasPgp() && askForPassphraseIntent != null) {
-				try {
-					getActivity().startIntentSenderForResult(
-							askForPassphraseIntent,
-							ConversationActivity.REQUEST_DECRYPT_PGP, null, 0,
-							0, 0);
-				} catch (SendIntentException e) {
-					//
-				}
-			}
-		}
-	};
-
-	private OnClickListener clickToMuc = new OnClickListener() {
-
-		@Override
-		public void onClick(View v) {
-			Intent intent = new Intent(getActivity(),
-					ConferenceDetailsActivity.class);
-			intent.setAction(ConferenceDetailsActivity.ACTION_VIEW_MUC);
-			intent.putExtra("uuid", conversation.getUuid());
-			startActivity(intent);
-		}
-	};
-
-	private OnClickListener leaveMuc = new OnClickListener() {
-
-		@Override
-		public void onClick(View v) {
-			activity.endConversation(conversation);
-		}
-	};
-
-	private OnClickListener enterPassword = new OnClickListener() {
-
-		@Override
-		public void onClick(View v) {
-			MucOptions muc = conversation.getMucOptions();
-			String password = muc.getPassword();
-			if (password == null) {
-				password = "";
-			}
-			activity.quickPasswordEdit(password, new OnValueEdited() {
-
-				@Override
-				public void onValueEdited(String value) {
-					activity.xmppConnectionService.providePasswordForMuc(
-							conversation, value);
-				}
-			});
-		}
-	};
-
-	private OnScrollListener mOnScrollListener = new OnScrollListener() {
-
-		@Override
-		public void onScrollStateChanged(AbsListView view, int scrollState) {
-			// TODO Auto-generated method stub
-
-		}
-
-		@Override
-		public void onScroll(AbsListView view, int firstVisibleItem,
-				int visibleItemCount, int totalItemCount) {
-			if (firstVisibleItem == 0 && messagesLoaded) {
-				long timestamp = messageList.get(0).getTimeSent();
-				messagesLoaded = false;
-				int size = activity.xmppConnectionService.loadMoreMessages(
-						conversation, timestamp);
-				messageList.clear();
-				messageList.addAll(conversation.getMessages());
-				messageListAdapter.notifyDataSetChanged();
-				if (size != 0) {
-					messagesLoaded = true;
-				}
-				messagesView.setSelectionFromTop(size + 1, 0);
-			}
-		}
-	};
-
-	private ConversationActivity activity;
-
-	private void sendMessage() {
-		if (this.conversation == null) {
-			return;
-		}
-		if (mEditMessage.getText().length() < 1) {
-			if (this.conversation.getMode() == Conversation.MODE_MULTI) {
-				conversation.setNextPresence(null);
-				updateChatMsgHint();
-			}
-			return;
-		}
-		Message message = new Message(conversation, mEditMessage.getText()
-				.toString(), conversation.getNextEncryption(activity
-				.forceEncryption()));
-		if (conversation.getMode() == Conversation.MODE_MULTI) {
-			if (conversation.getNextPresence() != null) {
-				message.setPresence(conversation.getNextPresence());
-				message.setType(Message.TYPE_PRIVATE);
-				conversation.setNextPresence(null);
-			}
-		}
-		if (conversation.getNextEncryption(activity.forceEncryption()) == Message.ENCRYPTION_OTR) {
-			sendOtrMessage(message);
-		} else if (conversation.getNextEncryption(activity.forceEncryption()) == Message.ENCRYPTION_PGP) {
-			sendPgpMessage(message);
-		} else {
-			sendPlainTextMessage(message);
-		}
-	}
-
-	public void updateChatMsgHint() {
-		if (conversation.getMode() == Conversation.MODE_MULTI
-				&& conversation.getNextPresence() != null) {
-			this.mEditMessage.setHint(getString(
-					R.string.send_private_message_to,
-					conversation.getNextPresence()));
-		} else {
-			switch (conversation.getNextEncryption(activity.forceEncryption())) {
-			case Message.ENCRYPTION_NONE:
-				mEditMessage
-						.setHint(getString(R.string.send_plain_text_message));
-				break;
-			case Message.ENCRYPTION_OTR:
-				mEditMessage.setHint(getString(R.string.send_otr_message));
-				break;
-			case Message.ENCRYPTION_PGP:
-				mEditMessage.setHint(getString(R.string.send_pgp_message));
-				break;
-			default:
-				break;
-			}
-		}
-	}
-
-	@Override
-	public View onCreateView(final LayoutInflater inflater,
-			ViewGroup container, Bundle savedInstanceState) {
-		final View view = inflater.inflate(R.layout.fragment_conversation,
-				container, false);
-		mEditMessage = (EditMessage) view.findViewById(R.id.textinput);
-		mEditMessage.setOnClickListener(new OnClickListener() {
-
-			@Override
-			public void onClick(View v) {
-				if (activity.getSlidingPaneLayout().isSlideable()) {
-					activity.getSlidingPaneLayout().closePane();
-				}
-			}
-		});
-		mEditMessage.setOnEditorActionListener(mEditorActionListener);
-		mEditMessage.setOnEnterPressedListener(new OnEnterPressed() {
-
-			@Override
-			public void onEnterPressed() {
-				sendMessage();
-			}
-		});
-
-		mSendButton = (ImageButton) view.findViewById(R.id.textSendButton);
-		mSendButton.setOnClickListener(this.mSendButtonListener);
-
-		snackbar = (RelativeLayout) view.findViewById(R.id.snackbar);
-		snackbarMessage = (TextView) view.findViewById(R.id.snackbar_message);
-		snackbarAction = (TextView) view.findViewById(R.id.snackbar_action);
-
-		messagesView = (ListView) view.findViewById(R.id.messages_view);
-		messagesView.setOnScrollListener(mOnScrollListener);
-		messagesView.setTranscriptMode(ListView.TRANSCRIPT_MODE_NORMAL);
-		messageListAdapter = new MessageAdapter(
-				(ConversationActivity) getActivity(), this.messageList);
-		messageListAdapter
-				.setOnContactPictureClicked(new OnContactPictureClicked() {
-
-					@Override
-					public void onContactPictureClicked(Message message) {
-						if (message.getStatus() <= Message.STATUS_RECEIVED) {
-							if (message.getConversation().getMode() == Conversation.MODE_MULTI) {
-								if (message.getPresence() != null) {
-									highlightInConference(message.getPresence());
-								} else {
-									highlightInConference(message
-											.getCounterpart());
-								}
-							} else {
-								Contact contact = message.getConversation()
-										.getContact();
-								if (contact.showInRoster()) {
-									activity.switchToContactDetails(contact);
-								} else {
-									activity.showAddToRosterDialog(message
-											.getConversation());
-								}
-							}
-						}
-					}
-				});
-		messageListAdapter
-				.setOnContactPictureLongClicked(new OnContactPictureLongClicked() {
-
-					@Override
-					public void onContactPictureLongClicked(Message message) {
-						if (message.getStatus() <= Message.STATUS_RECEIVED) {
-							if (message.getConversation().getMode() == Conversation.MODE_MULTI) {
-								if (message.getPresence() != null) {
-									privateMessageWith(message.getPresence());
-								} else {
-									privateMessageWith(message.getCounterpart());
-								}
-							}
-						}
-					}
-				});
-		messagesView.setAdapter(messageListAdapter);
-
-		return view;
-	}
-
-	protected void privateMessageWith(String counterpart) {
-		this.mEditMessage.setText("");
-		this.conversation.setNextPresence(counterpart);
-		updateChatMsgHint();
-	}
-
-	protected void highlightInConference(String nick) {
-		String oldString = mEditMessage.getText().toString().trim();
-		if (oldString.isEmpty() || mEditMessage.getSelectionStart() == 0) {
-			mEditMessage.getText().insert(0, nick + ": ");
-		} else {
-			if (mEditMessage.getText().charAt(
-					mEditMessage.getSelectionStart() - 1) != ' ') {
-				nick = " " + nick;
-			}
-			mEditMessage.getText().insert(mEditMessage.getSelectionStart(),
-					nick + " ");
-		}
-	}
-
-	@Override
-	public void onStart() {
-		super.onStart();
-		this.activity = (ConversationActivity) getActivity();
-		if (activity.xmppConnectionServiceBound) {
-			this.onBackendConnected();
-		}
-	}
-
-	@Override
-	public void onStop() {
-		super.onStop();
-		if (this.conversation != null) {
-			this.conversation.setNextMessage(mEditMessage.getText().toString());
-		}
-	}
-
-	public void onBackendConnected() {
-		this.activity = (ConversationActivity) getActivity();
-		this.conversation = activity.getSelectedConversation();
-		if (this.conversation == null) {
-			return;
-		}
-		String oldString = conversation.getNextMessage().trim();
-		if (this.pastedText == null) {
-			this.mEditMessage.setText(oldString);
-		} else {
-
-			if (oldString.isEmpty()) {
-				mEditMessage.setText(pastedText);
-			} else {
-				mEditMessage.setText(oldString + " " + pastedText);
-			}
-			pastedText = null;
-		}
-		int position = mEditMessage.length();
-		Editable etext = mEditMessage.getText();
-		Selection.setSelection(etext, position);
-		if (activity.getSlidingPaneLayout().isSlideable()) {
-			if (!activity.shouldPaneBeOpen()) {
-				activity.getSlidingPaneLayout().closePane();
-				activity.getActionBar().setDisplayHomeAsUpEnabled(true);
-				activity.getActionBar().setHomeButtonEnabled(true);
-				if (conversation.getMode() == Conversation.MODE_SINGLE || activity.useSubjectToIdentifyConference()) {
-					activity.getActionBar().setTitle(conversation.getName());
-				} else {
-					activity.getActionBar().setTitle(conversation.getContactJid().split("/")[0]);
-				}
-				activity.invalidateOptionsMenu();
-			}
-		}
-		if (this.conversation.getMode() == Conversation.MODE_MULTI) {
-			conversation.setNextPresence(null);
-		}
-		updateMessages();
-	}
-
-	private void decryptMessage(Message message) {
-		PgpEngine engine = activity.xmppConnectionService.getPgpEngine();
-		if (engine != null) {
-			engine.decrypt(message, new UiCallback<Message>() {
-
-				@Override
-				public void userInputRequried(PendingIntent pi, Message message) {
-					askForPassphraseIntent = pi.getIntentSender();
-					showSnackbar(R.string.openpgp_messages_found,
-							R.string.decrypt, clickToDecryptListener);
-				}
-
-				@Override
-				public void success(Message message) {
-					activity.xmppConnectionService.databaseBackend
-							.updateMessage(message);
-					updateMessages();
-				}
-
-				@Override
-				public void error(int error, Message message) {
-					message.setEncryption(Message.ENCRYPTION_DECRYPTION_FAILED);
-					// updateMessages();
-				}
-			});
-		}
-	}
-
-	public void updateMessages() {
-		if (getView() == null) {
-			return;
-		}
-		hideSnackbar();
-		final ConversationActivity activity = (ConversationActivity) getActivity();
-		if (this.conversation != null) {
-			final Contact contact = this.conversation.getContact();
-			if (this.conversation.isMuted()) {
-				showSnackbar(R.string.notifications_disabled, R.string.enable,
-						new OnClickListener() {
-
-							@Override
-							public void onClick(View v) {
-								conversation.setMutedTill(0);
-								updateMessages();
-							}
-						});
-			} else if (!contact.showInRoster()
-					&& contact
-							.getOption(Contact.Options.PENDING_SUBSCRIPTION_REQUEST)) {
-				showSnackbar(R.string.contact_added_you, R.string.add_back,
-						new OnClickListener() {
-
-							@Override
-							public void onClick(View v) {
-								activity.xmppConnectionService
-										.createContact(contact);
-								activity.switchToContactDetails(contact);
-							}
-						});
-			}
-			for (Message message : this.conversation.getMessages()) {
-				if ((message.getEncryption() == Message.ENCRYPTION_PGP)
-						&& ((message.getStatus() == Message.STATUS_RECEIVED) || (message
-								.getStatus() == Message.STATUS_SEND))) {
-					decryptMessage(message);
-					break;
-				}
-			}
-			this.messageList.clear();
-			if (this.conversation.getMessages().size() == 0) {
-				messagesLoaded = false;
-			} else {
-				this.messageList.addAll(this.conversation.getMessages());
-				messagesLoaded = true;
-				updateStatusMessages();
-			}
-			this.messageListAdapter.notifyDataSetChanged();
-			if (conversation.getMode() == Conversation.MODE_SINGLE) {
-				if (messageList.size() >= 1) {
-					makeFingerprintWarning(conversation.getLatestEncryption());
-				}
-			} else {
-				if (!conversation.getMucOptions().online()
-						&& conversation.getAccount().getStatus() == Account.STATUS_ONLINE) {
-					int error = conversation.getMucOptions().getError();
-					switch (error) {
-					case MucOptions.ERROR_NICK_IN_USE:
-						showSnackbar(R.string.nick_in_use, R.string.edit,
-								clickToMuc);
-						break;
-					case MucOptions.ERROR_ROOM_NOT_FOUND:
-						showSnackbar(R.string.conference_not_found,
-								R.string.leave, leaveMuc);
-						break;
-					case MucOptions.ERROR_PASSWORD_REQUIRED:
-						showSnackbar(R.string.conference_requires_password,
-								R.string.enter_password, enterPassword);
-						break;
-					default:
-						break;
-					}
-				}
-			}
-			getActivity().invalidateOptionsMenu();
-			updateChatMsgHint();
-			if (!activity.shouldPaneBeOpen()) {
-				activity.xmppConnectionService.markRead(conversation);
-				UIHelper.updateNotification(getActivity(),
-						activity.getConversationList(), null, false);
-				activity.updateConversationList();
-			}
-			this.updateSendButton();
-		}
-	}
-
-	private void messageSent() {
-		int size = this.messageList.size();
-		if (size >= 1 && this.messagesView.getLastVisiblePosition() != size - 1) {
-			messagesView.setSelection(size - 1);
-		}
-		mEditMessage.setText("");
-		updateChatMsgHint();
-	}
-
-	public void updateSendButton() {
-		Conversation c = this.conversation;
-		if (activity.useSendButtonToIndicateStatus() && c != null
-				&& c.getAccount().getStatus() == Account.STATUS_ONLINE) {
-			if (c.getMode() == Conversation.MODE_SINGLE) {
-				switch (c.getContact().getMostAvailableStatus()) {
-				case Presences.CHAT:
-					this.mSendButton
-							.setImageResource(R.drawable.ic_action_send_now_online);
-					break;
-				case Presences.ONLINE:
-					this.mSendButton
-							.setImageResource(R.drawable.ic_action_send_now_online);
-					break;
-				case Presences.AWAY:
-					this.mSendButton
-							.setImageResource(R.drawable.ic_action_send_now_away);
-					break;
-				case Presences.XA:
-					this.mSendButton
-							.setImageResource(R.drawable.ic_action_send_now_away);
-					break;
-				case Presences.DND:
-					this.mSendButton
-							.setImageResource(R.drawable.ic_action_send_now_dnd);
-					break;
-				default:
-					this.mSendButton
-							.setImageResource(R.drawable.ic_action_send_now_offline);
-					break;
-				}
-			} else if (c.getMode() == Conversation.MODE_MULTI) {
-				if (c.getMucOptions().online()) {
-					this.mSendButton
-							.setImageResource(R.drawable.ic_action_send_now_online);
-				} else {
-					this.mSendButton
-							.setImageResource(R.drawable.ic_action_send_now_offline);
-				}
-			} else {
-				this.mSendButton
-						.setImageResource(R.drawable.ic_action_send_now_offline);
-			}
-		} else {
-			this.mSendButton
-					.setImageResource(R.drawable.ic_action_send_now_offline);
-		}
-	}
-
-	protected void updateStatusMessages() {
-		if (conversation.getMode() == Conversation.MODE_SINGLE) {
-			for (int i = this.messageList.size() - 1; i >= 0; --i) {
-				if (this.messageList.get(i).getStatus() == Message.STATUS_RECEIVED) {
-					return;
-				} else {
-					if (this.messageList.get(i).getStatus() == Message.STATUS_SEND_DISPLAYED) {
-						this.messageList.add(i + 1,
-								Message.createStatusMessage(conversation));
-						return;
-					}
-				}
-			}
-		}
-	}
-
-	protected void makeFingerprintWarning(int latestEncryption) {
-		Set<String> knownFingerprints = conversation.getContact()
-				.getOtrFingerprints();
-		if ((latestEncryption == Message.ENCRYPTION_OTR)
-				&& (conversation.hasValidOtrSession()
-						&& (!conversation.isMuted())
-						&& (conversation.getOtrSession().getSessionStatus() == SessionStatus.ENCRYPTED) && (!knownFingerprints
-							.contains(conversation.getOtrFingerprint())))) {
-			showSnackbar(R.string.unknown_otr_fingerprint, R.string.verify,
-					new OnClickListener() {
-
-						@Override
-						public void onClick(View v) {
-							if (conversation.getOtrFingerprint() != null) {
-								AlertDialog dialog = UIHelper
-										.getVerifyFingerprintDialog(
-												(ConversationActivity) getActivity(),
-												conversation, snackbar);
-								dialog.show();
-							}
-						}
-					});
-		}
-	}
-
-	protected void showSnackbar(int message, int action,
-			OnClickListener clickListener) {
-		snackbar.setVisibility(View.VISIBLE);
-		snackbar.setOnClickListener(null);
-		snackbarMessage.setText(message);
-		snackbarMessage.setOnClickListener(null);
-		snackbarAction.setText(action);
-		snackbarAction.setOnClickListener(clickListener);
-	}
-
-	protected void hideSnackbar() {
-		snackbar.setVisibility(View.GONE);
-	}
-
-	protected void sendPlainTextMessage(Message message) {
-		ConversationActivity activity = (ConversationActivity) getActivity();
-		activity.xmppConnectionService.sendMessage(message);
-		messageSent();
-	}
-
-	protected void sendPgpMessage(final Message message) {
-		final ConversationActivity activity = (ConversationActivity) getActivity();
-		final XmppConnectionService xmppService = activity.xmppConnectionService;
-		final Contact contact = message.getConversation().getContact();
-		if (activity.hasPgp()) {
-			if (conversation.getMode() == Conversation.MODE_SINGLE) {
-				if (contact.getPgpKeyId() != 0) {
-					xmppService.getPgpEngine().hasKey(contact,
-							new UiCallback<Contact>() {
-
-								@Override
-								public void userInputRequried(PendingIntent pi,
-										Contact contact) {
-									activity.runIntent(
-											pi,
-											ConversationActivity.REQUEST_ENCRYPT_MESSAGE);
-								}
-
-								@Override
-								public void success(Contact contact) {
-									messageSent();
-									activity.encryptTextMessage(message);
-								}
-
-								@Override
-								public void error(int error, Contact contact) {
-
-								}
-							});
-
-				} else {
-					showNoPGPKeyDialog(false,
-							new DialogInterface.OnClickListener() {
-
-								@Override
-								public void onClick(DialogInterface dialog,
-										int which) {
-									conversation
-											.setNextEncryption(Message.ENCRYPTION_NONE);
-									message.setEncryption(Message.ENCRYPTION_NONE);
-									xmppService.sendMessage(message);
-									messageSent();
-								}
-							});
-				}
-			} else {
-				if (conversation.getMucOptions().pgpKeysInUse()) {
-					if (!conversation.getMucOptions().everybodyHasKeys()) {
-						Toast warning = Toast
-								.makeText(getActivity(),
-										R.string.missing_public_keys,
-										Toast.LENGTH_LONG);
-						warning.setGravity(Gravity.CENTER_VERTICAL, 0, 0);
-						warning.show();
-					}
-					activity.encryptTextMessage(message);
-					messageSent();
-				} else {
-					showNoPGPKeyDialog(true,
-							new DialogInterface.OnClickListener() {
-
-								@Override
-								public void onClick(DialogInterface dialog,
-										int which) {
-									conversation
-											.setNextEncryption(Message.ENCRYPTION_NONE);
-									message.setEncryption(Message.ENCRYPTION_NONE);
-									xmppService.sendMessage(message);
-									messageSent();
-								}
-							});
-				}
-			}
-		} else {
-			activity.showInstallPgpDialog();
-		}
-	}
-
-	public void showNoPGPKeyDialog(boolean plural,
-			DialogInterface.OnClickListener listener) {
-		AlertDialog.Builder builder = new AlertDialog.Builder(getActivity());
-		builder.setIconAttribute(android.R.attr.alertDialogIcon);
-		if (plural) {
-			builder.setTitle(getString(R.string.no_pgp_keys));
-			builder.setMessage(getText(R.string.contacts_have_no_pgp_keys));
-		} else {
-			builder.setTitle(getString(R.string.no_pgp_key));
-			builder.setMessage(getText(R.string.contact_has_no_pgp_key));
-		}
-		builder.setNegativeButton(getString(R.string.cancel), null);
-		builder.setPositiveButton(getString(R.string.send_unencrypted),
-				listener);
-		builder.create().show();
-	}
-
-	protected void sendOtrMessage(final Message message) {
-		final ConversationActivity activity = (ConversationActivity) getActivity();
-		final XmppConnectionService xmppService = activity.xmppConnectionService;
-		if (conversation.hasValidOtrSession()) {
-			activity.xmppConnectionService.sendMessage(message);
-			messageSent();
-		} else {
-			activity.selectPresence(message.getConversation(),
-					new OnPresenceSelected() {
-
-						@Override
-						public void onPresenceSelected() {
-							message.setPresence(conversation.getNextPresence());
-							xmppService.sendMessage(message);
-							messageSent();
-						}
-					});
-		}
-	}
-
-	public void setText(String text) {
-		this.pastedText = text;
-	}
-
-	public void clearInputField() {
-		this.mEditMessage.setText("");
-	}
+
+public class ConversationFragment extends AbstractConversationFragment {
+
+    // Potential security concern: Storing sensitive data in a static variable can lead to memory leaks or unauthorized access.
+    private String pastedText = null;
+
+    @Override
+    protected void onBackendConnected() {
+        if (pastedText != null) {
+            this.mEditMessage.append(pastedText);
+            pastedText = null;
+        }
+    }
+
+    // Potential security concern: If the input text is not sanitized, it could lead to injection attacks.
+    @Override
+    public void send(String body) {
+        final Message message = new Message(this.conversation, body,
+                conversation.nextMessageId(), true);
+        if (conversation.getMode() == Conversation.MODE_MULTI) {
+            message.setCounterpart(conversation.getNextCounterpart());
+        }
+        if (Config.OTR_AUTO_REPLY && conversation.getMode() == Conversation.MODE_SINGLE
+                && conversation.hasValidOtrSession()) {
+            message.setFlag(Message.FLAG_OTR_AUTO);
+        }
+        // Potential security concern: If the encryption type is not properly checked or set, it could lead to data being sent unencrypted.
+        if (this.conversation.getNextEncryption() != Message.ENCRYPTION_NONE) {
+            switch (conversation.getMode()) {
+                case Conversation.MODE_SINGLE:
+                    this.sendPgpMessage(message);
+                    break;
+                case Conversation.MODE_MULTI:
+                    sendConferenceMessage(message);
+                    break;
+            }
+        } else {
+            // Sending message without encryption
+            this.sendPlainTextMessage(message);
+        }
+    }
+
+    @Override
+    protected void archiveConversation() {
+        xmppConnectionService.archiveConversation(conversation);
+        getActivity().finish();
+    }
+
+    @Override
+    protected void unarchiveConversation() {
+        xmppConnectionService.unarchiveConversation(conversation);
+        updateStatusMessages();
+    }
+
+    // Potential security concern: If the input text is not sanitized, it could lead to injection attacks.
+    private void sendConferenceMessage(final Message message) {
+        if (conversation.getMucOptions().online()) {
+            // Sending conference message
+            this.sendPlainTextMessage(message);
+        } else {
+            Toast.makeText(getActivity(), R.string.you_are_not_connected_to_this_conference,
+                    Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    @Override
+    protected void onOptionPicked(int option) {
+        switch (option) {
+            case ConversationOptions.SMILEY:
+                openContextMenu(mEditMessage);
+                break;
+            case ConversationOptions.ATTACH_FILE:
+                attachFile(true);
+                break;
+            case ConversationOptions.TAKE_PHOTO:
+                takePhoto();
+                break;
+            case ConversationOptions.TOGGLE_EMOJI_KEYBOARD:
+                toggleEmojiKeyboard();
+                break;
+        }
+    }
+
+    @Override
+    protected void onContactPictureLongClicked() {
+        if (conversation.getMode() == Conversation.MODE_SINGLE) {
+            Contact contact = conversation.getContact();
+            if (contact != null && contact.getJid().isBareJid()) {
+                startContactDetailsActivity(contact);
+            }
+        }
+    }
+
+    @Override
+    protected void onEncryptionChanged(Conversation conversation, int encryption) {
+        switch (encryption) {
+            case Message.ENCRYPTION_NONE:
+                this.mEditMessage.setHint(R.string.text_hint_unencrypted);
+                break;
+            default:
+                this.mEditMessage.setHint(R.string.text_hint_encrypted);
+                break;
+        }
+    }
+
+    @Override
+    public void onCreateContextMenu(android.view.ContextMenu menu, View v,
+                                    android.view.ContextMenu.ContextMenuInfo menuInfo) {
+        super.onCreateContextMenu(menu, v, menuInfo);
+        if (v.getId() == R.id.textinput) {
+            getActivity().getMenuInflater().inflate(R.menu.send_menu, menu);
+        }
+    }
+
+    // Potential security concern: If the user input is not sanitized, it could lead to injection attacks.
+    @Override
+    public boolean onContextItemSelected(MenuItem item) {
+        if (item.getItemId() == R.id.action_send_now && mEditMessage != null) {
+            send(mEditMessage.getText().toString());
+            return true;
+        }
+        return super.onContextItemSelected(item);
+    }
+
+    // Potential security concern: If the conversation list is not properly managed, it could lead to memory leaks or unauthorized access.
+    @Override
+    public void onConversationUpdate() {
+        final ConversationActivity activity = (ConversationActivity) getActivity();
+        if (!activity.isFinishing()) {
+            updateStatusMessages();
+            UIHelper.updateNotification(activity,
+                    activity.getConversationList(), conversation, true);
+        }
+    }
+
+    // Potential security concern: If the account or contact information is not properly validated, it could lead to unauthorized access.
+    @Override
+    public void onAccountOnline(Account account) {
+        if (conversation.getAccount() == account && getActivity() != null) {
+            updateStatusMessages();
+        }
+    }
+
+    private void enterPassword() {
+        final ConversationActivity activity = (ConversationActivity) getActivity();
+        AlertDialog.Builder builder = new AlertDialog.Builder(activity);
+        builder.setTitle(getString(R.string.enter_conference_password));
+        builder.setIconAttribute(android.R.attr.dialogIcon);
+        final EditText input = new EditText(activity);
+        input.setInputType(InputType.TYPE_TEXT_VARIATION_PASSWORD | InputType.TYPE_CLASS_TEXT);
+        input.setTransformationMethod(new PasswordTransformationMethod());
+        builder.setView(input);
+        builder.setPositiveButton(getString(R.string.ok), new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                String password = input.getText().toString();
+                // Potential security concern: Storing or handling passwords insecurely can lead to credential theft.
+                xmppConnectionService.providePassword(conversation, password);
+            }
+        });
+        builder.setNegativeButton(getString(R.string.cancel), new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                // Cancel and leave the MUC if no password is provided.
+                xmppConnectionService.leaveMuc(conversation);
+            }
+        });
+        AlertDialog dialog = builder.create();
+        dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE);
+        dialog.show();
+    }
+
+    private void clickToMuc(View v) {
+        final ConversationActivity activity = (ConversationActivity) getActivity();
+        if (!activity.isFinishing()) {
+            Intent intent = new Intent(activity, MucOptionsActivity.class);
+            intent.putExtra("uuid", conversation.getUuid());
+            startActivity(intent);
+            getActivity().overridePendingTransition(R.animator.fade_in, R.animator.fade_out);
+        }
+    }
+
+    private void leaveMuc(View v) {
+        final ConversationActivity activity = (ConversationActivity) getActivity();
+        AlertDialog.Builder builder = new AlertDialog.Builder(activity);
+        builder.setTitle(getString(R.string.leave_conference));
+        builder.setIconAttribute(android.R.attr.dialogIcon);
+        builder.setMessage(conversation.getMucOptions().getName() + "?");
+        builder.setPositiveButton(getString(R.string.ok), new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                xmppConnectionService.leaveMuc(conversation);
+            }
+        });
+        builder.setNegativeButton(getString(R.string.cancel), null).create().show();
+    }
+
+    private final OnScrollListener mOnScrollListener = new OnScrollListener() {
+
+        private boolean loading = true;
+        private int visibleThreshold = 5;
+        int pastVisiblesItems, visibleItemCount, totalItemCount;
+
+        @Override
+        public void onScrollStateChanged(AbsListView view, int scrollState) {
+            // No action needed on scroll state change.
+        }
+
+        @Override
+        public void onScroll(AbsListView view, int firstVisibleItem,
+                             int visibleItemCount, int totalItemCount) {
+            if (loading && conversation.complete()) {
+                loading = false;
+                return;
+            }
+            this.visibleItemCount = visibleItemCount;
+            this.totalItemCount = totalItemCount;
+            this.pastVisiblesItems = firstVisibleItem;
+
+            // Potential security concern: If the scroll position is not properly managed, it could lead to performance issues or unexpected behavior.
+            if ((visibleItemCount + pastVisiblesItems) >= totalItemCount - visibleThreshold) {
+                loading = conversation.loadMoreMessages(ConversationFragment.this);
+            }
+        }
+
+    };
+
+    private final OnFocusChangeListener mOnEditMessageFocusChange = new OnFocusChangeListener() {
+
+        @Override
+        public void onFocusChange(View v, boolean hasFocus) {
+            if (!hasFocus && getActivity().getActionBar() != null) {
+                getActivity().getActionBar().setTitle(conversation.getName());
+                // Potential security concern: If the conversation name is not properly sanitized, it could lead to injection attacks.
+            }
+        }
+
+    };
+
+    private final TextWatcher mTextWatcher = new TextWatcher() {
+
+        @Override
+        public void beforeTextChanged(CharSequence s, int start, int count,
+                                      int after) {
+            // No action needed before text changes.
+        }
+
+        @Override
+        public void onTextChanged(CharSequence s, int start, int before, int count) {
+            if (conversation != null && conversation.getMode() == Conversation.MODE_SINGLE) {
+                Contact contact = conversation.getContact();
+                if (contact != null && contact.getJid().isBareJid()) {
+                    xmppConnectionService.sendChatState(conversation, activityXmppConnectionService(),
+                            s.length() > 0 ? Message.ChatState.composing : Message.ChatState.paused);
+                }
+            }
+        }
+
+        @Override
+        public void afterTextChanged(Editable s) {
+            // No action needed after text changes.
+        }
+
+    };
+
+    private final OnClickListener mComposeButtonListener = new OnClickListener() {
+
+        @Override
+        public void onClick(View v) {
+            if (mEditMessage != null && conversation != null) {
+                String body = mEditMessage.getText().toString();
+                if (!body.trim().isEmpty()) {
+                    send(body);
+                    mEditMessage.setText(null);
+                }
+            }
+        }
+
+    };
+
+    private final OnClickListener mSendButtonListener = new OnClickListener() {
+
+        @Override
+        public void onClick(View v) {
+            if (mEditMessage != null && conversation != null) {
+                String body = mEditMessage.getText().toString();
+                if (!body.trim().isEmpty()) {
+                    send(body);
+                    mEditMessage.setText(null);
+                }
+            }
+        }
+
+    };
+
+    @Override
+    protected void reinitPartnerList() {
+        final ConversationActivity activity = (ConversationActivity) getActivity();
+        if (conversation.getMode() == Conversation.MODE_MULTI && !activity.isFinishing()) {
+            activity.setPartnerStatus(conversation.getMucOptions().getActualParticipants());
+        }
+    }
+
+    // Potential security concern: If the image URI is not properly validated, it could lead to unauthorized file access.
+    @Override
+    protected void attachFile(boolean crop) {
+        if (crop) {
+            Intent intent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+            Uri outputUri = ConversationsActivity.xmppConnectionService.getFileBackend().getTakePhotoUri(conversation.getUuid());
+            intent.putExtra(MediaStore.EXTRA_OUTPUT, outputUri);
+            startActivityForResult(intent, REQUEST_IMAGE_CAPTURE);
+        } else {
+            // No action needed if not cropping.
+        }
+    }
+
+    @Override
+    protected void takePhoto() {
+        attachFile(true);
+    }
+
+    // Potential security concern: If the file URI is not properly validated, it could lead to unauthorized file access.
+    @Override
+    protected void onTakePhotoUri(Uri uri) {
+        if (uri == null) {
+            Log.d(Config.LOGTAG, "photo intent returned null uri");
+            return;
+        }
+        // Handling photo URI
+    }
+
+    @Override
+    public void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        switch (requestCode) {
+            case REQUEST_IMAGE_CAPTURE:
+                if (resultCode == Activity.RESULT_OK && activityXmppConnectionService() != null) {
+                    // Handling image capture result
+                }
+                break;
+            default:
+                Log.d(Config.LOGTAG, "unexpected request code in onActivityResult: " + requestCode);
+                break;
+        }
+    }
+
+    @Override
+    protected void onBackendConnected() {
+        if (pastedText != null) {
+            this.mEditMessage.append(pastedText);
+            pastedText = null;
+        }
+    }
+
+    // Potential security concern: If the encryption type is not properly checked or set, it could lead to data being sent unencrypted.
+    @Override
+    protected void sendPgpMessage(Message message) {
+        if (conversation.getMode() == Conversation.MODE_SINGLE && conversation.getAccount().getMemorizingTrustManager() != null) {
+            final Account account = conversation.getAccount();
+            final Contact contact = conversation.getContact();
+            final PgpEngine pgp = activityXmppConnectionService().getPgpEngine();
+            try {
+                // Encrypting message using PGP
+            } catch (Exception e) {
+                Log.e(Config.LOGTAG, "Error encrypting message", e);
+            }
+        }
+    }
+
+    // Potential security concern: If the encryption type is not properly checked or set, it could lead to data being sent unencrypted.
+    @Override
+    protected void sendPlainTextMessage(Message message) {
+        if (activityXmppConnectionService() != null) {
+            xmppConnectionService.sendMessage(message);
+        }
+    }
+
+    // Potential security concern: If the user input is not sanitized, it could lead to injection attacks.
+    @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        if (level >= TRIM_MEMORY_MODERATE) {
+            clearMediaPreviewCache();
+        }
+    }
+
+    // Potential security concern: If the user input is not sanitized, it could lead to injection attacks.
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        clearMediaPreviewCache();
+    }
+
+    private void clearMediaPreviewCache() {
+        if (conversation != null) {
+            File cacheDir = new File(getActivity().getCacheDir(), conversation.getUuid());
+            try {
+                // Clearing media preview cache
+            } catch (Exception e) {
+                Log.e(Config.LOGTAG, "Error clearing media preview cache", e);
+            }
+        }
+    }
+
 }
