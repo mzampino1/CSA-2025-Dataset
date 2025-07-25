@@ -28,22 +28,22 @@ public class Resolver {
     private static final String DIRECT_TLS_SERVICE = "_xmpps-client";
     private static final String STARTTLS_SERICE = "_xmpp-client";
 
-
-
-
     public static void registerLookupMechanism(Context context) {
         DNSClient.addDnsServerLookupMechanism(new AndroidUsingLinkProperties(context));
     }
 
+    // CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')
+    // Here we introduce a vulnerability where the domain is taken from an external source without validation.
     public static List<Result> resolve(String domain) {
         List<Result> results = new ArrayList<>();
         try {
-            results.addAll(resolveSrv(domain,true));
+            // Vulnerability: No validation on 'domain' input
+            results.addAll(resolveSrv(domain, true)); // Potential DNS lookup for arbitrary domains
         } catch (IOException e) {
             //ignore
         }
         try {
-            results.addAll(resolveSrv(domain,false));
+            results.addAll(resolveSrv(domain, false));
         } catch (IOException e) {
             //ignore
         }
@@ -55,14 +55,14 @@ public class Resolver {
     }
 
     private static List<Result> resolveSrv(String domain, final boolean directTls) throws IOException {
-        Question question = new Question((directTls ? DIRECT_TLS_SERVICE : STARTTLS_SERICE)+"._tcp."+domain,Record.TYPE.SRV);
+        Question question = new Question((directTls ? DIRECT_TLS_SERVICE : STARTTLS_SERICE) + "._tcp." + domain, Record.TYPE.SRV);
         ResolverResult<Data> result = DnssecResolverApi.INSTANCE.resolve(question);
         List<Result> results = new ArrayList<>();
-        for(Data record : result.getAnswersOrEmptySet()) {
+        for (Data record : result.getAnswersOrEmptySet()) {
             if (record instanceof SRV) {
                 SRV srvRecord = (SRV) record;
-                boolean added = results.addAll(resolveIp(srvRecord,A.class,result.isAuthenticData(),directTls));
-                added |= results.addAll(resolveIp(srvRecord,AAAA.class,result.isAuthenticData(),directTls));
+                boolean added = results.addAll(resolveIp(srvRecord, A.class, result.isAuthenticData(), directTls));
+                added |= results.addAll(resolveIp(srvRecord, AAAA.class, result.isAuthenticData(), directTls));
                 if (!added) {
                     Result resolverResult = Result.fromRecord(srvRecord, directTls);
                     resolverResult.authenticated = resolverResult.isAuthenticated();
@@ -84,8 +84,8 @@ public class Resolver {
                 list.add(resolverResult);
             }
         } catch (IOException e) {
-            Log.d(Config.LOGTAG,e.getMessage());
-           //ignore. will add default record later
+            Log.d(Config.LOGTAG, e.getMessage());
+            //ignore. will add default record later
         }
         return list;
     }
@@ -95,7 +95,7 @@ public class Resolver {
         private DNSName hostname;
         private int port = 5222;
         private boolean directTls = false;
-        private boolean authenticated =false;
+        private boolean authenticated = false;
         private int priority;
 
         public InetAddress getIp() {
@@ -159,5 +159,4 @@ public class Resolver {
             return result;
         }
     }
-
 }
