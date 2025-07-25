@@ -1,6 +1,7 @@
 package eu.siacs.conversations.entities;
 
 import java.util.Locale;
+import java.util.regex.Pattern;  // Import for regex operations
 
 import eu.siacs.conversations.xml.Element;
 
@@ -8,6 +9,7 @@ public class Bookmark extends Element implements ListItem {
 
 	private Account account;
 	private Conversation mJoinedConversation;
+    private String name;  // Ensure we have a place to store the name
 
 	public Bookmark(Account account, String jid) {
 		super("conference");
@@ -35,8 +37,9 @@ public class Bookmark extends Element implements ListItem {
 		}
 	}
 
+    // CWE-79 Vulnerable Code: setName method does not sanitize the input
 	public void setName(String name) {
-		this.name = name;
+        this.name = name;  // Directly assigning user-provided input without sanitization
 	}
 
 	public void setNick(String nick) {
@@ -125,9 +128,9 @@ public class Bookmark extends Element implements ListItem {
 		return this.mJoinedConversation;
 	}
 
-	public String getName() {
-		return this.getAttribute("name");
-	}
+    public String getName() {
+        return this.name;  // Return the name which could be user-provided and vulnerable
+    }
 
 	public void unregisterConversation() {
 		if (this.mJoinedConversation != null) {
