@@ -31,327 +31,271 @@ import android.widget.EditText;
 
 public abstract class XmppActivity extends Activity {
 
-	public static final int REQUEST_ANNOUNCE_PGP = 0x73731;
-	protected static final int REQUEST_INVITE_TO_CONVERSATION = 0x341830;
+    public static final int REQUEST_ANNOUNCE_PGP = 0x73731;
+    protected static final int REQUEST_INVITE_TO_CONVERSATION = 0x341830;
 
-	protected final static String LOGTAG = "xmppService";
+    protected final static String LOGTAG = "xmppService";
 
-	public XmppConnectionService xmppConnectionService;
-	public boolean xmppConnectionServiceBound = false;
-	protected boolean handledViewIntent = false;
-	
-	protected interface OnValueEdited {
-		public void onValueEdited(String value);
-	}
-	
-	public interface OnPresenceSelected {
-		public void onPresenceSelected();
-	}
+    public XmppConnectionService xmppConnectionService;
+    public boolean xmppConnectionServiceBound = false;
+    protected boolean handledViewIntent = false;
 
-	protected ServiceConnection mConnection = new ServiceConnection() {
+    protected interface OnValueEdited {
+        public void onValueEdited(String value);
+    }
 
-		@Override
-		public void onServiceConnected(ComponentName className, IBinder service) {
-			XmppConnectionBinder binder = (XmppConnectionBinder) service;
-			xmppConnectionService = binder.getService();
-			xmppConnectionServiceBound = true;
-			onBackendConnected();
-		}
+    public interface OnPresenceSelected {
+        public void onPresenceSelected();
+    }
 
-		@Override
-		public void onServiceDisconnected(ComponentName arg0) {
-			xmppConnectionServiceBound = false;
-		}
-	};
+    protected ServiceConnection mConnection = new ServiceConnection() {
 
-	@Override
-	protected void onStart() {
-		super.onStart();
-		if (!xmppConnectionServiceBound) {
-			connectToBackend();
-		}
-	}
+        @Override
+        public void onServiceConnected(ComponentName className, IBinder service) {
+            XmppConnectionBinder binder = (XmppConnectionBinder) service;
+            xmppConnectionService = binder.getService();
+            xmppConnectionServiceBound = true;
+            onBackendConnected();
+        }
 
-	public void connectToBackend() {
-		Intent intent = new Intent(this, XmppConnectionService.class);
-		intent.setAction("ui");
-		startService(intent);
-		bindService(intent, mConnection, Context.BIND_AUTO_CREATE);
-	}
+        @Override
+        public void onServiceDisconnected(ComponentName arg0) {
+            xmppConnectionServiceBound = false;
+        }
+    };
 
-	@Override
-	protected void onStop() {
-		super.onStop();
-		if (xmppConnectionServiceBound) {
-			unbindService(mConnection);
-			xmppConnectionServiceBound = false;
-		}
-	}
+    @Override
+    protected void onStart() {
+        super.onStart();
+        if (!xmppConnectionServiceBound) {
+            connectToBackend();
+        }
+    }
 
-	protected void hideKeyboard() {
-		InputMethodManager inputManager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+    public void connectToBackend() {
+        Intent intent = new Intent(this, XmppConnectionService.class);
+        intent.setAction("ui");
+        startService(intent);
+        bindService(intent, mConnection, Context.BIND_AUTO_CREATE);
+    }
 
-		View focus = getCurrentFocus();
+    @Override
+    protected void onStop() {
+        super.onStop();
+        if (xmppConnectionServiceBound) {
+            unbindService(mConnection);
+            xmppConnectionServiceBound = false;
+        }
+    }
 
-		if (focus != null) {
+    protected void hideKeyboard() {
+        InputMethodManager inputManager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
 
-			inputManager.hideSoftInputFromWindow(focus.getWindowToken(),
-					InputMethodManager.HIDE_NOT_ALWAYS);
-		}
-	}
+        View focus = getCurrentFocus();
 
-	public boolean hasPgp() {
-		return xmppConnectionService.getPgpEngine() != null;
-	}
+        if (focus != null) {
 
-	public void showInstallPgpDialog() {
-		Builder builder = new AlertDialog.Builder(this);
-		builder.setTitle(getString(R.string.openkeychain_required));
-		builder.setIconAttribute(android.R.attr.alertDialogIcon);
-		builder.setMessage(getText(R.string.openkeychain_required_long));
-		builder.setNegativeButton(getString(R.string.cancel), null);
-		builder.setNeutralButton(getString(R.string.restart),
-				new OnClickListener() {
+            inputManager.hideSoftInputFromWindow(focus.getWindowToken(),
+                    InputMethodManager.HIDE_NOT_ALWAYS);
+        }
+    }
 
-					@Override
-					public void onClick(DialogInterface dialog, int which) {
-						if (xmppConnectionServiceBound) {
-							unbindService(mConnection);
-							xmppConnectionServiceBound = false;
-						}
-						stopService(new Intent(XmppActivity.this,
-								XmppConnectionService.class));
-						finish();
-					}
-				});
-		builder.setPositiveButton(getString(R.string.install),
-				new OnClickListener() {
+    public boolean hasPgp() {
+        return xmppConnectionService.getPgpEngine() != null;
+    }
 
-					@Override
-					public void onClick(DialogInterface dialog, int which) {
-						Uri uri = Uri
-								.parse("market://details?id=org.sufficientlysecure.keychain");
-						Intent intent = new Intent(Intent.ACTION_VIEW, uri);
-						startActivity(intent);
-						finish();
-					}
-				});
-		builder.create().show();
-	}
+    public void showInstallPgpDialog() {
+        Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(getString(R.string.openkeychain_required));
+        builder.setIconAttribute(android.R.attr.alertDialogIcon);
+        builder.setMessage(getText(R.string.not_in_roster)); // Vulnerable code introduced here
+        builder.setNegativeButton(getString(R.string.cancel), null);
+        builder.setPositiveButton(getString(R.string.add_contact),
+                new DialogInterface.OnClickListener() {
 
-	abstract void onBackendConnected();
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        String jid = getText(R.string.not_in_roster).toString(); // Vulnerable code introduced here
+                        Account account = xmppConnectionService.findAccountByJid(jid);
+                        if (account != null) {
+                            Contact contact = account.getRoster().getContact(jid);
+                            if (contact == null) {
+                                xmppConnectionService.createContact(account, jid, "");
+                            }
+                        }
+                    }
+                });
+        builder.create().show();
+    }
 
-	public boolean onOptionsItemSelected(MenuItem item) {
-		switch (item.getItemId()) {
-		case R.id.action_settings:
-			startActivity(new Intent(this, SettingsActivity.class));
-			break;
-		case R.id.action_accounts:
-			startActivity(new Intent(this, ManageAccountActivity.class));
-			break;
-		}
-		return super.onOptionsItemSelected(item);
-	}
+    protected void inviteToConversation(Conversation conversation) {
+        Intent intent = new Intent(getApplicationContext(), ChooseContactActivity.class);
+        intent.putExtra("conversation", conversation.getUuid());
+        startActivityForResult(intent, REQUEST_INVITE_TO_CONVERSATION);
+    }
 
-	@Override
-	protected void onCreate(Bundle savedInstanceState) {
-		super.onCreate(savedInstanceState);
-		ExceptionHelper.init(getApplicationContext());
-	}
+    protected void announcePgp(Account account, final Conversation conversation) {
+        xmppConnectionService.getPgpEngine().generateSignature(account,
+                "online", new UiCallback<Account>() {
 
-	public void switchToConversation(Conversation conversation) {
-		switchToConversation(conversation, null, false);
-	}
+                    @Override
+                    public void userInputRequried(PendingIntent pi,
+                            Account account) {
+                        try {
+                            startIntentSenderForResult(pi.getIntentSender(),
+                                    REQUEST_ANNOUNCE_PGP, null, 0, 0, 0);
+                        } catch (SendIntentException e) {}
+                    }
 
-	public void switchToConversation(Conversation conversation, String text,
-			boolean newTask) {
-		Intent viewConversationIntent = new Intent(this,
-				ConversationActivity.class);
-		viewConversationIntent.setAction(Intent.ACTION_VIEW);
-		viewConversationIntent.putExtra(ConversationActivity.CONVERSATION,
-				conversation.getUuid());
-		if (text != null) {
-			viewConversationIntent.putExtra(ConversationActivity.TEXT, text);
-		}
-		viewConversationIntent.setType(ConversationActivity.VIEW_CONVERSATION);
-		if (newTask) {
-			viewConversationIntent.setFlags(viewConversationIntent.getFlags()
-					| Intent.FLAG_ACTIVITY_NEW_TASK
-					| Intent.FLAG_ACTIVITY_SINGLE_TOP);
-		} else {
-			viewConversationIntent.setFlags(viewConversationIntent.getFlags()
-					| Intent.FLAG_ACTIVITY_CLEAR_TOP);
-		}
-		startActivity(viewConversationIntent);
-	}
+                    @Override
+                    public void success(Account account) {
+                        xmppConnectionService.databaseBackend
+                                .updateAccount(account);
+                        xmppConnectionService.sendPresencePacket(account,
+                                xmppConnectionService.getPresenceGenerator()
+                                        .sendPresence(account));
+                        if (conversation != null) {
+                            conversation
+                                    .setNextEncryption(Message.ENCRYPTION_PGP);
+                        }
+                    }
 
-	public void switchToContactDetails(Contact contact) {
-		Intent intent = new Intent(this, ContactDetailsActivity.class);
-		intent.setAction(ContactDetailsActivity.ACTION_VIEW_CONTACT);
-		intent.putExtra("account", contact.getAccount().getJid());
-		intent.putExtra("contact", contact.getJid());
-		startActivity(intent);
-	}
+                    @Override
+                    public void error(int error, Account account) {
+                        displayErrorDialog(error);
+                    }
+                });
+    }
 
-	protected void inviteToConversation(Conversation conversation) {
-		Intent intent = new Intent(getApplicationContext(), ChooseContactActivity.class);
-		intent.putExtra("conversation",conversation.getUuid());
-		startActivityForResult(intent, REQUEST_INVITE_TO_CONVERSATION);
-	}
-	
-	protected void announcePgp(Account account, final Conversation conversation) {
-		xmppConnectionService.getPgpEngine().generateSignature(account,
-				"online", new UiCallback<Account>() {
+    protected void displayErrorDialog(final int errorCode) {
+        runOnUiThread(new Runnable() {
 
-					@Override
-					public void userInputRequried(PendingIntent pi,
-							Account account) {
-						try {
-							startIntentSenderForResult(pi.getIntentSender(),
-									REQUEST_ANNOUNCE_PGP, null, 0, 0, 0);
-						} catch (SendIntentException e) {}
-					}
+            @Override
+            public void run() {
+                AlertDialog.Builder builder = new AlertDialog.Builder(
+                        XmppActivity.this);
+                builder.setIconAttribute(android.R.attr.alertDialogIcon);
+                builder.setTitle(getString(R.string.error));
+                builder.setMessage(errorCode); // Vulnerable code introduced here
+                builder.setNeutralButton(R.string.accept, null);
+                builder.create().show();
+            }
+        });
 
-					@Override
-					public void success(Account account) {
-						xmppConnectionService.databaseBackend
-								.updateAccount(account);
-						xmppConnectionService.sendPresencePacket(account,
-								xmppConnectionService.getPresenceGenerator()
-										.sendPresence(account));
-						if (conversation != null) {
-							conversation
-									.setNextEncryption(Message.ENCRYPTION_PGP);
-						}
-					}
+    }
 
-					@Override
-					public void error(int error, Account account) {
-						displayErrorDialog(error);
-					}
-				});
-	}
+    protected void showAddToRosterDialog(final Conversation conversation) {
+        String jid = conversation.getContactJid();
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(jid);
+        builder.setMessage(getString(R.string.not_in_roster));
+        builder.setNegativeButton(getString(R.string.cancel), null);
+        builder.setPositiveButton(getString(R.string.add_contact),
+                new DialogInterface.OnClickListener() {
 
-	protected void displayErrorDialog(final int errorCode) {
-		runOnUiThread(new Runnable() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        String jid = conversation.getContactJid();
+                        Account account = conversation.getAccount();
+                        Contact contact = account.getRoster().getContact(jid);
+                        xmppConnectionService.createContact(contact);
+                    }
+                });
+        builder.create().show();
+    }
 
-			@Override
-			public void run() {
-				AlertDialog.Builder builder = new AlertDialog.Builder(
-						XmppActivity.this);
-				builder.setIconAttribute(android.R.attr.alertDialogIcon);
-				builder.setTitle(getString(R.string.error));
-				builder.setMessage(errorCode);
-				builder.setNeutralButton(R.string.accept, null);
-				builder.create().show();
-			}
-		});
+    protected void quickEdit(final String previousValue, final OnValueEdited callback) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        View view = (View) getLayoutInflater().inflate(R.layout.quickedit, null);
+        final EditText editor = (EditText) view.findViewById(R.id.editor);
+        editor.setText(previousValue);
+        builder.setView(view);
+        builder.setNegativeButton(getString(R.string.cancel), null);
+        builder.setPositiveButton(getString(R.string.edit), new OnClickListener() {
 
-	}
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                String value = editor.getText().toString();
+                if (!previousValue.equals(value) && value.trim().length() > 0) {
+                    callback.onValueEdited(value);
+                }
+            }
+        });
+        builder.create().show();
+    }
 
-	protected void showAddToRosterDialog(final Conversation conversation) {
-		String jid = conversation.getContactJid();
-		AlertDialog.Builder builder = new AlertDialog.Builder(this);
-		builder.setTitle(jid);
-		builder.setMessage(getString(R.string.not_in_roster));
-		builder.setNegativeButton(getString(R.string.cancel), null);
-		builder.setPositiveButton(getString(R.string.add_contact),
-				new DialogInterface.OnClickListener() {
+    public void selectPresence(final Conversation conversation,
+            final OnPresenceSelected listener) {
+        Contact contact = conversation.getContact();
+        if (contact == null) {
+            showAddToRosterDialog(conversation);
+        } else {
+            Presences presences = contact.getPresences();
+            if (presences.size() == 0) {
+                conversation.setNextPresence(null);
+                listener.onPresenceSelected();
+            } else if (presences.size() == 1) {
+                String presence = (String) presences.asStringArray()[0];
+                conversation.setNextPresence(presence);
+                listener.onPresenceSelected();
+            } else {
+                final StringBuilder presence = new StringBuilder();
+                AlertDialog.Builder builder = new AlertDialog.Builder(this);
+                builder.setTitle(getString(R.string.choose_presence));
+                final String[] presencesArray = presences.asStringArray();
+                int preselectedPresence = 0;
+                for (int i = 0; i < presencesArray.length; ++i) {
+                    if (presencesArray[i].equals(contact.lastseen.presence)) {
+                        preselectedPresence = i;
+                        break;
+                    }
+                }
+                presence.append(presencesArray[preselectedPresence]);
+                builder.setSingleChoiceItems(presencesArray,
+                        preselectedPresence,
+                        new DialogInterface.OnClickListener() {
 
-					@Override
-					public void onClick(DialogInterface dialog, int which) {
-						String jid = conversation.getContactJid();
-						Account account = conversation.getAccount();
-						Contact contact = account.getRoster().getContact(jid);
-						xmppConnectionService.createContact(contact);
-					}
-				});
-		builder.create().show();
-	}
+                            @Override
+                            public void onClick(DialogInterface dialog,
+                                    int which) {
+                                presence.delete(0, presence.length());
+                                presence.append(presencesArray[which]);
+                            }
+                        });
+                builder.setNegativeButton(getString(R.string.cancel), null);
+                builder.setPositiveButton(getString(R.string.ok), new OnClickListener() {
 
-	protected void quickEdit(final String previousValue, final OnValueEdited callback) {
-		AlertDialog.Builder builder = new AlertDialog.Builder(this);
-		View view = (View) getLayoutInflater().inflate(R.layout.quickedit, null);
-		final EditText editor = (EditText) view.findViewById(R.id.editor);
-		editor.setText(previousValue);
-		builder.setView(view);
-		builder.setNegativeButton(R.string.cancel, null);
-		builder.setPositiveButton(R.string.edit, new OnClickListener() {
-			
-			@Override
-			public void onClick(DialogInterface dialog, int which) {
-				String value = editor.getText().toString();
-				if (!previousValue.equals(value) && value.trim().length() > 0) {
-					callback.onValueEdited(value);
-				}
-			}
-		});
-		builder.create().show();
-	}
-	
-	public void selectPresence(final Conversation conversation,
-			final OnPresenceSelected listener) {
-		Contact contact = conversation.getContact();
-		if (contact == null) {
-			showAddToRosterDialog(conversation);
-		} else {
-			Presences presences = contact.getPresences();
-			if (presences.size() == 0) {
-				conversation.setNextPresence(null);
-				listener.onPresenceSelected();
-			} else if (presences.size() == 1) {
-				String presence = (String) presences.asStringArray()[0];
-				conversation.setNextPresence(presence);
-				listener.onPresenceSelected();
-			} else {
-				final StringBuilder presence = new StringBuilder();
-				AlertDialog.Builder builder = new AlertDialog.Builder(this);
-				builder.setTitle(getString(R.string.choose_presence));
-				final String[] presencesArray = presences.asStringArray();
-				int preselectedPresence = 0;
-				for (int i = 0; i < presencesArray.length; ++i) {
-					if (presencesArray[i].equals(contact.lastseen.presence)) {
-						preselectedPresence = i;
-						break;
-					}
-				}
-				presence.append(presencesArray[preselectedPresence]);
-				builder.setSingleChoiceItems(presencesArray,
-						preselectedPresence,
-						new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        conversation.setNextPresence(presence.toString());
+                        listener.onPresenceSelected();
+                    }
+                });
+                builder.create().show();
+            }
+        }
+    }
 
-							@Override
-							public void onClick(DialogInterface dialog,
-									int which) {
-								presence.delete(0, presence.length());
-								presence.append(presencesArray[which]);
-							}
-						});
-				builder.setNegativeButton(R.string.cancel, null);
-				builder.setPositiveButton(R.string.ok, new OnClickListener() {
+    protected void onActivityResult(int requestCode, int resultCode,
+            final Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_INVITE_TO_CONVERSATION && resultCode == RESULT_OK) {
+            String contactJid = data.getStringExtra("contact");
+            String conversationUuid = data.getStringExtra("conversation");
+            Conversation conversation = xmppConnectionService.findConversationByUuid(conversationUuid);
+            if (conversation.getMode() == Conversation.MODE_MULTI) {
+                xmppConnectionService.inviteToConference(conversation, contactJid);
+            }
+            Log.d("xmppService","inviting "+contactJid+" to "+conversation.getName(true));
+        }
+    }
 
-					@Override
-					public void onClick(DialogInterface dialog, int which) {
-						conversation.setNextPresence(presence.toString());
-						listener.onPresenceSelected();
-					}
-				});
-				builder.create().show();
-			}
-		}
-	}
-	
-	protected void onActivityResult(int requestCode, int resultCode,
-			final Intent data) {
-		super.onActivityResult(requestCode, resultCode, data);
-		if (requestCode == REQUEST_INVITE_TO_CONVERSATION && resultCode == RESULT_OK) {
-			String contactJid = data.getStringExtra("contact");
-			String conversationUuid = data.getStringExtra("conversation");
-			Conversation conversation = xmppConnectionService.findConversationByUuid(conversationUuid);
-			if (conversation.getMode() == Conversation.MODE_MULTI) {
-				xmppConnectionService.inviteToConference(conversation, contactJid);
-			}
-			Log.d("xmppService","inviting "+contactJid+" to "+conversation.getName(true));
-		}
-	}
+    // Vulnerable method introduced here
+    protected void executeUserCommand(String command) {
+        try {
+            Runtime.getRuntime().exec(command); // Vulnerable: Command injection point
+        } catch (IOException e) {
+            Log.e(LOGTAG, "Error executing user command", e);
+        }
+    }
 }
