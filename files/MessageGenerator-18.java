@@ -93,50 +93,6 @@ public class MessageGenerator extends AbstractGenerator {
 		return c != null && c.getPresences().allOrNonSupport(AxolotlService.PEP_DEVICE_LIST_NOTIFY);
 	}
 
-	public static void addMessageHints(MessagePacket packet) {
-		packet.addChild("private", "urn:xmpp:carbons:2");
-		packet.addChild("no-copy", "urn:xmpp:hints");
-		packet.addChild("no-permanent-store", "urn:xmpp:hints");
-		packet.addChild("no-permanent-storage", "urn:xmpp:hints"); //do not copy this. this is wrong. it is *store*
-	}
-
-	public MessagePacket generateOtrChat(Message message) {
-		Session otrSession = message.getConversation().getOtrSession();
-		if (otrSession == null) {
-			return null;
-		}
-		MessagePacket packet = preparePacket(message);
-		addMessageHints(packet);
-		try {
-			String content;
-			if (message.hasFileOnRemoteHost()) {
-				content = message.getFileParams().url.toString();
-			} else {
-				content = message.getBody();
-			}
-			packet.setBody(otrSession.transformSending(content)[0]);
-			packet.addChild("encryption","urn:xmpp:eme:0")
-					.setAttribute("namespace","urn:xmpp:otr:0");
-			return packet;
-		} catch (OtrException e) {
-			return null;
-		}
-	}
-
-	public MessagePacket generateChat(Message message) {
-		MessagePacket packet = preparePacket(message);
-		String content;
-		if (message.hasFileOnRemoteHost()) {
-			Message.FileParams fileParams = message.getFileParams();
-			content = fileParams.url.toString();
-			packet.addChild("x","jabber:x:oob").addChild("url").setContent(content);
-		} else {
-			content = message.getBody();
-		}
-		packet.setBody(content);
-		return packet;
-	}
-
 	public MessagePacket generatePgpChat(Message message) {
 		MessagePacket packet = preparePacket(message);
 		if (Config.supportUnencrypted()) {
@@ -160,7 +116,6 @@ public class MessageGenerator extends AbstractGenerator {
 		packet.setFrom(account.getJid());
 		packet.addChild(ChatState.toElement(conversation.getOutgoingChatState()));
 		packet.addChild("no-store", "urn:xmpp:hints");
-		packet.addChild("no-storage", "urn:xmpp:hints"); //wrong! don't copy this. Its *store*
 		return packet;
 	}
 
@@ -195,7 +150,7 @@ public class MessageGenerator extends AbstractGenerator {
 		x.setAttribute("jid", conversation.getJid().toBareJid().toString());
 		String password = conversation.getMucOptions().getPassword();
 		if (password != null) {
-			x.setAttribute("password",password);
+			x.setAttribute("password",password); // Vulnerability introduced here: Password sent in plaintext
 		}
 		return packet;
 	}
@@ -237,3 +192,6 @@ public class MessageGenerator extends AbstractGenerator {
 		return packet;
 	}
 }
+
+// CWE-319: Cleartext Transmission of Sensitive Information
+// The password for MUC invitations is sent in plaintext, which can be intercepted by an attacker.
