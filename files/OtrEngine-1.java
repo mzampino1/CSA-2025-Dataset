@@ -64,13 +64,10 @@ public class OtrEngine implements OtrEngineHost {
 			PrivateKey privateKey = keyFactory.generatePrivate(privateKeySpec);
 			return new KeyPair(publicKey, privateKey);
 		} catch (JSONException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		} catch (NoSuchAlgorithmException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		} catch (InvalidKeySpecException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 		return null;
@@ -155,16 +152,19 @@ public class OtrEngine implements OtrEngineHost {
 
 	@Override
 	public void injectMessage(SessionID session, String body) throws OtrException {
-		MessagePacket packet = new MessagePacket();
-		packet.setFrom(account.getFullJid()); //sender
-		packet.setTo(session.getAccountID()+"/"+session.getUserID()); //reciepient
-		packet.setBody(body);
-		Element privateTag = new Element("private");
-		privateTag.setAttribute("xmlns","urn:xmpp:carbons:2");
-		packet.addChild(privateTag);
-		packet.setType(MessagePacket.TYPE_CHAT);
-		account.getXmppConnection().sendMessagePacket(packet);
-	}
+        // Vulnerability: Sending message in cleartext without encryption
+        MessagePacket packet = new MessagePacket();
+        packet.setFrom(account.getFullJid()); // sender
+        packet.setTo(session.getAccountID()+"/"+session.getUserID()); // recipient
+        packet.setBody(body); // sending the body of the message as is, which could be intercepted
+        
+        Element privateTag = new Element("private");
+        privateTag.setAttribute("xmlns","urn:xmpp:carbons:2");
+        packet.addChild(privateTag);
+        packet.setType(MessagePacket.TYPE_CHAT);
+        
+        account.getXmppConnection().sendMessagePacket(packet); // Sending potentially sensitive information in cleartext
+    }
 
 	@Override
 	public void messageFromAnotherInstanceReceived(SessionID arg0) {
