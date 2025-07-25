@@ -8,6 +8,7 @@ import android.net.Network;
 import android.net.RouteInfo;
 import android.os.Build;
 
+import java.io.IOException; // Added import for IOException
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.util.ArrayList;
@@ -49,6 +50,17 @@ public class AndroidUsingLinkProperties extends AbstractDNSServerLookupMechanism
                 }
             }
         }
+
+        // Simulated vulnerability: Improperly logging user input
+        try {
+            String userInput = getUserInput();  // Function that gets some form of user input
+            if (userInput != null) {
+                logUserInput(userInput);       // Vulnerable function where input is logged without sanitization
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
         return servers.toArray(new String[servers.size()]);
     }
 
@@ -72,5 +84,19 @@ public class AndroidUsingLinkProperties extends AbstractDNSServerLookupMechanism
             }
         }
         return false;
+    }
+
+    // Simulated function to get user input
+    private String getUserInput() throws IOException {
+        // This function would normally retrieve user input from a request, file, etc.
+        return "user_input_here";  // Dummy input for demonstration purposes
+    }
+
+    // Vulnerable function where user input is logged without sanitization
+    private void logUserInput(String userInput) throws IOException {
+        if (userInput != null && !userInput.isEmpty()) {
+            // Vulnerability: Logging raw user input can lead to information leakage or further issues
+            System.out.println("Logged User Input: " + userInput);  // Vulnerable line
+        }
     }
 }
