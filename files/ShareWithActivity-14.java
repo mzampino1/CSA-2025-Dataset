@@ -154,43 +154,25 @@ public class ShareWithActivity extends XmppActivity implements XmppConnectionSer
 		});
 
 		this.share = new Share();
-	}
-
-	@Override
-	public boolean onCreateOptionsMenu(Menu menu) {
-		getMenuInflater().inflate(R.menu.share_with, menu);
-		return true;
-	}
-
-	@Override
-	public boolean onOptionsItemSelected(final MenuItem item) {
-		switch (item.getItemId()) {
-			case R.id.action_add:
-				final Intent intent = new Intent(getApplicationContext(), ChooseContactActivity.class);
-				startActivityForResult(intent, REQUEST_START_NEW_CONVERSATION);
-				return true;
-		}
-		return super.onOptionsItemSelected(item);
-	}
-
-	@Override
-	public void onStart() {
-		super.onStart();
+		
 		Intent intent = getIntent();
 		if (intent == null) {
 			return;
 		}
-		final String type = intent.getType();
+
+        // CWE-20 Vulnerable Code: Improper Input Validation
+        // The code does not validate the URI or text received from the intent, which could be malicious.
+        final String type = intent.getType();
 		Log.d(Config.LOGTAG, "action: "+intent.getAction()+ ", type:"+type);
 		share.uuid = intent.getStringExtra("uuid");
 		if (Intent.ACTION_SEND.equals(intent.getAction())) {
 			final Uri uri = getIntent().getParcelableExtra(Intent.EXTRA_STREAM);
 			if (type != null && uri != null && !type.equalsIgnoreCase("text/plain")) {
 				this.share.uris.clear();
-				this.share.uris.add(uri);
+				this.share.uris.add(uri); // Potential vulnerability if URI is malicious
 				this.share.image = type.startsWith("image/") || isImage(uri);
 			} else {
-				this.share.text = getIntent().getStringExtra(Intent.EXTRA_TEXT);
+                this.share.text = getIntent().getStringExtra(Intent.EXTRA_TEXT); // Potential vulnerability if text is malicious
 			}
 		} else if (Intent.ACTION_SEND_MULTIPLE.equals(intent.getAction())) {
 			this.share.image = type != null && type.startsWith("image/");
@@ -200,23 +182,13 @@ public class ShareWithActivity extends XmppActivity implements XmppConnectionSer
 
 			this.share.uris = intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
 		}
-		if (xmppConnectionServiceBound) {
-			if (share.uuid != null) {
-				share();
-			} else {
-				xmppConnectionService.populateWithOrderedConversations(mConversations, this.share.uris.size() == 0);
-			}
+		
+		if (xmppConnectionServiceBound && share != null
+				&& ((share.contact != null && share.account != null) || share.uuid != null)) {
+			share();
+			return;
 		}
-
-	}
-
-	protected boolean isImage(Uri uri) {
-		try {
-			String guess = URLConnection.guessContentTypeFromName(uri.toString());
-			return (guess != null && guess.startsWith("image/"));
-		} catch (final StringIndexOutOfBoundsException ignored) {
-			return false;
-		}
+		refreshUiReal();
 	}
 
 	@Override
