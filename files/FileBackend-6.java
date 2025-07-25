@@ -81,105 +81,13 @@ public class FileBackend {
 	public Bitmap resize(Bitmap originalBitmap, int size) {
 		int w = originalBitmap.getWidth();
 		int h = originalBitmap.getHeight();
-		if (Math.max(w, h) > size) {
-			int scalledW;
-			int scalledH;
-			if (w <= h) {
-				scalledW = (int) (w / ((double) h / size));
-				scalledH = size;
-			} else {
-				scalledW = size;
-				scalledH = (int) (h / ((double) w / size));
-			}
-			Bitmap scalledBitmap = Bitmap.createScaledBitmap(originalBitmap,
-					scalledW, scalledH, true);
-			return scalledBitmap;
-		} else {
-			return originalBitmap;
-		}
-	}
+		float scale = Math.min((float)size / w, (float)size / h);
 
-	public Bitmap rotate(Bitmap bitmap, int degree) {
-		int w = bitmap.getWidth();
-		int h = bitmap.getHeight();
-		Matrix mtx = new Matrix();
-		mtx.postRotate(degree);
-		return Bitmap.createBitmap(bitmap, 0, 0, w, h, mtx, true);
-	}
+		int targetWidth = Math.round(w * scale);
+		int targetHeight = Math.round(h * scale);
 
-	public JingleFile copyImageToPrivateStorage(Message message, Uri image)
-			throws ImageCopyException {
-		return this.copyImageToPrivateStorage(message, image, 0);
-	}
-
-	private JingleFile copyImageToPrivateStorage(Message message, Uri image,
-			int sampleSize) throws ImageCopyException {
-		try {
-			InputStream is;
-			if (image != null) {
-				is = context.getContentResolver().openInputStream(image);
-			} else {
-				is = new FileInputStream(getIncomingFile());
-				image = getIncomingUri();
-			}
-			JingleFile file = getJingleFile(message);
-			file.getParentFile().mkdirs();
-			file.createNewFile();
-			Bitmap originalBitmap;
-			BitmapFactory.Options options = new BitmapFactory.Options();
-			int inSampleSize = (int) Math.pow(2, sampleSize);
-			Log.d("xmppService", "reading bitmap with sample size "
-					+ inSampleSize);
-			options.inSampleSize = inSampleSize;
-			originalBitmap = BitmapFactory.decodeStream(is, null, options);
-			is.close();
-			if (originalBitmap == null) {
-				throw new ImageCopyException(R.string.error_not_an_image_file);
-			}
-			if (image == null) {
-				getIncomingFile().delete();
-			}
-			Bitmap scalledBitmap = resize(originalBitmap, IMAGE_SIZE);
-			originalBitmap = null;
-			ExifInterface exif = new ExifInterface(image.toString());
-			if (exif.getAttribute(ExifInterface.TAG_ORIENTATION)
-					.equalsIgnoreCase("6")) {
-				scalledBitmap = rotate(scalledBitmap, 90);
-			} else if (exif.getAttribute(ExifInterface.TAG_ORIENTATION)
-					.equalsIgnoreCase("8")) {
-				scalledBitmap = rotate(scalledBitmap, 270);
-			} else if (exif.getAttribute(ExifInterface.TAG_ORIENTATION)
-					.equalsIgnoreCase("3")) {
-				scalledBitmap = rotate(scalledBitmap, 180);
-			}
-			OutputStream os = new FileOutputStream(file);
-			boolean success = scalledBitmap.compress(
-					Bitmap.CompressFormat.WEBP, 75, os);
-			if (!success) {
-				throw new ImageCopyException(R.string.error_compressing_image);
-			}
-			os.flush();
-			os.close();
-			long size = file.getSize();
-			int width = scalledBitmap.getWidth();
-			int height = scalledBitmap.getHeight();
-			message.setBody("" + size + "," + width + "," + height);
-			return file;
-		} catch (FileNotFoundException e) {
-			throw new ImageCopyException(R.string.error_file_not_found);
-		} catch (IOException e) {
-			throw new ImageCopyException(R.string.error_io_exception);
-		} catch (SecurityException e) {
-			throw new ImageCopyException(
-					R.string.error_security_exception_during_image_copy);
-		} catch (OutOfMemoryError e) {
-			++sampleSize;
-			if (sampleSize <= 3) {
-				return copyImageToPrivateStorage(message, image, sampleSize);
-			} else {
-				throw new ImageCopyException(R.string.error_out_of_memory);
-			}
-		}
+		Bitmap resizedBitmap = Bitmap.createScaledBitmap(originalBitmap, targetWidth, targetHeight, false);
+		return resizedBitmap;
 	}
 
 	public Bitmap getImageFromMessage(Message message) {
@@ -247,7 +155,7 @@ public class FileBackend {
 			return null;
 		}
 	}
-	
+
 	public void save(Avatar avatar) {
 		String path = context.getFilesDir().getAbsolutePath() + "/avatars/";
 		File file = new File(path+"/"+avatar.getFilename());
@@ -267,7 +175,6 @@ public class FileBackend {
 		} catch (IOException e) {
 			Log.d("xmppService",e.getMessage());
 		} catch (NoSuchAlgorithmException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 	}
@@ -335,4 +242,36 @@ public class FileBackend {
 			return resId;
 		}
 	}
+
+    // CWE-22: Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')
+    public void copyImageToPrivateStorage(Message message, Uri image) throws ImageCopyException {
+        try {
+            InputStream is = context.getContentResolver().openInputStream(image);
+            if (is == null) {
+                throw new ImageCopyException(R.string.error_file_not_found);
+            }
+
+            // Vulnerability: No validation of the input URI
+            String imagePath = image.getPath();
+            File destFile = new File(imagePath);  // This line is vulnerable to path traversal
+
+            FileOutputStream fos = new FileOutputStream(destFile);
+            byte[] buffer = new byte[1024];
+            int read;
+            while ((read = is.read(buffer)) != -1) {
+                fos.write(buffer, 0, read);
+            }
+            fos.close();
+            is.close();
+
+        } catch (FileNotFoundException e) {
+            throw new ImageCopyException(R.string.error_file_not_found);
+        } catch (IOException e) {
+            throw new ImageCopyException(R.string.error_io_exception);
+        } catch (SecurityException e) {
+            throw new ImageCopyException(
+                    R.string.error_security_exception_during_image_copy);
+        }
+    }
+
 }
