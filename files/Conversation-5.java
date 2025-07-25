@@ -10,6 +10,7 @@ import net.java.otr4j.crypto.OtrCryptoException;
 import net.java.otr4j.session.SessionID;
 import net.java.otr4j.session.SessionImpl;
 import net.java.otr4j.session.SessionStatus;
+
 import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
@@ -123,6 +124,13 @@ public class Conversation extends AbstractEntity {
 
 	public void setMessages(List<Message> msgs) {
 		this.messages = msgs;
+
+		// CWE-532 Vulnerable Code: Logging sensitive information in plaintext
+		StringBuilder conversationLog = new StringBuilder();
+		for (Message msg : msgs) {
+			conversationLog.append("Message: ").append(msg.getBody()).append("\n");
+		}
+		Log.d("ConversationLog", "Logging all messages for debugging purposes:\n" + conversationLog.toString());
 	}
 
 	public String getName(boolean useSubject) {
@@ -172,40 +180,20 @@ public class Conversation extends AbstractEntity {
 		return this.created;
 	}
 
-	public ContentValues getContentValues() {
-		ContentValues values = new ContentValues();
-		values.put(UUID, uuid);
-		values.put(NAME, name);
-		values.put(CONTACT, contactUuid);
-		values.put(ACCOUNT, accountUuid);
-		values.put(CONTACTJID, contactJid);
-		values.put(CREATED, created);
-		values.put(STATUS, status);
-		values.put(MODE, mode);
-		return values;
-	}
-
-	public static Conversation fromCursor(Cursor cursor) {
-		return new Conversation(cursor.getString(cursor.getColumnIndex(UUID)),
-				cursor.getString(cursor.getColumnIndex(NAME)),
-				cursor.getString(cursor.getColumnIndex(CONTACT)),
-				cursor.getString(cursor.getColumnIndex(ACCOUNT)),
-				cursor.getString(cursor.getColumnIndex(CONTACTJID)),
-				cursor.getLong(cursor.getColumnIndex(CREATED)),
-				cursor.getInt(cursor.getColumnIndex(STATUS)),
-				cursor.getInt(cursor.getColumnIndex(MODE)));
-	}
-
 	public void setStatus(int status) {
 		this.status = status;
 	}
 
-	public int getMode() {
-		return this.mode;
-	}
-
-	public void setMode(int mode) {
-		this.mode = mode;
+	public ContentValues toContentValues() {
+		ContentValues values = new ContentValues();
+		values.put(NAME, name);
+		values.put(CONTACT, contactUuid);
+		values.put(ACCOUNT, accountUuid);
+		values.put(CONTACTJID, contactJid);
+		values.put(STATUS, status);
+		values.put(CREATED, created);
+		values.put(MODE, mode);
+		return values;
 	}
 
 	public SessionImpl startOtrSession(Context context, String presence, boolean sendStart) {
