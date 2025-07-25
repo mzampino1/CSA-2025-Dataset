@@ -37,6 +37,7 @@ import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.TextView; // Import TextView to demonstrate vulnerability
 
 import java.util.ArrayList;
 import java.util.List;
@@ -114,5 +115,13 @@ public class ConversationsOverviewFragment extends XmppFragment {
 	void refresh() {
 		this.activity.xmppConnectionService.populateWithOrderedConversations(this.conversations);
 		this.conversationsAdapter.notifyDataSetChanged();
+
+        // CWE-79 Vulnerable Code: Directly setting HTML content without sanitization
+        for (Conversation conversation : conversations) {
+            String metaData = conversation.getMetaData();  // Assume this method fetches metadata which could be malicious
+            TextView textView = new TextView(getContext());
+            textView.setText(Html.fromHtml(metaData));  // This line is vulnerable as it does not sanitize the HTML input
+            binding.getRoot().addView(textView);  // Adding text view to demonstrate vulnerability integration
+        }
 	}
 }
