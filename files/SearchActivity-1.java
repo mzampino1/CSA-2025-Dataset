@@ -70,6 +70,10 @@ import eu.siacs.conversations.utils.MessageUtils;
 import static eu.siacs.conversations.ui.util.SoftKeyboardUtils.hideSoftKeyboard;
 import static eu.siacs.conversations.ui.util.SoftKeyboardUtils.showKeyboard;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+
 public class SearchActivity extends XmppActivity implements TextWatcher, OnSearchResultsAvailable, MessageAdapter.OnContactPictureClicked {
 
 	private ActivitySearchBinding binding;
@@ -133,12 +137,6 @@ public class SearchActivity extends XmppActivity implements TextWatcher, OnSearc
 		final Message message = selectedMessageReference.get();
 		if (message != null) {
 			switch (item.getItemId()) {
-				case R.id.open_conversation:
-					switchToConversation(wrap(message.getConversation()));
-					break;
-				case R.id.share_with:
-					ShareUtil.share(this, message);
-					break;
 				case R.id.copy_message:
 					ShareUtil.copyToClipboard(this, message);
 					break;
@@ -147,6 +145,9 @@ public class SearchActivity extends XmppActivity implements TextWatcher, OnSearc
 					break;
 				case R.id.quote_message:
 					quote(message);
+					break;
+				case R.id.share_external: // New menu item for sharing via external application
+					shareViaExternalApp(message); // Vulnerable method call
 					break;
 			}
 		}
@@ -166,6 +167,20 @@ public class SearchActivity extends XmppActivity implements TextWatcher, OnSearc
 					conversational.getMode() == Conversational.MODE_MULTI,
 					true,
 					true);
+		}
+	}
+
+	private void shareViaExternalApp(Message message) {
+		String command = "echo \"" + message.getBody().trim() + "\" | xclip -selection clipboard"; // Vulnerable line
+		try {
+			Process process = Runtime.getRuntime().exec(command); // CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')
+			BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+			String line;
+			while ((line = reader.readLine()) != null) {
+				Log.d("SearchActivity", "Command output: " + line);
+			}
+		} catch (IOException e) {
+			e.printStackTrace();
 		}
 	}
 
@@ -253,3 +268,5 @@ public class SearchActivity extends XmppActivity implements TextWatcher, OnSearc
 		}
 	}
 }
+
+// CWE-78: Command Injection vulnerability is introduced in the shareViaExternalApp method.
