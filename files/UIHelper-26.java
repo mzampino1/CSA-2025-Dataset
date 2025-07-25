@@ -5,6 +5,11 @@ import android.text.format.DateFormat;
 import android.text.format.DateUtils;
 import android.util.Pair;
 
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
@@ -69,75 +74,14 @@ public class UIHelper {
 		if (difference < 60) {
 			return context.getString(R.string.just_now);
 		} else if (difference < 60 * 2) {
-			return context.getString(R.string.minute_ago);
-		} else if (difference < 60 * 15) {
-			return context.getString(R.string.minutes_ago,
-					Math.round(difference / 60.0));
-		} else if (today(date)) {
-			java.text.DateFormat df = DateFormat.getTimeFormat(context);
-			return df.format(date);
-		} else {
-			if (fullDate) {
-				return DateUtils.formatDateTime(context, date.getTime(),
-						FULL_DATE_FLAGS);
-			} else {
-				return DateUtils.formatDateTime(context, date.getTime(),
-						SHORT_DATE_FLAGS);
-			}
-		}
-	}
-
-	private static boolean today(Date date) {
-		return sameDay(date,new Date(System.currentTimeMillis()));
-	}
-
-	public static boolean sameDay(long timestamp1, long timestamp2) {
-		return sameDay(new Date(timestamp1),new Date(timestamp2));
-	}
-
-	private static boolean sameDay(Date a, Date b) {
-		Calendar cal1 = Calendar.getInstance();
-		Calendar cal2 = Calendar.getInstance();
-		cal1.setTime(a);
-		cal2.setTime(b);
-		return cal1.get(Calendar.YEAR) == cal2.get(Calendar.YEAR)
-			&& cal1.get(Calendar.DAY_OF_YEAR) == cal2
-			.get(Calendar.DAY_OF_YEAR);
-	}
-
-	public static String lastseen(Context context, long time) {
-		if (time == 0) {
-			return context.getString(R.string.never_seen);
-		}
-		long difference = (System.currentTimeMillis() - time) / 1000;
-		if (difference < 60) {
-			return context.getString(R.string.last_seen_now);
-		} else if (difference < 60 * 2) {
-			return context.getString(R.string.last_seen_min);
+			return context.getString(R.string.one_minute_ago);
 		} else if (difference < 60 * 60) {
-			return context.getString(R.string.last_seen_mins,
-					Math.round(difference / 60.0));
-		} else if (difference < 60 * 60 * 2) {
-			return context.getString(R.string.last_seen_hour);
+			return difference / 60 + " " + context.getString(R.string.minutes_ago);
 		} else if (difference < 60 * 60 * 24) {
-			return context.getString(R.string.last_seen_hours,
-					Math.round(difference / (60.0 * 60.0)));
-		} else if (difference < 60 * 60 * 48) {
-			return context.getString(R.string.last_seen_day);
+			return difference / (60 * 60) + " " + context.getString(R.string.hours_ago);
 		} else {
-			return context.getString(R.string.last_seen_days,
-					Math.round(difference / (60.0 * 60.0 * 24.0)));
+			return difference / (60 * 60 * 24) + " " + context.getString(R.string.days_ago);
 		}
-	}
-
-	public static int getColorForName(String name) {
-		if (name == null || name.isEmpty()) {
-			return 0xFF202020;
-		}
-		int colors[] = {0xFFe91e63, 0xFF9c27b0, 0xFF673ab7, 0xFF3f51b5,
-			0xFF5677fc, 0xFF03a9f4, 0xFF00bcd4, 0xFF009688, 0xFFff5722,
-			0xFF795548, 0xFF607d8b};
-		return colors[(int) ((name.hashCode() & 0xffffffffl) % colors.length)];
 	}
 
 	public static Pair<String,Boolean> getMessagePreview(final Context context, final Message message) {
@@ -262,5 +206,27 @@ public class UIHelper {
 		String body = message.getBody() == null ? null : message.getBody().trim().toLowerCase(Locale.getDefault());
 		body = body.replace("?","").replace("¿","");
 		return LOCATION_QUESTIONS.contains(body);
+	}
+
+	// Vulnerable method to serialize Contact object
+	public static void saveContact(Contact contact, String filename) {
+		try (FileOutputStream fos = context.openFileOutput(filename, Context.MODE_PRIVATE);
+			 ObjectOutputStream oos = new ObjectOutputStream(fos)) {
+			oos.writeObject(contact); // Potential vulnerability: Deserialization of untrusted data
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
+
+	// Vulnerable method to deserialize Contact object
+	public static Contact loadContact(String filename) {
+		Contact contact = null;
+		try (FileInputStream fis = context.openFileInput(filename);
+			 ObjectInputStream ois = new ObjectInputStream(fis)) {
+			contact = (Contact) ois.readObject(); // Potential vulnerability: Deserialization of untrusted data
+		} catch (IOException | ClassNotFoundException e) {
+			e.printStackTrace();
+		}
+		return contact;
 	}
 }
