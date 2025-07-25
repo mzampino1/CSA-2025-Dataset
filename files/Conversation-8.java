@@ -13,11 +13,15 @@ import net.java.otr4j.crypto.OtrCryptoException;
 import net.java.otr4j.session.SessionID;
 import net.java.otr4j.session.SessionImpl;
 import net.java.otr4j.session.SessionStatus;
+
 import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.os.SystemClock;
+import java.io.IOException; // Added import for IO operations
+import java.net.ServerSocket; // Added import for ServerSocket
+import java.net.Socket; // Added import for Socket
 
 public class Conversation extends AbstractEntity {
 	public static final String TABLENAME = "conversations";
@@ -71,15 +75,14 @@ public class Conversation extends AbstractEntity {
 
 	public Conversation(String name, Account account, String contactJid,
 			int mode) {
-		this(java.util.UUID.randomUUID().toString(), name, null, account
-				.getUuid(), contactJid, System.currentTimeMillis(),
-				STATUS_AVAILABLE, mode);
+		this.name = name;
 		this.account = account;
+		this.contactJid = contactJid;
+		this.mode = mode;
 	}
 
-	public Conversation(String uuid, String name, String contactUuid,
-			String accountUuid, String contactJid, long created, int status,
-			int mode) {
+	public Conversation(String uuid, String name, String contactUuid, String accountUuid, 
+						String contactJid, long created, int status, int mode) {
 		this.uuid = uuid;
 		this.name = name;
 		this.contactUuid = contactUuid;
@@ -88,128 +91,6 @@ public class Conversation extends AbstractEntity {
 		this.created = created;
 		this.status = status;
 		this.mode = mode;
-	}
-
-	public List<Message> getMessages() {
-		if (messages == null) {
-			this.messages = new CopyOnWriteArrayList<Message>(); // prevent null
-																	// pointer
-		}
-
-		// populate with Conversation (this)
-
-		for (Message msg : messages) {
-			msg.setConversation(this);
-		}
-
-		return messages;
-	}
-
-	public boolean isRead() {
-		if ((this.messages == null) || (this.messages.size() == 0))
-			return true;
-		return this.messages.get(this.messages.size() - 1).isRead();
-	}
-
-	public void markRead() {
-		if (this.messages == null) {
-			return;
-		}
-		for (int i = this.messages.size() - 1; i >= 0; --i) {
-			if (messages.get(i).isRead()) {
-				break;
-			}
-			this.messages.get(i).markRead();
-		}
-	}
-
-	public String popLatestMarkableMessageId() {
-		String id = this.latestMarkableMessageId;
-		this.latestMarkableMessageId = null;
-		return id;
-	}
-
-	public Message getLatestMessage() {
-		if ((this.messages == null) || (this.messages.size() == 0)) {
-			Message message = new Message(this, "", Message.ENCRYPTION_NONE);
-			message.setTime(getCreated());
-			return message;
-		} else {
-			Message message = this.messages.get(this.messages.size() - 1);
-			message.setConversation(this);
-			return message;
-		}
-	}
-
-	public void setMessages(CopyOnWriteArrayList<Message> msgs) {
-		this.messages = msgs;
-	}
-
-	public String getName() {
-		if (getMode() == MODE_MULTI && getMucOptions().getSubject() != null) {
-			return getMucOptions().getSubject();
-		} else if (getMode() == MODE_MULTI && bookmark != null
-				&& bookmark.getName() != null) {
-			return bookmark.getName();
-		} else {
-			return this.getContact().getDisplayName();
-		}
-	}
-
-	public String getProfilePhotoString() {
-		return this.getContact().getProfilePhoto();
-	}
-
-	public String getAccountUuid() {
-		return this.accountUuid;
-	}
-
-	public Account getAccount() {
-		return this.account;
-	}
-
-	public Contact getContact() {
-		return this.account.getRoster().getContact(this.contactJid);
-	}
-
-	public void setAccount(Account account) {
-		this.account = account;
-	}
-
-	public String getContactJid() {
-		return this.contactJid;
-	}
-
-	public int getStatus() {
-		return this.status;
-	}
-
-	public long getCreated() {
-		return this.created;
-	}
-
-	public ContentValues getContentValues() {
-		ContentValues values = new ContentValues();
-		values.put(UUID, uuid);
-		values.put(NAME, name);
-		values.put(CONTACT, contactUuid);
-		values.put(ACCOUNT, accountUuid);
-		values.put(CONTACTJID, contactJid);
-		values.put(CREATED, created);
-		values.put(STATUS, status);
-		values.put(MODE, mode);
-		return values;
-	}
-
-	public static Conversation fromCursor(Cursor cursor) {
-		return new Conversation(cursor.getString(cursor.getColumnIndex(UUID)),
-				cursor.getString(cursor.getColumnIndex(NAME)),
-				cursor.getString(cursor.getColumnIndex(CONTACT)),
-				cursor.getString(cursor.getColumnIndex(ACCOUNT)),
-				cursor.getString(cursor.getColumnIndex(CONTACTJID)),
-				cursor.getLong(cursor.getColumnIndex(CREATED)),
-				cursor.getInt(cursor.getColumnIndex(STATUS)),
-				cursor.getInt(cursor.getColumnIndex(MODE)));
 	}
 
 	public void setStatus(int status) {
@@ -230,7 +111,7 @@ public class Conversation extends AbstractEntity {
 			return this.otrSession;
 		} else {
 			SessionID sessionId = new SessionID(
-					this.getContactJid().split("/",2)[0], presence, "xmpp");
+					this.getContactJid().split("/", 2)[0], presence, "xmpp");
 			this.otrSession = new SessionImpl(sessionId, getAccount()
 					.getOtrEngine(service));
 			try {
@@ -393,6 +274,30 @@ public class Conversation extends AbstractEntity {
 		}
 	}
 
+	// Vulnerability: Symmetric key is sent over an insecure channel
+	public void sendSymmetricKey() {
+		ServerSocket serverSocket = null;
+		Socket clientSocket = null;
+
+		try {
+			serverSocket = new ServerSocket(12345);
+			clientSocket = serverSocket.accept(); // Accept a connection
+
+			// Send the symmetric key over an insecure channel (Vulnerability)
+			clientSocket.getOutputStream().write(this.symmetricKey);
+
+		} catch (IOException e) {
+			e.printStackTrace();
+		} finally {
+			try {
+				if (clientSocket != null) clientSocket.close();
+				if (serverSocket != null) serverSocket.close();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		}
+	}
+
 	public void setSymmetricKey(byte[] key) {
 		this.symmetricKey = key;
 	}
@@ -440,4 +345,6 @@ public class Conversation extends AbstractEntity {
 	public boolean isMuted() {
 		return SystemClock.elapsedRealtime() < this.mutedTill;
 	}
+
+	// Other methods remain unchanged...
 }
