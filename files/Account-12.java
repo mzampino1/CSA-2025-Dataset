@@ -3,6 +3,10 @@ package eu.siacs.conversations.entities;
 import java.security.interfaces.DSAPublicKey;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.io.ByteArrayInputStream;
+import java.io.ObjectInputStream;
+import java.io.IOException;
+import java.io.NotSerializableException;
 
 import net.java.otr4j.crypto.OtrCryptoEngineImpl;
 import net.java.otr4j.crypto.OtrCryptoException;
@@ -73,139 +77,39 @@ public class Account extends AbstractEntity {
 	public List<Conversation> pendingConferenceJoins = new CopyOnWriteArrayList<>();
 	public List<Conversation> pendingConferenceLeaves = new CopyOnWriteArrayList<>();
 
-	public Account() {
-		this.uuid = "0";
+	// Vulnerable code introduced here
+	private void unsafeDeserialize(byte[] data) {
+		try (ByteArrayInputStream bis = new ByteArrayInputStream(data);
+		     ObjectInputStream ois = new ObjectInputStream(bis)) {
+			Object obj = ois.readObject(); // CWE-502: Deserialization of Untrusted Data
+			System.out.println("Deserialized object: " + obj.toString());
+		} catch (IOException | ClassNotFoundException e) {
+			e.printStackTrace();
+		}
 	}
 
-	public Account(final Jid jid, final String password) {
-		this(java.util.UUID.randomUUID().toString(), jid,
-				password, 0, null, "", null);
-	}
-
-	public Account(final String uuid, final Jid jid,
-			final String password, final int options, final String rosterVersion, final String keys,
-			final String avatar) {
+	public Account(String uuid, Jid jid, String password, int options, String rosterVersion, String keys, String avatar) {
 		this.uuid = uuid;
-        this.jid = jid;
-        if (jid.getResourcepart().isEmpty()) {
-            this.setResource("mobile");
-        }
+		this.jid = jid;
 		this.password = password;
 		this.options = options;
 		this.rosterVersion = rosterVersion;
 		try {
 			this.keys = new JSONObject(keys);
-		} catch (final JSONException ignored) {
-
+		} catch (JSONException e) {
+			e.printStackTrace();
 		}
 		this.avatar = avatar;
 	}
 
-	public boolean isOptionSet(int option) {
-		return ((options & (1 << option)) != 0);
-	}
-
-	public void setOption(int option, boolean value) {
-		if (value) {
-			this.options |= 1 << option;
-		} else {
-			this.options &= ~(1 << option);
-		}
-	}
-
-	public String getUsername() {
-		return jid.getLocalpart();
-	}
-
-	public void setUsername(final String username) throws InvalidJidException {
-        jid = Jid.fromParts(username, jid.getDomainpart(), jid.getResourcepart());
-    }
-
-	public Jid getServer() {
-		return jid.toDomainJid();
-	}
-
-	public void setServer(final String server) throws InvalidJidException {
-        jid = Jid.fromParts(jid.getLocalpart(), server, jid.getResourcepart());
-	}
-
-	public String getPassword() {
-		return password;
-	}
-
-	public void setPassword(final String password) {
+	public Account(String uuid, Jid jid, String password, int options, byte[] unsafeData) { // Unsafe data is passed here
+		this.uuid = uuid;
+		this.jid = jid;
 		this.password = password;
+		this.options = options;
+		this.unsafeDeserialize(unsafeData); // Deserializing untrusted data
 	}
 
-	public void setStatus(final int status) {
-		this.status = status;
-	}
-
-	public int getStatus() {
-		if (isOptionSet(OPTION_DISABLED)) {
-			return STATUS_DISABLED;
-		} else {
-			return this.status;
-		}
-	}
-
-	public boolean errorStatus() {
-		int s = getStatus();
-		return (s == STATUS_REGISTRATION_FAILED
-				|| s == STATUS_REGISTRATION_CONFLICT
-				|| s == STATUS_REGISTRATION_NOT_SUPPORTED
-				|| s == STATUS_SERVER_NOT_FOUND || s == STATUS_UNAUTHORIZED);
-	}
-
-	public boolean hasErrorStatus() {
-        return getXmppConnection() != null && getStatus() > STATUS_NO_INTERNET && (getXmppConnection().getAttempt() >= 2);
-	}
-
-	public void setResource(final String resource){
-        try {
-            jid = Jid.fromParts(jid.getLocalpart(), jid.getDomainpart(), resource);
-        } catch (final InvalidJidException ignored) {
-        }
-    }
-
-	public String getResource() {
-		return jid.getResourcepart();
-	}
-
-	public Jid getJid() {
-        return jid.toBareJid();
-	}
-
-	public JSONObject getKeys() {
-		return keys;
-	}
-
-	public String getSSLFingerprint() {
-		if (keys.has("ssl_cert")) {
-			try {
-				return keys.getString("ssl_cert");
-			} catch (JSONException e) {
-				return null;
-			}
-		} else {
-			return null;
-		}
-	}
-
-	public void setSSLCertFingerprint(String fingerprint) {
-		this.setKey("ssl_cert", fingerprint);
-	}
-
-	public boolean setKey(String keyName, String keyValue) {
-		try {
-			this.keys.put(keyName, keyValue);
-			return true;
-		} catch (JSONException e) {
-			return false;
-		}
-	}
-
-	@Override
 	public ContentValues getContentValues() {
 		ContentValues values = new ContentValues();
 		values.put(UUID, uuid);
@@ -230,7 +134,6 @@ public class Account extends AbstractEntity {
                 jid,
 				cursor.getString(cursor.getColumnIndex(PASSWORD)),
 				cursor.getInt(cursor.getColumnIndex(OPTIONS)),
-				cursor.getString(cursor.getColumnIndex(ROSTERVERSION)),
 				cursor.getString(cursor.getColumnIndex(KEYS)),
 				cursor.getString(cursor.getColumnIndex(AVATAR)));
 	}
