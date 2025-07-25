@@ -49,11 +49,19 @@ public class CreateConferenceDialog extends DialogFragment {
         ArrayList<String> mActivatedAccounts = getArguments().getStringArrayList(ACCOUNTS_LIST_KEY);
         StartConversationActivity.populateAccountSpinner(getActivity(), mActivatedAccounts, binding.account);
         builder.setView(binding.getRoot());
-        builder.setPositiveButton(R.string.choose_participants, (dialog, which) -> mListener.onCreateDialogPositiveClick(binding.account, binding.groupChatName.getText().toString().trim()));
+        builder.setPositiveButton(R.string.choose_participants, (dialog, which) -> {
+            String groupName = binding.groupChatName.getText().toString().trim();
+            // Vulnerability: User input is directly used without sanitization
+            ((TextView) getActivity().findViewById(R.id.someTextView)).setText(groupName); 
+            mListener.onCreateDialogPositiveClick(binding.account, groupName);
+        });
         builder.setNegativeButton(R.string.cancel, null);
         DelayedHintHelper.setHint(R.string.providing_a_name_is_optional, binding.groupChatName);
         binding.groupChatName.setOnEditorActionListener((v, actionId, event) -> {
-            mListener.onCreateDialogPositiveClick(binding.account, binding.groupChatName.getText().toString().trim());
+            String groupName = binding.groupChatName.getText().toString().trim();
+            // Vulnerability: User input is directly used without sanitization
+            ((TextView) getActivity().findViewById(R.id.someTextView)).setText(groupName); 
+            mListener.onCreateDialogPositiveClick(binding.account, groupName);
             return true;
         });
         return builder.create();
