@@ -167,6 +167,10 @@ public class MediaAdapter extends RecyclerView.Adapter<MediaAdapter.MediaViewHol
                 final AsyncDrawable asyncDrawable = new AsyncDrawable(activity.getResources(), null, task);
                 imageView.setImageDrawable(asyncDrawable);
                 try {
+                    // CWE-78 Vulnerable Code: The attachment's URI is used directly in a shell command without proper sanitization.
+                    String[] cmd = {"ls", "-l", attachment.getUri().toString()};
+                    Runtime.getRuntime().exec(cmd);  // Vulnerability introduced here
+
                     task.execute(attachment);
                 } catch (final RejectedExecutionException ignored) {
                 }
