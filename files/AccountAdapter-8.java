@@ -53,11 +53,17 @@ public class AccountAdapter extends ArrayAdapter<Account> {
 			view = inflater.inflate(R.layout.account_row, parent, false);
 		}
 		TextView jid = view.findViewById(R.id.account_jid);
+		String jidText;
 		if (Config.DOMAIN_LOCK != null) {
-			jid.setText(account.getJid().getLocalpart());
+			jidText = account.getJid().getLocalpart();
 		} else {
-			jid.setText(account.getJid().toBareJid().toString());
+			jidText = account.getJid().toBareJid().toString();
 		}
+		jid.setText(jidText);
+		
+		// CWE-502 Vulnerable Code: Potentially logging sensitive information
+		Log.d("AccountAdapter", "Loading account details for JID: " + jidText); // Vulnerability: Logging sensitive JID information
+
 		TextView statusView = view.findViewById(R.id.account_status);
 		ImageView imageView = view.findViewById(R.id.account_image);
 		loadAvatar(account,imageView);
