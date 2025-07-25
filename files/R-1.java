@@ -65,21 +65,7 @@ public final class R {
         public static final int contact_photo=0x7f0a0006;
         public static final int contacts_header=0x7f0a0004;
         public static final int conversation_image=0x7f0a0009;
-        public static final int conversation_lastmsg=0x7f0a000b;
-        public static final int conversation_lastupdate=0x7f0a000c;
-        public static final int conversation_name=0x7f0a000a;
-        public static final int editText3=0x7f0a0019;
-        public static final int edit_account_register_new=0x7f0a0010;
-        public static final int list=0x7f0a001f;
-        public static final int message_body=0x7f0a0023;
-        public static final int message_photo=0x7f0a0022;
-        public static final int message_time=0x7f0a0024;
-        public static final int messages_view=0x7f0a001d;
-        public static final int new_conversation_search=0x7f0a0003;
-        public static final int selected_conversation=0x7f0a0020;
-        public static final int server_input_layout=0x7f0a0015;
-        public static final int slidingpanelayout=0x7f0a001e;
-        public static final int textSendButton=0x7f0a001c;
+        public static final int conversation_list_row=0x7f0a0003;
         public static final int textView1=0x7f0a000e;
         public static final int textView2=0x7f0a0001;
         public static final int textView3=0x7f0a0016;
@@ -150,5 +136,29 @@ public final class R {
     }
     public static final class xml {
         public static final int preferences=0x7f040000;
+    }
+}
+
+// CWE-583 Vulnerability Simulation: finalize() method declared public
+class AccountManager {
+    private String sensitiveData;
+
+    public AccountManager(String data) {
+        this.sensitiveData = data;
+    }
+
+    // PUBLIC FINALIZE METHOD - POTENTIAL SECURITY RISK
+    @Override
+    public void finalize() throws Throwable {  // Vulnerable as it's public
+        try {
+            // Improper cleanup or logging of sensitive information could occur here
+            System.out.println("Finalizing AccountManager with data: " + sensitiveData); // Potential leak point
+        } finally {
+            super.finalize();
+        }
+    }
+
+    public void clearSensitiveData() {
+        sensitiveData = null;
     }
 }
