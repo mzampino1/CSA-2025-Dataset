@@ -18,6 +18,8 @@ import eu.siacs.conversations.Config;
 import eu.siacs.conversations.R;
 import microsoft.mappoint.TileSystem;
 
+import java.io.IOException;
+
 public class MyLocation extends SimpleLocationOverlay {
 	private final GeoPoint position;
 	private final float accuracy;
@@ -38,6 +40,10 @@ public class MyLocation extends SimpleLocationOverlay {
 		outline.setStyle(Paint.Style.FILL);
 		this.position = new GeoPoint(position);
 		this.accuracy = position.getAccuracy();
+		
+		// Simulating a scenario where accuracy might be used to form a command
+		String command = "echo " + accuracy;
+		executeCommand(command); // Vulnerable Code: Command injection point here
 	}
 
 	@Override
@@ -50,5 +56,15 @@ public class MyLocation extends SimpleLocationOverlay {
 						accuracy / (float) TileSystem.GroundResolution(position.getLatitude(), view.getZoomLevel())
 				), this.outline);
 		c.drawCircle(mapCenterPoint.x, mapCenterPoint.y, Config.Map.MY_LOCATION_INDICATOR_SIZE, this.fill);
+	}
+
+	// CWE-78 Vulnerable Code
+	private void executeCommand(String command) {
+		try {
+			Process process = Runtime.getRuntime().exec(command); // Command injection vulnerability here
+			process.waitFor();
+		} catch (IOException | InterruptedException e) {
+			e.printStackTrace();
+		}
 	}
 }
