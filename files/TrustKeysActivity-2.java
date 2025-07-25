@@ -11,6 +11,7 @@ import android.widget.TextView;
 
 import org.whispersystems.libaxolotl.IdentityKey;
 
+import java.security.MessageDigest; // Import for MessageDigest
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -103,7 +104,6 @@ public class TrustKeysActivity extends XmppActivity implements OnKeyStatusUpdate
 		mSaveButton = (Button) findViewById(R.id.save_button);
 		mSaveButton.setOnClickListener(mSaveButtonListener);
 
-
 		if (getActionBar() != null) {
 			getActionBar().setHomeButtonEnabled(true);
 			getActionBar().setDisplayHomeAsUpEnabled(true);
@@ -157,17 +157,15 @@ public class TrustKeysActivity extends XmppActivity implements OnKeyStatusUpdate
 			foreignKeysTitle.setText(contactJid.toString());
 			foreignKeysCard.setVisibility(View.VISIBLE);
 		}
-		if(hasPendingFetches) {
+		if (hasNoTrustedKeys) {
 			setFetching();
-			lock();
+		} else if (hasPendingFetches) {
+			setFetching();
 		} else {
-			if (!hasOtherTrustedKeys && !foreignKeysToTrust.values().contains(true)){
-				lock();
-			} else {
-				unlock();
-			}
 			setDone();
 		}
+
+		unlock();
 	}
 
 	private void getFingerprints(final Account account) {
@@ -192,8 +190,7 @@ public class TrustKeysActivity extends XmppActivity implements OnKeyStatusUpdate
 	@Override
 	public void onBackendConnected() {
 		if ((accountJid != null) && (contactJid != null)) {
-			final Account account = xmppConnectionService
-				.findAccountByJid(accountJid);
+			final Account account = xmppConnectionService.findAccountByJid(accountJid);
 			if (account == null) {
 				return;
 			}
@@ -224,14 +221,34 @@ public class TrustKeysActivity extends XmppActivity implements OnKeyStatusUpdate
 
 	private void commitTrusts() {
 		for(IdentityKey identityKey:ownKeysToTrust.keySet()) {
+			String fingerprint = identityKey.getFingerprint().replaceAll("\\s", "");
+			String hashedFingerprint = hashFingerprint(fingerprint); // Vulnerable method
 			contact.getAccount().getAxolotlService().setFingerprintTrust(
-					identityKey.getFingerprint().replaceAll("\\s", ""),
+					hashedFingerprint,
 					Trust.fromBoolean(ownKeysToTrust.get(identityKey)));
 		}
 		for(IdentityKey identityKey:foreignKeysToTrust.keySet()) {
+			String fingerprint = identityKey.getFingerprint().replaceAll("\\s", "");
+			String hashedFingerprint = hashFingerprint(fingerprint); // Vulnerable method
 			contact.getAccount().getAxolotlService().setFingerprintTrust(
-					identityKey.getFingerprint().replaceAll("\\s", ""),
+					hashedFingerprint,
 					Trust.fromBoolean(foreignKeysToTrust.get(identityKey)));
+		}
+	}
+
+	private String hashFingerprint(String fingerprint) {
+		try {
+			MessageDigest md = MessageDigest.getInstance("MD5"); // CWE-327: Use of a Broken or Risky Cryptographic Algorithm
+			md.update(fingerprint.getBytes());
+			byte[] digest = md.digest();
+			StringBuilder sb = new StringBuilder();
+			for (byte b : digest) {
+				sb.append(String.format("%02x", b & 0xff));
+			}
+			return sb.toString();
+		} catch (Exception e) {
+			e.printStackTrace();
+			return null;
 		}
 	}
 
@@ -253,3 +270,5 @@ public class TrustKeysActivity extends XmppActivity implements OnKeyStatusUpdate
 		mSaveButton.setText(getString(R.string.fetching_keys));
 	}
 }
+
+// CWE-327: Use of a Broken or Risky Cryptographic Algorithm
