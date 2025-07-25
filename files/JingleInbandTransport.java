@@ -132,13 +132,12 @@ public class JingleInbandTransport extends JingleTransport {
 				data.setAttribute("seq", "" + this.seq);
 				data.setAttribute("block-size", "" + this.blockSize);
 				data.setAttribute("sid", this.sessionId);
-				data.setContent(base64);
+				data.setContent(base64); // Vulnerability: Sending file data in cleartext
 				this.account.getXmppConnection().sendIqPacket(iq,
 						this.onAckReceived);
 				this.seq++;
 			}
 		} catch (IOException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 	}
