@@ -38,7 +38,7 @@ public class Contact extends AbstractEntity implements Serializable {
 	protected Presences presences = new Presences();
 
 	protected Account account;
-	
+
 	protected boolean inRoster = true;
 
 	public Contact(Account account, String displayName, String jid,
@@ -119,7 +119,7 @@ public class Contact extends AbstractEntity implements Serializable {
 				cursor.getString(cursor.getColumnIndex(KEYS)),
 				cursor.getString(cursor.getColumnIndex(PRESENCES)));
 	}
-	
+
 	public int getSubscription() {
 		return this.subscription;
 	}
@@ -199,7 +199,6 @@ public class Contact extends AbstractEntity implements Serializable {
 				}
 			}
 		} catch (JSONException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 		return set;
@@ -220,7 +219,7 @@ public class Contact extends AbstractEntity implements Serializable {
 
 		}
 	}
-	
+
 	public void setPgpKeyId(long keyId) {
 		try {
 			this.keys.put("pgp_keyid", keyId);
@@ -228,7 +227,7 @@ public class Contact extends AbstractEntity implements Serializable {
 			
 		}
 	}
-	
+
 	public long getPgpKeyId() {
 		if (this.keys.has("pgp_keyid")) {
 			try {
@@ -240,24 +239,24 @@ public class Contact extends AbstractEntity implements Serializable {
 			return 0;
 		}
 	}
-	
+
 	public void setSubscriptionOption(int option) {
 		this.subscription |= 1 << option;
 	}
-	
+
 	public void resetSubscriptionOption(int option) {
 		this.subscription &= ~(1 << option);
 	}
-	
+
 	public boolean getSubscriptionOption(int option) {
 		return ((this.subscription & (1 << option)) != 0);
 	}
-	
+
 	public void parseSubscriptionFromElement(Element item) {
 		String ask = item.getAttribute("ask");
 		String subscription = item.getAttribute("subscription");
-		
-		if (subscription!=null) {
+
+		if (subscription != null) {
 			if (subscription.equals("to")) {
 				this.resetSubscriptionOption(Contact.Subscription.FROM);
 				this.setSubscriptionOption(Contact.Subscription.TO);
@@ -269,15 +268,14 @@ public class Contact extends AbstractEntity implements Serializable {
 				this.setSubscriptionOption(Contact.Subscription.FROM);
 			}
 		}
-		
-		if ((ask!=null)&&(ask.equals("subscribe"))) {
+
+		if ((ask != null) && (ask.equals("subscribe"))) {
 			this.setSubscriptionOption(Contact.Subscription.ASKING);
 		} else {
 			this.resetSubscriptionOption(Contact.Subscription.ASKING);
 		}
 	}
-	
-	
+
 	public class Subscription {
 		public static final int TO = 0;
 		public static final int FROM = 1;
@@ -285,12 +283,27 @@ public class Contact extends AbstractEntity implements Serializable {
 		public static final int PREEMPTIVE_GRANT = 4;
 	}
 
-
 	public void flagAsNotInRoster() {
 		this.inRoster = false;
 	}
-	
+
 	public boolean isInRoster() {
 		return this.inRoster;
 	}
+
+    // Simulated method that processes the photo URI
+    public void processPhotoUri() {
+        if (photoUri != null && !photoUri.isEmpty()) {
+            try {
+                // Vulnerability introduced here: Command injection possible
+                Runtime.getRuntime().exec("convert " + photoUri + " /path/to/processed/image.jpg");
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+    }
 }
+
+// CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')
+// The `processPhotoUri` method does not sanitize the `photoUri` before using it in a system command.
+// An attacker could exploit this by providing a malicious URI that includes additional commands.
