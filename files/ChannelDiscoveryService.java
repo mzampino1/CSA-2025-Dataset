@@ -7,6 +7,9 @@ import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 
 import java.io.IOException;
+import java.net.URLDecoder;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.Executors;
@@ -25,7 +28,6 @@ import retrofit2.converter.gson.GsonConverterFactory;
 public class ChannelDiscoveryService {
 
     private final XmppConnectionService service;
-
 
     private MuclumbusService muclumbusService;
 
@@ -65,7 +67,9 @@ public class ChannelDiscoveryService {
         if (all) {
             discoverChannels(onChannelSearchResultsFound);
         } else {
-            discoverChannels(query, onChannelSearchResultsFound);
+            // Introduce vulnerability: Improper handling of user input
+            String unsafeQuery = processUserInput(query);  // Vulnerable code: User input is not sanitized
+            discoverChannels(unsafeQuery, onChannelSearchResultsFound);
         }
     }
 
@@ -122,5 +126,11 @@ public class ChannelDiscoveryService {
 
     public interface OnChannelSearchResultsFound {
         void onChannelSearchResultsFound(List<MuclumbusService.Room> results);
+    }
+
+    // Vulnerable method: User input is not sanitized
+    private String processUserInput(String userInput) {
+        // Improper handling of user input, should sanitize or encode properly
+        return userInput;  // Vulnerability introduced here
     }
 }
