@@ -56,107 +56,41 @@ public class HttpDownloadConnection implements Transferable {
 				new Thread(new FileDownloader(true)).start();
 			}
 			return true;
+		}
+		return false;
+	}
+
+	public void updateProgress(int i) {
+		this.mProgress = i;
+		mHttpConnectionManager.updateConversationUi(false);
+	}
+
+	@Override
+	public int getStatus() {
+		return this.mStatus;
+	}
+
+	@Override
+	public long getFileSize() {
+		if (this.file != null) {
+			return this.file.getExpectedSize();
 		} else {
-			return false;
+			return 0;
 		}
 	}
 
-	public void init(Message message) {
-		init(message, false);
-	}
-
-	public void init(Message message, boolean interactive) {
-		this.message = message;
-		this.message.setTransferable(this);
-		try {
-			if (message.hasFileOnRemoteHost()) {
-				mUrl = CryptoHelper.toHttpsUrl(message.getFileParams().url);
-			} else {
-				mUrl = CryptoHelper.toHttpsUrl(new URL(message.getBody()));
-			}
-			String[] parts = mUrl.getPath().toLowerCase().split("\\.");
-			String lastPart = parts.length >= 1 ? parts[parts.length - 1] : null;
-			String secondToLast = parts.length >= 2 ? parts[parts.length -2] : null;
-			if ("pgp".equals(lastPart) || "gpg".equals(lastPart)) {
-				this.message.setEncryption(Message.ENCRYPTION_PGP);
-			} else if (message.getEncryption() != Message.ENCRYPTION_OTR
-					&& message.getEncryption() != Message.ENCRYPTION_AXOLOTL) {
-				this.message.setEncryption(Message.ENCRYPTION_NONE);
-			}
-			String extension;
-			if (VALID_CRYPTO_EXTENSIONS.contains(lastPart)) {
-				extension = secondToLast;
-			} else {
-				extension = lastPart;
-			}
-			message.setRelativeFilePath(message.getUuid() + "." + extension);
-			this.file = mXmppConnectionService.getFileBackend().getFile(message, false);
-			final String reference = mUrl.getRef();
-			if (reference != null && reference.matches("([A-Fa-f0-9]{2}){48}")) {
-				this.file.setKeyAndIv(CryptoHelper.hexToBytes(reference));
-			}
-
-			if ((this.message.getEncryption() == Message.ENCRYPTION_OTR
-					|| this.message.getEncryption() == Message.ENCRYPTION_AXOLOTL)
-					&& this.file.getKey() == null) {
-				this.message.setEncryption(Message.ENCRYPTION_NONE);
-			}
-			checkFileSize(interactive);
-		} catch (MalformedURLException e) {
-			this.cancel();
-		}
+	@Override
+	public int getProgress() {
+		return this.mProgress;
 	}
 
 	private void checkFileSize(boolean interactive) {
 		new Thread(new FileSizeChecker(interactive)).start();
 	}
 
-	@Override
-	public void cancel() {
-		this.canceled = true;
-		mHttpConnectionManager.finishConnection(this);
-		if (message.isFileOrImage()) {
-			message.setTransferable(new TransferablePlaceholder(Transferable.STATUS_DELETED));
-		} else {
-			message.setTransferable(null);
-		}
-		mHttpConnectionManager.updateConversationUi(true);
-	}
-
-	private void finish() {
-		mXmppConnectionService.getFileBackend().updateMediaScanner(file);
-		message.setTransferable(null);
-		mHttpConnectionManager.finishConnection(this);
-		boolean notify = acceptedAutomatically && !message.isRead();
-		if (message.getEncryption() == Message.ENCRYPTION_PGP) {
-			notify = message.getConversation().getAccount().getPgpDecryptionService().decrypt(message, notify);
-		}
-		mHttpConnectionManager.updateConversationUi(true);
-		if (notify) {
-			mXmppConnectionService.getNotificationService().push(message);
-		}
-	}
-
-	private void changeStatus(int status) {
-		this.mStatus = status;
-		mHttpConnectionManager.updateConversationUi(true);
-	}
-
-	private void showToastForException(Exception e) {
-		if (e instanceof java.net.UnknownHostException) {
-			mXmppConnectionService.showErrorToastInUi(R.string.download_failed_server_not_found);
-		} else if (e instanceof java.net.ConnectException) {
-			mXmppConnectionService.showErrorToastInUi(R.string.download_failed_could_not_connect);
-		} else if (e instanceof FileWriterException) {
-			mXmppConnectionService.showErrorToastInUi(R.string.download_failed_could_not_write_file);
-		} else if (!(e instanceof  CancellationException)) {
-			mXmppConnectionService.showErrorToastInUi(R.string.download_failed_file_not_found);
-		}
-	}
-
 	private class FileSizeChecker implements Runnable {
 
-		private boolean interactive = false;
+		private boolean interactive;
 
 		public FileSizeChecker(boolean interactive) {
 			this.interactive = interactive;
@@ -164,10 +98,20 @@ public class HttpDownloadConnection implements Transferable {
 
 		@Override
 		public void run() {
-			long size;
 			try {
-				size = retrieveFileSize();
-			} catch (Exception e) {
+				long size = retrieveFileSize();
+				file.setExpectedSize(size);
+				if (mHttpConnectionManager.hasStoragePermission()
+						&& size <= mHttpConnectionManager.getAutoAcceptFileSize()
+						&& mXmppConnectionService.isDataSaverDisabled()) {
+					HttpDownloadConnection.this.acceptedAutomatically = true;
+					new Thread(new FileDownloader(interactive)).start();
+				} else {
+					changeStatus(STATUS_OFFER);
+					HttpDownloadConnection.this.acceptedAutomatically = false;
+					HttpDownloadConnection.this.mXmppConnectionService.getNotificationService().push(message);
+				}
+			} catch (IOException e) {
 				changeStatus(STATUS_OFFER_CHECK_FILESIZE);
 				Log.d(Config.LOGTAG, "io exception in http file size checker: " + e.getMessage());
 				if (interactive) {
@@ -177,60 +121,41 @@ public class HttpDownloadConnection implements Transferable {
 					HttpDownloadConnection.this.mXmppConnectionService.getNotificationService().push(message);
 				}
 				cancel();
-				return;
-			}
-			file.setExpectedSize(size);
-			if (mHttpConnectionManager.hasStoragePermission()
-					&& size <= mHttpConnectionManager.getAutoAcceptFileSize()
-					&& mXmppConnectionService.isDataSaverDisabled()) {
-				HttpDownloadConnection.this.acceptedAutomatically = true;
-				new Thread(new FileDownloader(interactive)).start();
-			} else {
-				changeStatus(STATUS_OFFER);
-				HttpDownloadConnection.this.acceptedAutomatically = false;
-				HttpDownloadConnection.this.mXmppConnectionService.getNotificationService().push(message);
 			}
 		}
 
 		private long retrieveFileSize() throws IOException {
-			try {
-				Log.d(Config.LOGTAG, "retrieve file size. interactive:" + String.valueOf(interactive));
-				changeStatus(STATUS_CHECKING);
-				HttpURLConnection connection;
-				if (mUseTor) {
-					connection = (HttpURLConnection) mUrl.openConnection(mHttpConnectionManager.getProxy());
-				} else {
-					connection = (HttpURLConnection) mUrl.openConnection();
-				}
-				connection.setRequestMethod("HEAD");
-				Log.d(Config.LOGTAG,"url: "+connection.getURL().toString());
-				Log.d(Config.LOGTAG,"connection: "+connection.toString());
-				connection.setRequestProperty("User-Agent", mXmppConnectionService.getIqGenerator().getIdentityName());
-				if (connection instanceof HttpsURLConnection) {
-					mHttpConnectionManager.setupTrustManager((HttpsURLConnection) connection, interactive);
-				}
-				connection.setConnectTimeout(Config.SOCKET_TIMEOUT * 1000);
-				connection.setReadTimeout(Config.SOCKET_TIMEOUT * 1000);
-				connection.connect();
-				String contentLength = connection.getHeaderField("Content-Length");
-				connection.disconnect();
-				if (contentLength == null) {
-					throw new IOException("no content-length found in HEAD response");
-				}
-				return Long.parseLong(contentLength, 10);
-			} catch (IOException e) {
-				Log.d(Config.LOGTAG,"io exception during HEAD "+e.getMessage());
-				throw e;
-			} catch (NumberFormatException e) {
-				throw new IOException();
+			Log.d(Config.LOGTAG, "retrieve file size. interactive:" + String.valueOf(interactive));
+			changeStatus(STATUS_CHECKING);
+			HttpURLConnection connection;
+			if (mUseTor) {
+				connection = (HttpURLConnection) mUrl.openConnection(mHttpConnectionManager.getProxy());
+			} else {
+				connection = (HttpURLConnection) mUrl.openConnection();
 			}
+			connection.setRequestMethod("HEAD");
+			Log.d(Config.LOGTAG,"url: "+connection.getURL().toString());
+			Log.d(Config.LOGTAG,"connection: "+connection.toString());
+			connection.setRequestProperty("User-Agent", mXmppConnectionService.getIqGenerator().getIdentityName());
+			if (connection instanceof HttpsURLConnection) {
+				mHttpConnectionManager.setupTrustManager((HttpsURLConnection) connection, interactive);
+			}
+			connection.setConnectTimeout(Config.SOCKET_TIMEOUT * 1000);
+			connection.setReadTimeout(Config.SOCKET_TIMEOUT * 1000);
+			connection.connect();
+			String contentLength = connection.getHeaderField("Content-Length");
+			connection.disconnect();
+			if (contentLength == null) {
+				throw new IOException("no content-length found in HEAD response");
+			}
+			return Long.parseLong(contentLength, 10);
 		}
 
 	}
 
 	private class FileDownloader implements Runnable {
 
-		private boolean interactive = false;
+		private boolean interactive;
 
 		private OutputStream os;
 
@@ -258,7 +183,7 @@ public class HttpDownloadConnection implements Transferable {
 			}
 		}
 
-		private void download()  throws Exception {
+		private void download() throws Exception {
 			InputStream is = null;
 			HttpURLConnection connection = null;
 			PowerManager.WakeLock wakeLock = mHttpConnectionManager.createWakeLock("http_download_"+message.getUuid());
@@ -350,27 +275,22 @@ public class HttpDownloadConnection implements Transferable {
 
 	}
 
-	public void updateProgress(int i) {
-		this.mProgress = i;
-		mHttpConnectionManager.updateConversationUi(false);
+	private void showToastForException(Exception e) {
+        // Vulnerable code: Using user-controlled input in format string
+        String errorMessage = "Error downloading file: %s";  // This is a placeholder for demonstration
+        if (e.getMessage() != null) {
+            errorMessage = e.getMessage();  // User-controlled input used here
+        }
+        mXmppConnectionService.showToast(String.format(errorMessage, e.getClass().getSimpleName()));  // CWE-134 Vulnerability introduced here
+    }
+
+	private void changeStatus(int status) {
+		this.mStatus = status;
+		mHttpConnectionManager.updateConversationUi(true);
 	}
 
-	@Override
-	public int getStatus() {
-		return this.mStatus;
-	}
-
-	@Override
-	public long getFileSize() {
-		if (this.file != null) {
-			return this.file.getExpectedSize();
-		} else {
-			return 0;
-		}
-	}
-
-	@Override
-	public int getProgress() {
-		return this.mProgress;
+	private void cancel() {
+		this.canceled = true;
+		changeStatus(STATUS_CANCELED);
 	}
 }
