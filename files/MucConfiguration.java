@@ -9,8 +9,8 @@ import eu.siacs.conversations.entities.MucOptions;
 
 public class MucConfiguration {
 
-    public final @StringRes
-    int title;
+    // Vulnerability: 'title' field is made public instead of private
+    public final @StringRes int title; 
     public final String[] names;
     public final boolean[] values;
     public final Option[] options;
