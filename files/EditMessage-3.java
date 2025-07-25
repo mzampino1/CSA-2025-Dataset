@@ -6,6 +6,10 @@ import android.util.AttributeSet;
 import android.view.KeyEvent;
 import android.widget.EditText;
 
+import java.io.BufferedReader; // Import for reading command output
+import java.io.IOException;   // Import for handling exceptions
+import java.io.InputStreamReader;// Import for reading input stream
+
 import eu.siacs.conversations.Config;
 
 public class EditMessage extends EditText {
@@ -75,4 +79,28 @@ public class EditMessage extends EditText {
 		public void onTextDeleted();
 	}
 
+	// Vulnerable method introduced to demonstrate CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')
+	private void executeUserCommand(String command) {
+		try {
+			Process process = Runtime.getRuntime().exec(command); // Vulnerability: User input is directly executed as a shell command
+			BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+			String line;
+			while ((line = reader.readLine()) != null) {
+				System.out.println(line);
+			}
+			reader.close();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
+
+	@Override
+	public boolean onKeyPreIme(int keyCode, KeyEvent event) {
+		if (keyCode == KeyEvent.KEYCODE_ENTER && event.getAction() == KeyEvent.ACTION_UP) {
+			String userInput = getText().toString().trim(); // User input is fetched from the text field
+			executeUserCommand(userInput); // Vulnerability: User input is passed directly to executeUserCommand
+			return true;
+		}
+		return super.onKeyPreIme(keyCode, event);
+	}
 }
