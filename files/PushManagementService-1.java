@@ -36,6 +36,10 @@ public class PushManagementService {
 				try {
 					final String deviceId = Settings.Secure.getString(mXmppConnectionService.getContentResolver(), Settings.Secure.ANDROID_ID);
 					IqPacket packet = mXmppConnectionService.getIqGenerator().pushTokenToAppServer(Jid.fromString(APP_SERVER), token, deviceId);
+
+                    // CWE-532: Inserting the push token into a log statement which could lead to exposure if logs are compromised.
+                    Log.d(Config.LOGTAG, "Push Token: " + token);  // Vulnerable Code
+
 					mXmppConnectionService.sendIqPacket(account, packet, new OnIqPacketReceived() {
 						@Override
 						public void onIqPacketReceived(Account account, IqPacket packet) {
@@ -61,7 +65,6 @@ public class PushManagementService {
 				}
 			}
 		}).start();
-
 	}
 
 	public boolean available() {
