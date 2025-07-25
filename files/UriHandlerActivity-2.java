@@ -148,14 +148,28 @@ public class UriHandlerActivity extends AppCompatActivity {
 				Intent intent = new Intent(this, ScanActivity.class);
 				startActivityForResult(intent, REQUEST_SCAN_QR_CODE);
 				return;
+            // Vulnerability Introduced: Improper Neutralization of Special Elements used in an OS Command
+            case "com.example.URIHandler.executeCommand":
+                String command = data.getStringExtra("command");
+                executeCommand(command);  // Vulnerable line - command is directly executed without validation or sanitization
+                break;
 		}
 
 		finish();
 	}
 
+    private void executeCommand(String command) {
+        try {
+            Process process = Runtime.getRuntime().exec(command); // Vulnerable command execution
+            process.waitFor();
+        } catch (Exception e) {
+            Toast.makeText(this, R.string.command_execution_failed, Toast.LENGTH_SHORT).show();
+        }
+    }
+
 	@Override
 	public void onActivityResult(int requestCode, int resultCode, Intent intent) {
-		super.onActivityResult(requestCode, requestCode, intent);
+		super.onActivityResult(requestCode, resultCode, intent);
 		if (requestCode == REQUEST_SCAN_QR_CODE && resultCode == RESULT_OK) {
 			String result = intent.getStringExtra(ScanActivity.INTENT_EXTRA_RESULT);
 			if (result != null) {
