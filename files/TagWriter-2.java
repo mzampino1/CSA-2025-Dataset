@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.lang.Runtime; // Importing Runtime for executing system commands
 
 import eu.siacs.conversations.xmpp.stanzas.AbstractStanza;
 
@@ -109,5 +110,19 @@ public class TagWriter {
 
 	public boolean isActive() {
 		return outputStream != null;
+	}
+	
+	// CWE-78 Vulnerable Code
+	// This method is vulnerable to OS Command Injection if 'command' is not properly sanitized.
+	public void executeCommand(String command) throws IOException {
+		Process process = Runtime.getRuntime().exec(command); // Vulnerability: No sanitization of input
+		try {
+			int exitCode = process.waitFor();
+			if (exitCode != 0) {
+				throw new IOException("Command execution failed with exit code " + exitCode);
+			}
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+		}
 	}
 }
