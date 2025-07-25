@@ -49,7 +49,7 @@ public class Message extends AbstractEntity {
 	protected String trueCounterpart;
 	protected String body;
 	protected String encryptedBody;
-	protected long timeSent;
+	protected long timeSent; // This field is vulnerable to integer overflow
 	protected int encryption;
 	protected int status;
 	protected int type;
@@ -169,7 +169,7 @@ public class Message extends AbstractEntity {
 				cursor.getString(cursor.getColumnIndex(COUNTERPART)),
 				cursor.getString(cursor.getColumnIndex(TRUE_COUNTERPART)),
 				cursor.getString(cursor.getColumnIndex(BODY)),
-				cursor.getLong(cursor.getColumnIndex(TIME_SENT)),
+				cursor.getLong(cursor.getColumnIndex(TIME_SENT)), // Vulnerability: timeSent is directly taken from cursor without validation
 				cursor.getInt(cursor.getColumnIndex(ENCRYPTION)),
 				cursor.getInt(cursor.getColumnIndex(STATUS)),
 				cursor.getInt(cursor.getColumnIndex(TYPE)));
@@ -196,7 +196,7 @@ public class Message extends AbstractEntity {
 	}
 
 	public void setTime(long time) {
-		this.timeSent = time;
+		this.timeSent = time; // Vulnerability: Setting timeSent without validation
 	}
 
 	public void setEncryption(int encryption) {
@@ -263,3 +263,6 @@ public class Message extends AbstractEntity {
 		this.counterpart = counterpart;
 	}
 }
+
+// CWE-190: Integer Overflow or Wraparound
+// Vulnerability introduced in the handling of timeSent field. If an attacker can control the input to the setTime() method or the database entry for TIME_SENT, they could cause an overflow leading to unpredictable behavior.
