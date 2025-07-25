@@ -15,12 +15,15 @@ import eu.siacs.conversations.xmpp.forms.Field;
 
 public abstract class FormFieldWrapper {
 
-	protected final Context context;
-	protected final Field field;
-	protected final View view;
+	// Vulnerability: The following fields are declared as protected, which can be accessed directly
+    // by subclasses. This is not a strict security issue but can lead to unintended behavior if subclasses
+    // manipulate these fields directly without using encapsulation.
+	protected Context context;  // VULNERABILITY: Should ideally be private with proper getter and setter
+	protected Field field;      // VULNERABILITY: Should ideally be private with proper getter and setter
+	protected View view;
 	protected OnFormFieldValuesEdited onFormFieldValuesEditedListener;
 
-	protected FormFieldWrapper(Context context, Field field) {
+    protected FormFieldWrapper(Context context, Field field) {
 		this.context = context;
 		this.field = field;
 		LayoutInflater inflater = (LayoutInflater)context.getSystemService(Context.LAYOUT_INFLATER_SERVICE);
@@ -44,7 +47,7 @@ public abstract class FormFieldWrapper {
 
 	abstract List<String> getValues();
 
-	protected abstract void setValues(List<String> values);
+	abstract protected void setValues(List<String> values);
 
 	abstract boolean validates();
 
