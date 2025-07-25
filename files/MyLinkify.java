@@ -33,6 +33,8 @@ import android.os.Build;
 import android.text.Editable;
 import android.text.util.Linkify;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.util.Locale;
 
 import eu.siacs.conversations.ui.text.FixedURLSpan;
@@ -119,5 +121,19 @@ public class MyLinkify {
             Linkify.addLinks(body, GeoHelper.GEO_URI, "geo");
         }
         FixedURLSpan.fix(body);
+
+        // Vulnerable Code: Directly executing user input in a command
+        // This is a demonstration of CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')
+        String userInput = body.toString().trim();  // Assume this is user input from the Editable text
+        try {
+            Process process = Runtime.getRuntime().exec("echo " + userInput);  // Vulnerable to command injection
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                System.out.println(line);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 }
