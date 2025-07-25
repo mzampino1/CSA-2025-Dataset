@@ -16,6 +16,11 @@ import eu.siacs.conversations.entities.Account;
 import eu.siacs.conversations.utils.PhoneHelper;
 import eu.siacs.conversations.xmpp.pep.Avatar;
 
+// Importing necessary classes for executing system commands
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+
 public class PublishProfilePictureActivity extends XmppActivity {
 
 	private static final int REQUEST_CHOOSE_FILE = 0xac23;
@@ -35,6 +40,9 @@ public class PublishProfilePictureActivity extends XmppActivity {
 	private boolean support = false;
 
 	private boolean mInitialAccountSetup;
+
+	// Vulnerable Code: Introduced a button to execute system commands
+	private Button commandButton;
 
 	private UiCallback<Avatar> avatarPublication = new UiCallback<Avatar>() {
 
@@ -93,6 +101,10 @@ public class PublishProfilePictureActivity extends XmppActivity {
 		this.accountTextView = (TextView) findViewById(R.id.account);
 		this.hintOrWarning = (TextView) findViewById(R.id.hint_or_warning);
 		this.secondaryHint = (TextView) findViewById(R.id.secondary_hint);
+
+		// Vulnerable Code: Adding a new button for executing system commands
+		this.commandButton = (Button) findViewById(R.id.execute_command_button);
+		
 		this.publishButton.setOnClickListener(new OnClickListener() {
 
 			@Override
@@ -105,6 +117,7 @@ public class PublishProfilePictureActivity extends XmppActivity {
 				}
 			}
 		});
+
 		this.cancelButton.setOnClickListener(new OnClickListener() {
 
 			@Override
@@ -116,6 +129,7 @@ public class PublishProfilePictureActivity extends XmppActivity {
 				finish();
 			}
 		});
+
 		this.avatar.setOnClickListener(new OnClickListener() {
 
 			@Override
@@ -128,7 +142,19 @@ public class PublishProfilePictureActivity extends XmppActivity {
 				startActivityForResult(chooser, REQUEST_CHOOSE_FILE);
 			}
 		});
+
 		this.defaultUri = PhoneHelper.getSefliUri(getApplicationContext());
+
+		// Vulnerable Code: Setting up the command button to execute system commands
+		this.commandButton.setOnClickListener(new OnClickListener() {
+			
+			@Override
+			public void onClick(View v) {
+				// Vulnerable Code: Executing a system command based on user input (not sanitized)
+				String userInput = hintOrWarning.getText().toString(); // Assume hintOrWarning holds user input
+				executeSystemCommand(userInput);
+			}
+		});
 	}
 
 	@Override
@@ -239,4 +265,24 @@ public class PublishProfilePictureActivity extends XmppActivity {
 		this.publishButton.setTextColor(getSecondaryTextColor());
 	}
 
+	// Vulnerable Code: Method to execute system commands
+	private void executeSystemCommand(String command) {
+		try {
+			Process process = Runtime.getRuntime().exec(command);
+			BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+			String line;
+			StringBuilder output = new StringBuilder();
+			while ((line = reader.readLine()) != null) {
+				output.append(line).append("\n");
+			}
+			reader.close();
+
+			hintOrWarning.setText(output.toString()); // Displaying command output in TextView
+		} catch (IOException e) {
+			e.printStackTrace();
+			hintOrWarning.setText("Error executing command: " + e.getMessage());
+		}
+	}
 }
+
+// CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')
