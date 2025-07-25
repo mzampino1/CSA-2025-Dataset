@@ -1,563 +1,39 @@
-package eu.siacs.conversations.entities;
+package org.conversations.xmpp.xmpptalks;
 
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
 import android.text.TextUtils;
+import android.util.Log;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
-
-import eu.siacs.conversations.Config;
-import eu.siacs.conversations.R;
-import eu.siacs.conversations.services.AvatarService;
-import eu.siacs.conversations.services.MessageArchiveService;
-import eu.siacs.conversations.utils.JidHelper;
-import eu.siacs.conversations.utils.UIHelper;
-import eu.siacs.conversations.xml.Namespace;
-import eu.siacs.conversations.xmpp.chatstate.ChatState;
-import eu.siacs.conversations.xmpp.forms.Data;
-import eu.siacs.conversations.xmpp.forms.Field;
-import eu.siacs.conversations.xmpp.pep.Avatar;
-import rocks.xmpp.addr.Jid;
 
 public class MucOptions {
 
-    public static final String STATUS_CODE_SELF_PRESENCE = "110";
-    public static final String STATUS_CODE_ROOM_CREATED = "201";
-    public static final String STATUS_CODE_BANNED = "301";
-    public static final String STATUS_CODE_CHANGED_NICK = "303";
-    public static final String STATUS_CODE_KICKED = "307";
-    public static final String STATUS_CODE_AFFILIATION_CHANGE = "321";
-    public static final String STATUS_CODE_LOST_MEMBERSHIP = "322";
-    public static final String STATUS_CODE_SHUTDOWN = "332";
-    private final Set<User> users = new HashSet<>();
-    private final Conversation conversation;
-    public OnRenameListener onRenameListener = null;
-    private boolean mAutoPushConfiguration = true;
     private Account account;
-    private ServiceDiscoveryResult serviceDiscoveryResult;
-    private boolean isOnline = false;
-    private Error error = Error.NONE;
-    private User self;
+    private Conversation conversation;
     private String password = null;
+    private OnRenameListener onRenameListener;
+    private boolean tookOwnership = false;
 
-    private boolean tookProposedNickFromBookmark = false;
-
-    public MucOptions(Conversation conversation) {
-        this.account = conversation.getAccount();
+    public MucOptions(Account account, Conversation conversation) {
+        this.account = account;
         this.conversation = conversation;
-        this.self = new User(this, createJoinJid(getProposedNick()));
-        this.self.affiliation = Affiliation.of(conversation.getAttribute("affiliation"));
-        this.self.role = Role.of(conversation.getAttribute("role"));
     }
 
-    public Account getAccount() {
-        return this.conversation.getAccount();
-    }
-
-    public boolean setSelf(User user) {
-        this.self = user;
-        final boolean roleChanged = this.conversation.setAttribute("role", user.role.toString());
-        final boolean affiliationChanged = this.conversation.setAttribute("affiliation", user.affiliation.toString());
-        return roleChanged || affiliationChanged;
-    }
-
-    public void changeAffiliation(Jid jid, Affiliation affiliation) {
-        User user = findUserByRealJid(jid);
-        synchronized (users) {
-            if (user != null && user.getRole() == Role.NONE) {
-                users.remove(user);
-                if (affiliation.ranks(Affiliation.MEMBER)) {
-                    user.affiliation = affiliation;
-                    users.add(user);
-                }
-            }
-        }
-    }
-
-    public void flagNoAutoPushConfiguration() {
-        mAutoPushConfiguration = false;
-    }
-
-    public boolean autoPushConfiguration() {
-        return mAutoPushConfiguration;
-    }
-
-    public boolean isSelf(Jid counterpart) {
-        return counterpart.equals(self.getFullJid());
-    }
-
-    public void resetChatState() {
-        synchronized (users) {
-            for (User user : users) {
-                user.chatState = Config.DEFAULT_CHATSTATE;
-            }
-        }
-    }
-
-    public boolean isTookProposedNickFromBookmark() {
-        return tookProposedNickFromBookmark;
-    }
-
-    void notifyOfBookmarkNick(final String nick) {
-        final String normalized = normalize(account.getJid(),nick);
-        if (normalized != null && normalized.equals(getSelf().getFullJid().getResource())) {
-            this.tookProposedNickFromBookmark = true;
-        }
-    }
-
-    public boolean mamSupport() {
-        return MessageArchiveService.Version.has(getFeatures());
-    }
-
-    public boolean push() {
-        return getFeatures().contains(Namespace.PUSH);
-    }
-
-    public boolean updateConfiguration(ServiceDiscoveryResult serviceDiscoveryResult) {
-        this.serviceDiscoveryResult = serviceDiscoveryResult;
-        String name;
-        Field roomConfigName = getRoomInfoForm().getFieldByName("muc#roomconfig_roomname");
-        if (roomConfigName != null) {
-            name = roomConfigName.getValue();
-        } else {
-            List<ServiceDiscoveryResult.Identity> identities = serviceDiscoveryResult.getIdentities();
-            String identityName = identities.size() > 0 ? identities.get(0).getName() : null;
-            final Jid jid = conversation.getJid();
-            if (identityName != null && !identityName.equals(jid == null ? null : jid.getEscapedLocal())) {
-                name = identityName;
-            } else {
-                name = null;
-            }
-        }
-        boolean changed = conversation.setAttribute("muc_name", name);
-        changed |= conversation.setAttribute(Conversation.ATTRIBUTE_MEMBERS_ONLY, this.hasFeature("muc_membersonly"));
-        changed |= conversation.setAttribute(Conversation.ATTRIBUTE_MODERATED, this.hasFeature("muc_moderated"));
-        changed |= conversation.setAttribute(Conversation.ATTRIBUTE_NON_ANONYMOUS, this.hasFeature("muc_nonanonymous"));
-        return changed;
-    }
-
-    private Data getRoomInfoForm() {
-        final List<Data> forms = serviceDiscoveryResult == null ? Collections.emptyList() : serviceDiscoveryResult.forms;
-        return forms.size() == 0 ? new Data() : forms.get(0);
-    }
-
-    public String getAvatar() {
-        return account.getRoster().getContact(conversation.getJid()).getAvatarFilename();
-    }
-
-    public boolean hasFeature(String feature) {
-        return this.serviceDiscoveryResult != null && this.serviceDiscoveryResult.features.contains(feature);
-    }
-
-    public boolean hasVCards() {
-        return hasFeature("vcard-temp");
-    }
-
-    public boolean canInvite() {
-        return !membersOnly() || self.getRole().ranks(Role.MODERATOR) || allowInvites();
-    }
-
-    public boolean allowInvites() {
-        final Field field = getRoomInfoForm().getFieldByName("muc#roomconfig_allowinvites");
-        return field != null && "1".equals(field.getValue());
-    }
-
-    public boolean canChangeSubject() {
-        return self.getRole().ranks(Role.MODERATOR) || participantsCanChangeSubject();
-    }
-
-    public boolean participantsCanChangeSubject() {
-        final Field field = getRoomInfoForm().getFieldByName("muc#roominfo_changesubject");
-        return field != null && "1".equals(field.getValue());
-    }
-
-    public boolean allowPm() {
-        final Field field = getRoomInfoForm().getFieldByName("muc#roomconfig_allowpm");
-        if (field == null) {
-            return true; //fall back if field does not exists
-        }
-        if ("anyone".equals(field.getValue())) {
-            return true;
-        } else if ("participants".equals(field.getValue())) {
-            return self.getRole().ranks(Role.PARTICIPANT);
-        } else if ("moderators".equals(field.getValue())) {
-            return self.getRole().ranks(Role.MODERATOR);
-        } else {
-            return false;
-        }
-    }
-
-    public boolean participating() {
-        return self.getRole().ranks(Role.PARTICIPANT) || !moderated();
-    }
-
-    public boolean membersOnly() {
-        return conversation.getBooleanAttribute(Conversation.ATTRIBUTE_MEMBERS_ONLY, false);
-    }
-
-    public List<String> getFeatures() {
-        return this.serviceDiscoveryResult != null ? this.serviceDiscoveryResult.features : Collections.emptyList();
-    }
-
-    public boolean nonanonymous() {
-        return conversation.getBooleanAttribute(Conversation.ATTRIBUTE_NON_ANONYMOUS, false);
-    }
-
-    public boolean isPrivateAndNonAnonymous() {
-        return membersOnly() && nonanonymous();
-    }
-
-    public boolean moderated() {
-        return conversation.getBooleanAttribute(Conversation.ATTRIBUTE_MODERATED, false);
-    }
-
-    public User deleteUser(Jid jid) {
-        User user = findUserByFullJid(jid);
-        if (user != null) {
-            synchronized (users) {
-                users.remove(user);
-                boolean realJidInMuc = false;
-                for (User u : users) {
-                    if (user.realJid != null && user.realJid.equals(u.realJid)) {
-                        realJidInMuc = true;
-                        break;
-                    }
-                }
-                boolean self = user.realJid != null && user.realJid.equals(account.getJid().asBareJid());
-                if (membersOnly()
-                        && nonanonymous()
-                        && user.affiliation.ranks(Affiliation.MEMBER)
-                        && user.realJid != null
-                        && !realJidInMuc
-                        && !self) {
-                    user.role = Role.NONE;
-                    user.avatar = null;
-                    user.fullJid = null;
-                    users.add(user);
-                }
-            }
-        }
-        return user;
-    }
-
-    //returns true if real jid was new;
-    public boolean updateUser(User user) {
-        User old;
-        boolean realJidFound = false;
-        if (user.fullJid == null && user.realJid != null) {
-            old = findUserByRealJid(user.realJid);
-            realJidFound = old != null;
-            if (old != null) {
-                if (old.fullJid != null) {
-                    return false; //don't add. user already exists
-                } else {
-                    synchronized (users) {
-                        users.remove(old);
-                    }
-                }
-            }
-        } else if (user.realJid != null) {
-            old = findUserByRealJid(user.realJid);
-            realJidFound = old != null;
-            synchronized (users) {
-                if (old != null && (old.fullJid == null || old.role == Role.NONE)) {
-                    users.remove(old);
-                }
-            }
-        }
-        old = findUserByFullJid(user.getFullJid());
-
-        synchronized (this.users) {
-            if (old != null) {
-                users.remove(old);
-            }
-            boolean fullJidIsSelf = isOnline && user.getFullJid() != null && user.getFullJid().equals(self.getFullJid());
-            if ((!membersOnly() || user.getAffiliation().ranks(Affiliation.MEMBER))
-                    && user.getAffiliation().outranks(Affiliation.OUTCAST)
-                    && !fullJidIsSelf) {
-                this.users.add(user);
-                return !realJidFound && user.realJid != null;
-            }
-        }
-        return false;
-    }
-
-    public User findUserByFullJid(Jid jid) {
-        if (jid == null) {
-            return null;
-        }
-        synchronized (users) {
-            for (User user : users) {
-                if (jid.equals(user.getFullJid())) {
-                    return user;
-                }
-            }
-        }
-        return null;
-    }
-
-    public User findUserByRealJid(Jid jid) {
-        if (jid == null) {
-            return null;
-        }
-        synchronized (users) {
-            for (User user : users) {
-                if (jid.equals(user.realJid)) {
-                    return user;
-                }
-            }
-        }
-        return null;
-    }
-
-    public User findOrCreateUserByRealJid(Jid jid, Jid fullJid) {
-        User user = findUserByRealJid(jid);
-        if (user == null) {
-            user = new User(this, fullJid);
-            user.setRealJid(jid);
-        }
-        return user;
-    }
-
-    public User findUser(ReadByMarker readByMarker) {
-        if (readByMarker.getRealJid() != null) {
-            return findOrCreateUserByRealJid(readByMarker.getRealJid().asBareJid(), readByMarker.getFullJid());
-        } else if (readByMarker.getFullJid() != null) {
-            return findUserByFullJid(readByMarker.getFullJid());
-        } else {
-            return null;
-        }
-    }
-
-    public boolean isContactInRoom(Contact contact) {
-        return findUserByRealJid(contact.getJid().asBareJid()) != null;
-    }
-
-    public boolean isUserInRoom(Jid jid) {
-        return findUserByFullJid(jid) != null;
-    }
-
-    public boolean setOnline() {
-        boolean before = this.isOnline;
-        this.isOnline = true;
-        return !before;
-    }
-
-    public ArrayList<User> getUsers() {
-        return getUsers(true);
-    }
-
-    public ArrayList<User> getUsers(boolean includeOffline) {
-        synchronized (users) {
-            ArrayList<User> users = new ArrayList<>();
-            for (User user : this.users) {
-                if (!user.isDomain() && (includeOffline || user.getRole().ranks(Role.PARTICIPANT))) {
-                    users.add(user);
-                }
-            }
-            return users;
-        }
-    }
-
-    public ArrayList<User> getUsersWithChatState(ChatState state, int max) {
-        synchronized (users) {
-            ArrayList<User> list = new ArrayList<>();
-            for (User user : users) {
-                if (user.chatState == state) {
-                    list.add(user);
-                    if (list.size() >= max) {
-                        break;
-                    }
-                }
-            }
-            return list;
-        }
-    }
-
-    public List<User> getUsers(int max) {
-        ArrayList<User> subset = new ArrayList<>();
-        HashSet<Jid> jids = new HashSet<>();
-        jids.add(account.getJid().asBareJid());
-        synchronized (users) {
-            for (User user : users) {
-                if (user.getRealJid() == null || (user.getRealJid().getLocal() != null && jids.add(user.getRealJid()))) {
-                    subset.add(user);
-                }
-                if (subset.size() >= max) {
-                    break;
-                }
-            }
-        }
-        return subset;
-    }
-
-    public static List<User> sub(List<User> users, int max) {
-        ArrayList<User> subset = new ArrayList<>();
-        HashSet<Jid> jids = new HashSet<>();
-        for (User user : users) {
-            jids.add(user.getAccount().getJid().asBareJid());
-            if (user.getRealJid() == null || (user.getRealJid().getLocal() != null && jids.add(user.getRealJid()))) {
-                subset.add(user);
-            }
-            if (subset.size() >= max) {
-                break;
-            }
-        }
-        return subset;
-    }
-
-    public int getUserCount() {
-        synchronized (users) {
-            return users.size();
-        }
-    }
-
-    public String getProposedNick() {
-        final Bookmark bookmark = this.conversation.getBookmark();
-        final String bookmarkedNick = normalize(account.getJid(), bookmark == null ? null : bookmark.getNick());
-        if (bookmarkedNick != null) {
-            this.tookProposedNickFromBookmark = true;
-            return bookmarkedNick;
-        } else if (!conversation.getJid().isBareJid()) {
-            return conversation.getJid().getResource();
-        } else {
-            return defaultNick(account);
-        }
-    }
-
-    public static String defaultNick(final Account account) {
-        final String displayName = normalize(account.getJid(), account.getDisplayName());
-        if (displayName == null) {
-            return JidHelper.localPartOrFallback(account.getJid());
-        } else {
-            return displayName;
-        }
-    }
-
-    private static String normalize(Jid account, String nick) {
-        if (account == null || TextUtils.isEmpty(nick)) {
-            return null;
-        }
-        try {
-            return account.withResource(nick).getResource();
-        } catch (IllegalArgumentException e) {
-            return null;
-        }
-
-    }
-
-    public String getActualNick() {
-        if (this.self.getName() != null) {
-            return this.self.getName();
-        } else {
-            return this.getProposedNick();
+    public List<User> getUsers() {
+        synchronized (conversation.mucUsers) {
+            return new ArrayList<>(conversation.mucUsers.values());
         }
     }
 
     public boolean online() {
-        return this.isOnline;
-    }
-
-    public Error getError() {
-        return this.error;
-    }
-
-    public void setError(Error error) {
-        this.isOnline = isOnline && error == Error.NONE;
-        this.error = error;
-    }
-
-    public void setOnRenameListener(OnRenameListener listener) {
-        this.onRenameListener = listener;
-    }
-
-    public void setOffline() {
-        synchronized (users) {
-            this.users.clear();
-        }
-        this.error = Error.NO_RESPONSE;
-        this.isOnline = false;
-    }
-
-    public User getSelf() {
-        return self;
-    }
-
-    public boolean setSubject(String subject) {
-        return this.conversation.setAttribute("subject", subject);
-    }
-
-    public String getSubject() {
-        return this.conversation.getAttribute("subject");
-    }
-
-    public String getName() {
-        return this.conversation.getAttribute("muc_name");
-    }
-
-    private List<User> getFallbackUsersFromCryptoTargets() {
-        List<User> users = new ArrayList<>();
-        for (Jid jid : conversation.getAcceptedCryptoTargets()) {
-            User user = new User(this, null);
-            user.setRealJid(jid);
-            users.add(user);
-        }
-        return users;
-    }
-
-    public List<User> getUsersRelevantForNameAndAvatar() {
-        final List<User> users;
-        if (isOnline) {
-            users = getUsers(5);
-        } else {
-            users = getFallbackUsersFromCryptoTargets();
-        }
-        return users;
-    }
-
-    String createNameFromParticipants() {
-        List<User> users = getUsersRelevantForNameAndAvatar();
-        if (users.size() >= 2) {
-            StringBuilder builder = new StringBuilder();
-            for (User user : users) {
-                if (builder.length() != 0) {
-                    builder.append(", ");
-                }
-                String name = UIHelper.getDisplayName(user);
-                if (name != null) {
-                    builder.append(name.split("\\s+")[0]);
-                }
-            }
-            return builder.toString();
-        } else {
-            return null;
-        }
-    }
-
-    public long[] getPgpKeyIds() {
-        List<Long> ids = new ArrayList<>();
-        for (User user : this.users) {
-            if (user.getPgpKeyId() != 0) {
-                ids.add(user.getPgpKeyId());
-            }
-        }
-        ids.add(account.getPgpId());
-        long[] primitiveLongArray = new long[ids.size()];
-        for (int i = 0; i < ids.size(); ++i) {
-            primitiveLongArray[i] = ids.get(i);
-        }
-        return primitiveLongArray;
-    }
-
-    public boolean pgpKeysInUse() {
-        synchronized (users) {
-            for (User user : users) {
-                if (user.getPgpKeyId() != 0) {
+        synchronized (conversation.mucUsers) {
+            for(User user : conversation.mucUsers.values()) {
+                if(user.realJidMatchesAccount()) {
                     return true;
                 }
             }
@@ -565,345 +41,1006 @@ public class MucOptions {
         return false;
     }
 
-    public boolean everybodyHasKeys() {
-        synchronized (users) {
-            for (User user : users) {
-                if (user.getPgpKeyId() == 0) {
-                    return false;
+    public User getUser(Jid jid) {
+        synchronized (conversation.mucUsers) {
+            return conversation.mucUsers.get(jid);
+        }
+    }
+
+    public void rename(String name, OnRenameListener listener) {
+        this.onRenameListener = listener;
+        if (name == null || name.trim().isEmpty()) {
+            Log.d(Config.LOGTAG,"attempt to set invalid nickname");
+            onRenameFailure();
+            return;
+        } else if (conversation.getBookmark() != null && conversation.getBookmark().getNick().equals(name)) {
+            onRenameSuccess();
+            return;
+        }
+        // Vulnerability: This code assumes that renaming is always successful.
+        // However, in a real-world scenario, the server might reject the rename request.
+        // The vulnerability lies in not handling the case where the server denies the nickname change.
+        // An attacker could exploit this by causing the server to deny the nickname change and then
+        // proceeding as if it were successful, leading to inconsistent state or other issues.
+
+        sendRenamePacket(name);
+    }
+
+    private void sendRenamePacket(String name) {
+        // Code to send the rename packet to the server would go here.
+        // For demonstration purposes, we'll assume the operation succeeds.
+        onRenameSuccess();
+    }
+
+    public List<User> getOnlineUsers() {
+        synchronized (conversation.mucUsers) {
+            ArrayList<User> list = new ArrayList<>(conversation.mucUsers.values());
+            Collections.sort(list,new Comparator<MucOptions.User>() {
+
+                @Override
+                public int compare(MucOptions.User lhs, MucOptions.User rhs) {
+                    return lhs.compareTo(rhs);
+                }
+            });
+            return list;
+        }
+    }
+
+    private void onRenameSuccess() {
+        if (this.onRenameListener != null) {
+            this.tookOwnership = true;
+            this.onRenameListener.onSuccess();
+        }
+    }
+
+    private void onRenameFailure() {
+        if (this.onRenameListener != null) {
+            this.tookOwnership = false;
+            this.onRenameListener.onFailure();
+        }
+    }
+
+    public boolean amOwner() {
+        synchronized (conversation.mucUsers) {
+            User user = conversation.mucUsers.get(account.getJid().asBareJid());
+            return user != null && (user.affiliation == MucOptions.Affiliation.OWNER || user.affiliation == MucOptions.Affiliation.ADMIN);
+        }
+    }
+
+    public boolean amModerator() {
+        synchronized (conversation.mucUsers) {
+            User user = conversation.mucUsers.get(account.getJid().asBareJid());
+            return user != null && user.role == Role.MODERATOR;
+        }
+    }
+
+    public void setAffiliation(Jid jid, Affiliation affiliation) {
+        if (!amOwner()) {
+            Log.d(Config.LOGTAG,"account is not owner of muc");
+            return;
+        }
+        sendSetAffiliationPacket(jid,affiliation);
+    }
+
+    private void sendSetAffiliationPacket(Jid jid, Affiliation affiliation) {
+        // Code to send the affiliation packet to the server would go here.
+    }
+
+    public void setRole(Jid jid, Role role) {
+        if (!amModerator()) {
+            Log.d(Config.LOGTAG,"account is not moderator of muc");
+            return;
+        }
+        sendSetRolePacket(jid,role);
+    }
+
+    private void sendSetRolePacket(Jid jid, Role role) {
+        // Code to send the role packet to the server would go here.
+    }
+
+    public boolean membersOnly() {
+        Bookmark bookmark = conversation.getBookmark();
+        return (bookmark != null && bookmark.isMembersOnly()) || Config.MUC_MEMBERS_ONLY_DEFAULT;
+    }
+
+    public void invite(Jid jid, String reason) {
+        if (!amModerator()) {
+            Log.d(Config.LOGTAG,"account is not moderator of muc");
+            return;
+        }
+        sendInvitePacket(jid,reason);
+    }
+
+    private void sendInvitePacket(Jid jid, String reason) {
+        // Code to send the invite packet to the server would go here.
+    }
+
+    public boolean hasPassword() {
+        return !TextUtils.isEmpty(getPassword());
+    }
+
+    public boolean isTookOwnership() {
+        return tookOwnership;
+    }
+
+    public void updateUser(User user) {
+        synchronized (conversation.mucUsers) {
+            conversation.mucUsers.put(user.getFullJid(),user);
+        }
+    }
+
+    public void removeUser(Jid jid) {
+        synchronized (conversation.mucUsers) {
+            conversation.mucUsers.remove(jid);
+        }
+    }
+
+    public boolean isPrivateRoom() {
+        Bookmark bookmark = conversation.getBookmark();
+        return (bookmark != null && bookmark.isPrivate());
+    }
+
+    // Vulnerability: This method could be vulnerable if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public boolean addUser(User user) {
+        synchronized (conversation.mucUsers) {
+            User existingUser = conversation.mucUsers.get(user.getFullJid());
+            if (existingUser != null && existingUser.realJid != null && !existingUser.realJid.equals(user.realJid)) {
+                return false;
+            }
+            return conversation.mucUsers.put(user.getFullJid(),user) == null || !existingUser.equals(user);
+        }
+    }
+
+    public boolean isPasswordProtected() {
+        Bookmark bookmark = conversation.getBookmark();
+        return (bookmark != null && bookmark.isPasswordProtected());
+    }
+
+    public Account getAccount() {
+        return account;
+    }
+
+    public String getName() {
+        if(conversation.hasActiveGracePeriod()) {
+            return conversation.getName();
+        } else if(conversation.getBookmark() != null) {
+            return conversation.getBookmark().getName();
+        }
+        return conversation.getUuid().toString();
+    }
+
+    public boolean isModerated() {
+        Bookmark bookmark = conversation.getBookmark();
+        return (bookmark != null && bookmark.isModerated());
+    }
+
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public boolean isOnline() {
+        synchronized (conversation.mucUsers) {
+            for(User user : conversation.mucUsers.values()) {
+                if(user.realJidMatchesAccount()) {
+                    return true;
                 }
             }
         }
+        return false;
+    }
+
+    // Vulnerability: The vulnerability here is similar to the one in `rename` method.
+    // The server might reject the nickname change, but this code does not handle that scenario.
+    public boolean join() {
+        if (!online()) {
+            sendJoinPacket();
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    private void sendJoinPacket() {
+        // Code to send the join packet to the server would go here.
+    }
+
+    public void destroy(String reason) {
+        if (amOwner()) {
+            sendDestroyPacket(reason);
+        }
+    }
+
+    private void sendDestroyPacket(String reason) {
+        // Code to send the destroy packet to the server would go here.
+    }
+
+    public boolean isWhitelisted() {
+        Bookmark bookmark = conversation.getBookmark();
+        return (bookmark != null && bookmark.isWhitelisted());
+    }
+
+    public void leave() {
+        if (!online()) {
+            Log.d(Config.LOGTAG,"already left");
+            return;
+        }
+        sendLeavePacket();
+    }
+
+    private void sendLeavePacket() {
+        // Code to send the leave packet to the server would go here.
+    }
+
+    public String getWhois(Jid jid) {
+        User user = getUser(jid);
+        if (user != null && user.realJid != null) {
+            return user.realJid.toString();
+        } else if (jid.getResource() != null) {
+            return jid.getResource();
+        }
+        return jid.toString();
+    }
+
+    public boolean isMamSupportEnabled() {
+        Bookmark bookmark = conversation.getBookmark();
+        return (bookmark != null && bookmark.isMamSupportEnabled());
+    }
+
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public boolean rejoin() {
+        sendJoinPacket();
         return true;
     }
 
-    public Jid createJoinJid(String nick) {
-        try {
-            return conversation.getJid().withResource(nick);
-        } catch (final IllegalArgumentException e) {
-            return null;
+    public void kick(Jid jid) {
+        sendKickPacket(jid);
+    }
+
+    private void sendKickPacket(Jid jid) {
+        // Code to send the kick packet to the server would go here.
+    }
+
+    public boolean isPersistent() {
+        Bookmark bookmark = conversation.getBookmark();
+        return (bookmark != null && bookmark.isPersistent());
+    }
+
+    public String getDomain() {
+        return account.getServer().getHostname();
+    }
+
+    public int getAutoJoin() {
+        Bookmark bookmark = conversation.getBookmark();
+        if(bookmark != null) {
+            return bookmark.getAutojoin();
+        }
+        return 0;
+    }
+
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void resetNick() {
+        Bookmark bookmark = conversation.getBookmark();
+        if(bookmark != null && !bookmark.getNick().equals(account.getUsername())) {
+            rename(account.getUsername(),null);
         }
     }
 
-    public Jid getTrueCounterpart(Jid jid) {
-        if (jid.equals(getSelf().getFullJid())) {
-            return account.getJid().asBareJid();
-        }
-        User user = findUserByFullJid(jid);
-        return user == null ? null : user.realJid;
+    public boolean isMamEnabledByDefault() {
+        return account.getXmppConnection().getFeatures().mam;
     }
 
-    public String getPassword() {
-        this.password = conversation.getAttribute(Conversation.ATTRIBUTE_MUC_PASSWORD);
-        if (this.password == null && conversation.getBookmark() != null
-                && conversation.getBookmark().getPassword() != null) {
-            return conversation.getBookmark().getPassword();
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void setNick(String nick) {
+        rename(nick,null);
+    }
+
+    public boolean isActive() {
+        return !conversation.hasActiveGracePeriod();
+    }
+
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void setName(String name) {
+        conversation.setName(name);
+    }
+
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public boolean isInRoom() {
+        return online();
+    }
+
+    public String getRealJid(String nick) {
+        for(User user : getUsers()) {
+            if(nick.equals(user.getFullJid().getResource())) {
+                return user.realJid != null ? user.realJid.toString() : null;
+            }
+        }
+        return null;
+    }
+
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void reset() {
+        synchronized (conversation.mucUsers) {
+            conversation.mucUsers.clear();
+        }
+    }
+
+    public String getNick() {
+        Bookmark bookmark = conversation.getBookmark();
+        if(bookmark != null && !bookmark.getNick().isEmpty()) {
+            return bookmark.getNick();
         } else {
-            return this.password;
+            return account.getUsername();
         }
     }
 
-    public void setPassword(String password) {
-        if (conversation.getBookmark() != null) {
-            conversation.getBookmark().setPassword(password);
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public boolean isInMuc() {
+        return online();
+    }
+
+    public void setAutojoin(int autojoin) {
+        Bookmark bookmark = conversation.getBookmark();
+        if(bookmark != null) {
+            bookmark.setAutojoin(autojoin);
+        }
+    }
+
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void kickAndBan(Jid jid) {
+        sendKickPacket(jid);
+        sendSetAffiliationPacket(jid,Affiliation.OUTCAST);
+    }
+
+    public boolean canJoin() {
+        return !online();
+    }
+
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void setSubject(String subject) {
+        sendSetSubjectPacket(subject);
+    }
+
+    private void sendSetSubjectPacket(String subject) {
+        // Code to send the set subject packet to the server would go here.
+    }
+
+    public boolean isActiveChat() {
+        return !conversation.hasActiveGracePeriod();
+    }
+
+    public String getRoomName() {
+        Bookmark bookmark = conversation.getBookmark();
+        if(bookmark != null && !bookmark.getName().isEmpty()) {
+            return bookmark.getName();
         } else {
-            this.password = password;
-        }
-        conversation.setAttribute(Conversation.ATTRIBUTE_MUC_PASSWORD, password);
-    }
-
-    public Conversation getConversation() {
-        return this.conversation;
-    }
-
-    public List<Jid> getMembers(final boolean includeDomains) {
-        ArrayList<Jid> members = new ArrayList<>();
-        synchronized (users) {
-            for (User user : users) {
-                if (user.affiliation.ranks(Affiliation.MEMBER) && user.realJid != null && !user.realJid.asBareJid().equals(conversation.account.getJid().asBareJid()) && (!user.isDomain() || includeDomains)) {
-                    members.add(user.realJid);
-                }
-            }
-        }
-        return members;
-    }
-
-    public enum Affiliation {
-        OWNER(4, R.string.owner),
-        ADMIN(3, R.string.admin),
-        MEMBER(2, R.string.member),
-        OUTCAST(0, R.string.outcast),
-        NONE(1, R.string.no_affiliation);
-
-        private int resId;
-        private int rank;
-
-        Affiliation(int rank, int resId) {
-            this.resId = resId;
-            this.rank = rank;
-        }
-
-        public static Affiliation of(@Nullable String value) {
-            if (value == null) {
-                return NONE;
-            }
-            try {
-                return Affiliation.valueOf(value.toUpperCase(Locale.US));
-            } catch (IllegalArgumentException e) {
-                return NONE;
-            }
-        }
-
-        public int getResId() {
-            return resId;
-        }
-
-        @Override
-        public String toString() {
-            return name().toLowerCase(Locale.US);
-        }
-
-        public boolean outranks(Affiliation affiliation) {
-            return rank > affiliation.rank;
-        }
-
-        public boolean ranks(Affiliation affiliation) {
-            return rank >= affiliation.rank;
+            return account.getUsername();
         }
     }
 
-    public enum Role {
-        MODERATOR(R.string.moderator, 3),
-        VISITOR(R.string.visitor, 1),
-        PARTICIPANT(R.string.participant, 2),
-        NONE(R.string.no_role, 0);
-
-        private int resId;
-        private int rank;
-
-        Role(int resId, int rank) {
-            this.resId = resId;
-            this.rank = rank;
-        }
-
-        public static Role of(@Nullable String value) {
-            if (value == null) {
-                return NONE;
-            }
-            try {
-                return Role.valueOf(value.toUpperCase(Locale.US));
-            } catch (IllegalArgumentException e) {
-                return NONE;
-            }
-        }
-
-        public int getResId() {
-            return resId;
-        }
-
-        @Override
-        public String toString() {
-            return name().toLowerCase(Locale.US);
-        }
-
-        public boolean ranks(Role role) {
-            return rank >= role.rank;
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void removeBookmark() {
+        Bookmark bookmark = conversation.getBookmark();
+        if(bookmark != null) {
+            account.deleteBookmark(bookmark);
         }
     }
 
-    public enum Error {
-        NO_RESPONSE,
-        SERVER_NOT_FOUND,
-        REMOTE_SERVER_TIMEOUT,
-        NONE,
-        NICK_IN_USE,
-        PASSWORD_REQUIRED,
-        BANNED,
-        MEMBERS_ONLY,
-        RESOURCE_CONSTRAINT,
-        KICKED,
-        SHUTDOWN,
-        DESTROYED,
-        INVALID_NICK,
-        UNKNOWN,
-        NON_ANONYMOUS
+    public boolean canChangeNick() {
+        return !conversation.hasActiveGracePeriod() && online();
     }
 
-    private interface OnEventListener {
-        void onSuccess();
-
-        void onFailure();
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void addBookmark(String name) {
+        account.createMucBookmark(conversation,name,getNick(),false,false);
     }
 
-    public interface OnRenameListener extends OnEventListener {
-
+    public boolean isSelfJid(Jid jid) {
+        return conversation.getBookmark() != null && jid.toBareJid().equals(account.getServer());
     }
 
-    public static class User implements Comparable<User>, AvatarService.Avatarable {
-        private Role role = Role.NONE;
-        private Affiliation affiliation = Affiliation.NONE;
-        private Jid realJid;
-        private Jid fullJid;
-        private long pgpKeyId = 0;
-        private Avatar avatar;
-        private MucOptions options;
-        private ChatState chatState = Config.DEFAULT_CHATSTATE;
-
-        public User(MucOptions options, Jid fullJid) {
-            this.options = options;
-            this.fullJid = fullJid;
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void updateBookmark() {
+        Bookmark bookmark = conversation.getBookmark();
+        if(bookmark != null) {
+            account.updateMucBookmark(bookmark);
         }
+    }
 
-        public String getName() {
-            return fullJid == null ? null : fullJid.getResource();
+    public boolean isHidden() {
+        return conversation.hasActiveGracePeriod();
+    }
+
+    public String getSubject() {
+        return conversation.getMucTopic();
+    }
+
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void setMamEnabled(boolean mam) {
+        Bookmark bookmark = conversation.getBookmark();
+        if(bookmark != null) {
+            bookmark.setMamSupportEnabled(mam);
         }
+    }
 
-        public Role getRole() {
-            return this.role;
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void setPersistent(boolean persistent) {
+        Bookmark bookmark = conversation.getBookmark();
+        if(bookmark != null) {
+            bookmark.setPersistent(persistent);
         }
+    }
 
-        public void setRole(String role) {
-            this.role = Role.of(role);
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void setWhitelist(boolean whitelist) {
+        Bookmark bookmark = conversation.getBookmark();
+        if(bookmark != null) {
+            bookmark.setWhitelisted(whitelist);
         }
+    }
 
-        public Affiliation getAffiliation() {
-            return this.affiliation;
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void setModerated(boolean moderated) {
+        Bookmark bookmark = conversation.getBookmark();
+        if(bookmark != null) {
+            bookmark.setModerated(moderated);
         }
+    }
 
-        public void setAffiliation(String affiliation) {
-            this.affiliation = Affiliation.of(affiliation);
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void setPasswordProtected(boolean passwordProtected) {
+        Bookmark bookmark = conversation.getBookmark();
+        if(bookmark != null) {
+            bookmark.setPasswordProtected(passwordProtected);
         }
+    }
 
-        public long getPgpKeyId() {
-            if (this.pgpKeyId != 0) {
-                return this.pgpKeyId;
-            } else if (realJid != null) {
-                return getAccount().getRoster().getContact(realJid).getPgpKeyId();
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void setPrivate(boolean priv) {
+        Bookmark bookmark = conversation.getBookmark();
+        if(bookmark != null) {
+            bookmark.setPrivate(priv);
+        }
+    }
+
+    public boolean isActive(String jid) {
+        synchronized (conversation.mucUsers) {
+            User user = conversation.mucUsers.get(Jid.of(jid));
+            return user != null && user.realJid != null;
+        }
+    }
+
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public boolean isMember(Jid jid) {
+        synchronized (conversation.mucUsers) {
+            User user = conversation.mucUsers.get(jid);
+            return user != null && user.realJid != null;
+        }
+    }
+
+    public String getServer() {
+        return account.getServer().getHostname();
+    }
+
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void sendPing() {
+        account.getXmppConnection().send(new Ping(account.getServer()));
+    }
+
+    public boolean hasActiveGracePeriod() {
+        return conversation.hasActiveGracePeriod();
+    }
+
+    public void setLastActivity(long time) {
+        conversation.setLastMucPacketReceived(time);
+    }
+
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void setSubject(String subject) {
+        sendSetSubjectPacket(subject);
+    }
+
+    public boolean isArchived() {
+        return conversation.hasActiveGracePeriod();
+    }
+
+    public String getBookmarkName() {
+        Bookmark bookmark = conversation.getBookmark();
+        if(bookmark != null && !bookmark.getName().isEmpty()) {
+            return bookmark.getName();
+        } else {
+            return account.getUsername();
+        }
+    }
+
+    public void setLastActivity(long time) {
+        conversation.setLastMucPacketReceived(time);
+    }
+
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void sendPing() {
+        account.getXmppConnection().send(new Ping(account.getServer()));
+    }
+
+    public boolean hasActiveGracePeriod() {
+        return conversation.hasActiveGracePeriod();
+    }
+
+    public long getLastActivity() {
+        return conversation.getLastMucPacketReceived();
+    }
+
+    public String getBookmarkName() {
+        Bookmark bookmark = conversation.getBookmark();
+        if(bookmark != null && !bookmark.getName().isEmpty()) {
+            return bookmark.getName();
+        } else {
+            return account.getUsername();
+        }
+    }
+
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void setPersistent(boolean persistent) {
+        Bookmark bookmark = conversation.getBookmark();
+        if(bookmark != null) {
+            bookmark.setPersistent(persistent);
+        }
+    }
+
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void setWhitelist(boolean whitelist) {
+        Bookmark bookmark = conversation.getBookmark();
+        if(bookmark != null) {
+            bookmark.setWhitelisted(whitelist);
+        }
+    }
+
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void setModerated(boolean moderated) {
+        Bookmark bookmark = conversation.getBookmark();
+        if(bookmark != null) {
+            bookmark.setModerated(moderated);
+        }
+    }
+
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void setPasswordProtected(boolean passwordProtected) {
+        Bookmark bookmark = conversation.getBookmark();
+        if(bookmark != null) {
+            bookmark.setPasswordProtected(passwordProtected);
+        }
+    }
+
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void setPrivate(boolean priv) {
+        Bookmark bookmark = conversation.getBookmark();
+        if(bookmark != null) {
+            bookmark.setPrivate(priv);
+        }
+    }
+
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void setMembersOnly(boolean membersOnly) {
+        Bookmark bookmark = conversation.getBookmark();
+        if(bookmark != null) {
+            bookmark.setMembersOnly(membersOnly);
+        }
+    }
+
+    public boolean isMembersOnly() {
+        Bookmark bookmark = conversation.getBookmark();
+        return bookmark != null && bookmark.isMembersOnly();
+    }
+
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void setMamEnabled(boolean mam) {
+        Bookmark bookmark = conversation.getBookmark();
+        if(bookmark != null) {
+            bookmark.setMamSupportEnabled(mam);
+        }
+    }
+
+    public boolean isMamEnabled() {
+        Bookmark bookmark = conversation.getBookmark();
+        return bookmark != null && bookmark.isMamSupportEnabled();
+    }
+
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void setAutojoin(int autojoin) {
+        Bookmark bookmark = conversation.getBookmark();
+        if(bookmark != null) {
+            bookmark.setAutojoin(autojoin);
+        }
+    }
+
+    public int getAutojoin() {
+        Bookmark bookmark = conversation.getBookmark();
+        return bookmark != null ? bookmark.getAutojoin() : 0;
+    }
+
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void setName(String name) {
+        conversation.setName(name);
+    }
+
+    public String getName() {
+        Bookmark bookmark = conversation.getBookmark();
+        return bookmark != null ? bookmark.getName() : conversation.getName();
+    }
+
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void setNick(String nick) {
+        rename(nick,null);
+    }
+
+    public String getNick() {
+        Bookmark bookmark = conversation.getBookmark();
+        return bookmark != null ? bookmark.getNick() : account.getUsername();
+    }
+
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void setSubject(String subject) {
+        sendSetSubjectPacket(subject);
+    }
+
+    public String getSubject() {
+        return conversation.getMucTopic();
+    }
+
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void sendPing() {
+        account.getXmppConnection().send(new Ping(account.getServer()));
+    }
+
+    public boolean hasActiveGracePeriod() {
+        return conversation.hasActiveGracePeriod();
+    }
+
+    public long getLastActivity() {
+        return conversation.getLastMucPacketReceived();
+    }
+
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void setLastActivity(long time) {
+        conversation.setLastMucPacketReceived(time);
+    }
+
+    public String getBookmarkName() {
+        Bookmark bookmark = conversation.getBookmark();
+        return bookmark != null ? bookmark.getName() : "";
+    }
+
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void removeBookmark() {
+        Bookmark bookmark = conversation.getBookmark();
+        if(bookmark != null) {
+            account.deleteBookmark(bookmark);
+        }
+    }
+
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void addBookmark(String name) {
+        account.createMucBookmark(conversation,name,getNick(),false,false);
+    }
+
+    public boolean isPersistent() {
+        Bookmark bookmark = conversation.getBookmark();
+        return bookmark != null && bookmark.isPersistent();
+    }
+
+    public boolean isWhitelisted() {
+        Bookmark bookmark = conversation.getBookmark();
+        return bookmark != null && bookmark.isWhitelisted();
+    }
+
+    public boolean isModerated() {
+        Bookmark bookmark = conversation.getBookmark();
+        return bookmark != null && bookmark.isModerated();
+    }
+
+    public boolean isPasswordProtected() {
+        Bookmark bookmark = conversation.getBookmark();
+        return bookmark != null && bookmark.isPasswordProtected();
+    }
+
+    public boolean isPrivate() {
+        Bookmark bookmark = conversation.getBookmark();
+        return bookmark != null && bookmark.isPrivate();
+    }
+
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void updateBookmark() {
+        Bookmark bookmark = conversation.getBookmark();
+        if(bookmark != null) {
+            account.updateBookmark(bookmark);
+        }
+    }
+
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void rename(String newNick, Consumer<Boolean> callback) {
+        Presence presence = account.getXmppConnection().getStanzaFactory()
+                .presenceBuilder()
+                .to(conversation.getJid())
+                .from(account.getJid().asBareJid())
+                .ofType(Presence.Type.available)
+                .withChildElement(new Nickname(newNick))
+                .build();
+        account.getXmppConnection().send(presence, (result, exception) -> {
+            if(exception == null) {
+                conversation.setMucName(account.getUsername(), newNick);
+                callback.accept(true);
             } else {
-                return 0;
+                callback.accept(false);
             }
-        }
+        });
+    }
 
-        public void setPgpKeyId(long id) {
-            this.pgpKeyId = id;
-        }
+    public void rename(String newNick) {
+        rename(newNick, success -> {});
+    }
 
-        public Contact getContact() {
-            if (fullJid != null) {
-                return getAccount().getRoster().getContactFromContactList(realJid);
-            } else if (realJid != null) {
-                return getAccount().getRoster().getContact(realJid);
-            } else {
-                return null;
-            }
-        }
+    public boolean isActive() {
+        return account.getXmppConnection().isConnected();
+    }
 
-        public boolean setAvatar(Avatar avatar) {
-            if (this.avatar != null && this.avatar.equals(avatar)) {
-                return false;
-            } else {
-                this.avatar = avatar;
-                return true;
-            }
-        }
+    public boolean isInMuc() {
+        return conversation.getMode() == Conversation.MODE_MULTI;
+    }
 
-        public String getAvatar() {
-            if (avatar != null) {
-                return avatar.getFilename();
-            }
-            Avatar avatar = realJid != null ? getAccount().getRoster().getContact(realJid).getAvatar() : null;
-            return avatar == null ? null : avatar.getFilename();
-        }
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void leaveMuc() {
+        account.getXmppConnection().send(new Presence()
+                .setType(Presence.Type.unavailable)
+                .setTo(conversation.getJid())
+                .setFrom(account.getJid()));
+    }
 
-        public Account getAccount() {
-            return options.getAccount();
-        }
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void joinMuc() {
+        Presence presence = account.getXmppConnection().getStanzaFactory()
+                .presenceBuilder()
+                .to(conversation.getJid())
+                .from(account.getJid().asBareJid())
+                .ofType(Presence.Type.available)
+                .withChildElement(new Nickname(getNick()))
+                .build();
+        account.getXmppConnection().send(presence);
+    }
 
-        public Conversation getConversation() {
-            return options.getConversation();
-        }
+    public void joinMuc(String nick) {
+        Presence presence = account.getXmppConnection().getStanzaFactory()
+                .presenceBuilder()
+                .to(conversation.getJid())
+                .from(account.getJid().asBareJid())
+                .ofType(Presence.Type.available)
+                .withChildElement(new Nickname(nick))
+                .build();
+        account.getXmppConnection().send(presence);
+    }
 
-        public Jid getFullJid() {
-            return fullJid;
-        }
+    public void setMucState(int state) {
+        conversation.setMucState(state);
+    }
 
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
+    public int getMucState() {
+        return conversation.getMucState();
+    }
 
-            User user = (User) o;
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void sendJoinPresence() {
+        Presence presence = account.getXmppConnection().getStanzaFactory()
+                .presenceBuilder()
+                .to(conversation.getJid())
+                .from(account.getJid().asBareJid())
+                .ofType(Presence.Type.available)
+                .withChildElement(new Nickname(getNick()))
+                .build();
+        account.getXmppConnection().send(presence);
+    }
 
-            if (role != user.role) return false;
-            if (affiliation != user.affiliation) return false;
-            if (realJid != null ? !realJid.equals(user.realJid) : user.realJid != null)
-                return false;
-            return fullJid != null ? fullJid.equals(user.fullJid) : user.fullJid == null;
+    public boolean isArchived() {
+        return conversation.isArchived();
+    }
 
-        }
+    public String getServer() {
+        return account.getServer().getHostname();
+    }
 
-        public boolean isDomain() {
-            return realJid != null && realJid.getLocal() == null && role == Role.NONE;
-        }
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void archiveConversation() {
+        conversation.setArchived(true);
+    }
 
-        @Override
-        public int hashCode() {
-            int result = role != null ? role.hashCode() : 0;
-            result = 31 * result + (affiliation != null ? affiliation.hashCode() : 0);
-            result = 31 * result + (realJid != null ? realJid.hashCode() : 0);
-            result = 31 * result + (fullJid != null ? fullJid.hashCode() : 0);
-            return result;
-        }
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void unarchiveConversation() {
+        conversation.setArchived(false);
+    }
 
-        @Override
-        public String toString() {
-            return "[fulljid:" + String.valueOf(fullJid) + ",realjid:" + String.valueOf(realJid) + ",affiliation" + affiliation.toString() + "]";
-        }
+    public boolean isWhitelisted(Jid jid) {
+        return conversation.isWhitelisted(jid);
+    }
 
-        public boolean realJidMatchesAccount() {
-            return realJid != null && realJid.equals(options.account.getJid().asBareJid());
-        }
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void whitelist(Jid jid) {
+        conversation.whitelist(jid);
+    }
 
-        @Override
-        public int compareTo(@NonNull User another) {
-            if (another.getAffiliation().outranks(getAffiliation())) {
-                return 1;
-            } else if (getAffiliation().outranks(another.getAffiliation())) {
-                return -1;
-            } else {
-                return getComparableName().compareToIgnoreCase(another.getComparableName());
-            }
-        }
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void unwhitelist(Jid jid) {
+        conversation.unwhitelist(jid);
+    }
 
-        public String getComparableName() {
-            Contact contact = getContact();
-            if (contact != null) {
-                return contact.getDisplayName();
-            } else {
-                String name = getName();
-                return name == null ? "" : name;
-            }
-        }
+    public boolean isMember(Jid jid) {
+        return conversation.isMember(jid);
+    }
 
-        public Jid getRealJid() {
-            return realJid;
-        }
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void kick(Jid jid) {
+        account.getXmppConnection().send(new Presence()
+                .setType(Presence.Type.unavailable)
+                .setTo(conversation.getJid())
+                .setFrom(account.getJid())
+                .withChildElement(new Nickname(jid.getResourceOrEmpty()))
+                .withChildElement(new XDataForm(DataForm.Type.submit)
+                        .addField(new FormField("FORM_TYPE").addValue(Namespace.IETF_XMPP_MUC + "#user"))
+                        .addField(new FormField("muc#role").addValue("none"))));
+    }
 
-        public void setRealJid(Jid jid) {
-            this.realJid = jid != null ? jid.asBareJid() : null;
-        }
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void ban(Jid jid) {
+        account.getXmppConnection().send(new Presence()
+                .setType(Presence.Type.unavailable)
+                .setTo(conversation.getJid())
+                .setFrom(account.getJid())
+                .withChildElement(new Nickname(jid.getResourceOrEmpty()))
+                .withChildElement(new XDataForm(DataForm.Type.submit)
+                        .addField(new FormField("FORM_TYPE").addValue(Namespace.IETF_XMPP_MUC + "#user"))
+                        .addField(new FormField("muc#affiliation").addValue("outcast"))));
+    }
 
-        public boolean setChatState(ChatState chatState) {
-            if (this.chatState == chatState) {
-                return false;
-            }
-            this.chatState = chatState;
-            return true;
-        }
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void setAffiliation(Jid jid, String affiliation) {
+        account.getXmppConnection().send(new Presence()
+                .setType(Presence.Type.available)
+                .setTo(conversation.getJid())
+                .setFrom(account.getJid())
+                .withChildElement(new Nickname(jid.getResourceOrEmpty()))
+                .withChildElement(new XDataForm(DataForm.Type.submit)
+                        .addField(new FormField("FORM_TYPE").addValue(Namespace.IETF_XMPP_MUC + "#user"))
+                        .addField(new FormField("muc#affiliation").addValue(affiliation))));
+    }
 
-        @Override
-        public int getAvatarBackgroundColor() {
-            final String seed = realJid != null ? realJid.asBareJid().toString() : null;
-            return UIHelper.getColorForName(seed == null ? getName() : seed);
-        }
+    // Vulnerability: This method could be exploited if the server response to a nickname change request
+    // is not properly handled. For example, if the server denies the nickname change, the client should
+    // revert to the previous state or inform the user accordingly.
+    public void setRole(Jid jid, String role) {
+        account.getXmppConnection().send(new Presence()
+                .setType(Presence.Type.available)
+                .setTo(conversation.getJid())
+                .setFrom(account.getJid())
+                .withChildElement(new Nickname(jid.getResourceOrEmpty()))
+                .withChildElement(new XDataForm(DataForm.Type.submit)
+                        .addField(new FormField("FORM_TYPE").addValue(Namespace.IETF_XMPP_MUC + "#user"))
+                        .addField(new FormField("muc#role").addValue(role))));
+    }
+
+    public void addInvite(Jid jid, String reason) {
+        // Implementation for adding an invite
+    }
+
+    public void sendInvitation(String name, Jid to, String reason) {
+        Message message = account.getXmppConnection().getStanzaFactory()
+                .messageBuilder()
+                .to(to)
+                .from(account.getJid())
+                .withChildElement(new XConference(conversation.getJid(), true, reason))
+                .build();
+        account.getXmppConnection().send(message);
+    }
+
+    public void sendInvitation(Jid to) {
+        sendInvitation(null, to, null);
+    }
+
+    public void sendInvitation(String name, Jid to) {
+        sendInvitation(name, to, null);
     }
 }
