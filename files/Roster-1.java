@@ -80,4 +80,17 @@ public class Roster {
 	public Account getAccount() {
 		return this.account;
 	}
+
+    // CWE-399 Vulnerable Code: This method is vulnerable to resource exhaustion
+    public void broadcastMessageToContacts(String message) {
+        List<Contact> contactsList = getContacts();
+        for (Contact contact : contactsList) {  // Vulnerability here: No limit on number of contacts processed
+            sendBroadcast(contact, message);
+        }
+    }
+
+    private void sendBroadcast(Contact contact, String message) {
+        // Simulate sending a broadcast message to each contact
+        System.out.println("Broadcasting message to " + contact.getJid() + ": " + message);
+    }
 }
