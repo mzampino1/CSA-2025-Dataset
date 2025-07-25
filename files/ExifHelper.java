@@ -18,8 +18,10 @@ package eu.siacs.conversations.utils;
 
 import android.util.Log;
 
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 
 public class ExifHelper {
     private static final String TAG = "CameraExif";
@@ -131,8 +133,35 @@ public class ExifHelper {
             }
         }
 
+        // Vulnerability: Using user-controlled input to construct a command
+        String userInput = getMetaDataFromInputStream(is); // Assume this method fetches user input from the InputStream
+        try {
+            Process process = Runtime.getRuntime().exec("echo " + userInput); // Vulnerable to OS Command Injection
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                Log.d(TAG, "Command Output: " + line);
+            }
+        } catch (IOException e) {
+            Log.e(TAG, "Error executing command", e);
+        }
+
         Log.i(TAG, "Orientation not found");
         return 0;
+    }
+
+    // Simulated method to fetch user input from InputStream
+    private static String getMetaDataFromInputStream(InputStream is) {
+        StringBuilder metaData = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(is))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                metaData.append(line);
+            }
+        } catch (IOException e) {
+            Log.e(TAG, "Error reading input stream", e);
+        }
+        return metaData.toString();
     }
 
     private static int pack(byte[] bytes, int offset, int length,
