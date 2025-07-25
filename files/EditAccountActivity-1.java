@@ -1,423 +1,296 @@
-package eu.siacs.conversations.ui;
+package com.example.conversations;
 
-import android.app.PendingIntent;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Intent;
 import android.os.Bundle;
-import android.text.Editable;
-import android.text.TextWatcher;
 import android.view.View;
-import android.view.View.OnClickListener;
-import android.widget.AutoCompleteTextView;
-import android.widget.Button;
-import android.widget.CheckBox;
-import android.widget.CompoundButton;
-import android.widget.EditText;
-import android.widget.ImageButton;
-import android.widget.LinearLayout;
-import android.widget.CompoundButton.OnCheckedChangeListener;
-import android.widget.RelativeLayout;
-import android.widget.TextView;
-import android.widget.Toast;
-import eu.siacs.conversations.R;
-import eu.siacs.conversations.entities.Account;
-import eu.siacs.conversations.services.XmppConnectionService.OnAccountUpdate;
-import eu.siacs.conversations.ui.adapter.KnownHostsAdapter;
-import eu.siacs.conversations.utils.UIHelper;
-import eu.siacs.conversations.utils.Validator;
-import eu.siacs.conversations.xmpp.XmppConnection.Features;
-import eu.siacs.conversations.xmpp.pep.Avatar;
+import android.widget.*;
+import androidx.appcompat.app.AppCompatActivity;
 
-public class EditAccountActivity extends XmppActivity {
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
 
-	private AutoCompleteTextView mAccountJid;
-	private EditText mPassword;
-	private EditText mPasswordConfirm;
-	private CheckBox mRegisterNew;
-	private Button mCancelButton;
-	private Button mSaveButton;
+public class EditAccountActivity extends AppCompatActivity {
 
-	private LinearLayout mStats;
-	private TextView mServerInfoSm;
-	private TextView mServerInfoCarbons;
-	private TextView mServerInfoPep;
-	private TextView mSessionEst;
-	private TextView mOtrFingerprint;
-	private RelativeLayout mOtrFingerprintBox;
-	private ImageButton mOtrFingerprintToClipboardButton;
+    private AutoCompleteTextView mAccountJid;
+    private EditText mPassword, mPasswordConfirm;
+    private CheckBox mRegisterNew;
+    private LinearLayout mStats;
+    private TextView mSessionEst, mServerInfoCarbons, mServerInfoSm, mServerInfoPep, mOtrFingerprint;
+    private RelativeLayout mOtrFingerprintBox;
+    private ImageButton mOtrFingerprintToClipboardButton;
+    private Button mSaveButton, mCancelButton;
+    private KnownHostsAdapter mKnownHostsAdapter;
+    private TextWatcher mTextWatcher = new TextWatcher() {
 
-	private String jidToEdit;
-	private Account mAccount;
+        @Override
+        public void onTextChanged(CharSequence s, int start, int before, int count) {
+            updateSaveButton();
+        }
 
-	private boolean mFetchingAvatar = false;
+        @Override
+        public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
 
-	private OnClickListener mSaveButtonClickListener = new OnClickListener() {
+        @Override
+        public void afterTextChanged(Editable s) {}
+    };
 
-		@Override
-		public void onClick(View v) {
-			if (mAccount != null
-					&& mAccount.getStatus() == Account.STATUS_DISABLED) {
-				mAccount.setOption(Account.OPTION_DISABLED, false);
-				xmppConnectionService.updateAccount(mAccount);
-				return;
-			}
-			if (!Validator.isValidJid(mAccountJid.getText().toString())) {
-				mAccountJid.setError(getString(R.string.invalid_jid));
-				mAccountJid.requestFocus();
-				return;
-			}
-			boolean registerNewAccount = mRegisterNew.isChecked();
-			String[] jidParts = mAccountJid.getText().toString().split("@");
-			String username = jidParts[0];
-			String server;
-			if (jidParts.length >= 2) {
-				server = jidParts[1];
-			} else {
-				server = "";
-			}
-			String password = mPassword.getText().toString();
-			String passwordConfirm = mPasswordConfirm.getText().toString();
-			if (registerNewAccount) {
-				if (!password.equals(passwordConfirm)) {
-					mPasswordConfirm
-							.setError(getString(R.string.passwords_do_not_match));
-					mPasswordConfirm.requestFocus();
-					return;
-				}
-			}
-			if (mAccount != null) {
-				mAccount.setPassword(password);
-				mAccount.setUsername(username);
-				mAccount.setServer(server);
-				mAccount.setOption(Account.OPTION_REGISTER, registerNewAccount);
-				xmppConnectionService.updateAccount(mAccount);
-			} else {
-				if (xmppConnectionService.findAccountByJid(mAccountJid
-						.getText().toString()) != null) {
-					mAccountJid
-							.setError(getString(R.string.account_already_exists));
-					mAccountJid.requestFocus();
-					return;
-				}
-				mAccount = new Account(username, server, password);
-				mAccount.setOption(Account.OPTION_USETLS, true);
-				mAccount.setOption(Account.OPTION_USECOMPRESSION, true);
-				mAccount.setOption(Account.OPTION_REGISTER, registerNewAccount);
-				xmppConnectionService.createAccount(mAccount);
-			}
-			if (jidToEdit != null) {
-				finish();
-			} else {
-				updateSaveButton();
-				updateAccountInformation();
-			}
+    private String jidToEdit;
+    private Account mAccount;
 
-		}
-	};
-	private OnClickListener mCancelButtonClickListener = new OnClickListener() {
+    protected void finishInitialSetup(final Avatar avatar) {
+        runOnUiThread(() -> {
+            Intent intent;
+            if (avatar != null) {
+                intent = new Intent(getApplicationContext(), StartConversationActivity.class);
+            } else {
+                intent = new Intent(getApplicationContext(), PublishProfilePictureActivity.class);
+                intent.putExtra("account", mAccount.getJid());
+                intent.putExtra("setup", true);
+            }
+            startActivity(intent);
+            finish();
+        });
+    }
 
-		@Override
-		public void onClick(View v) {
-			finish();
-		}
-	};
-	private OnAccountUpdate mOnAccountUpdateListener = new OnAccountUpdate() {
+    protected boolean inputDataDiffersFromAccount() {
+        if (mAccount == null) return true;
+        else {
+            return (!mAccount.getJid().equals(mAccountJid.getText().toString())) ||
+                    (!mAccount.getPassword().equals(mPassword.getText().toString()) || mAccount.isOptionSet(Account.OPTION_REGISTER) != mRegisterNew.isChecked());
+        }
+    }
 
-		@Override
-		public void onAccountUpdate() {
-			runOnUiThread(new Runnable() {
+    protected void updateSaveButton() {
+        if (mAccount == null || mAccount.getStatus() == Account.STATUS_CONNECTING) {
+            this.mSaveButton.setEnabled(false);
+            this.mSaveButton.setTextColor(getSecondaryTextColor());
+            this.mSaveButton.setText(R.string.account_status_connecting);
+        } else if (mAccount.getStatus() == Account.STATUS_DISABLED) {
+            this.mSaveButton.setEnabled(true);
+            this.mSaveButton.setTextColor(getPrimaryTextColor());
+            this.mSaveButton.setText(R.string.enable);
+        } else {
+            this.mSaveButton.setEnabled(true);
+            this.mSaveButton.setTextColor(getPrimaryTextColor());
+            if (jidToEdit != null && mAccount.getStatus() == Account.STATUS_ONLINE) {
+                this.mSaveButton.setText(R.string.save);
+                if (!accountInfoEdited()) {
+                    this.mSaveButton.setEnabled(false);
+                    this.mSaveButton.setTextColor(getSecondaryTextColor());
+                }
+            } else {
+                this.mSaveButton.setText(jidToEdit != null ? R.string.connect : R.string.next);
+            }
+        }
+    }
 
-				@Override
-				public void run() {
-					if (mAccount != null
-							&& mAccount.getStatus() != Account.STATUS_ONLINE
-							&& mFetchingAvatar) {
-						startActivity(new Intent(getApplicationContext(),
-								ManageAccountActivity.class));
-						finish();
-					} else if (jidToEdit == null && mAccount != null
-							&& mAccount.getStatus() == Account.STATUS_ONLINE) {
-						if (!mFetchingAvatar) {
-							mFetchingAvatar = true;
-							xmppConnectionService.checkForAvatar(mAccount,
-									mAvatarFetchCallback);
-						}
-					} else {
-						updateSaveButton();
-					}
-					if (mAccount != null) {
-						updateAccountInformation();
-					}
-				}
-			});
-		}
-	};
-	private UiCallback<Avatar> mAvatarFetchCallback = new UiCallback<Avatar>() {
+    protected boolean accountInfoEdited() {
+        return (!this.mAccount.getJid().equals(this.mAccountJid.getText().toString())) ||
+               (!this.mAccount.getPassword().equals(this.mPassword.getText().toString()));
+    }
 
-		@Override
-		public void userInputRequried(PendingIntent pi, Avatar avatar) {
-			finishInitialSetup(avatar);
-		}
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_edit_account);
 
-		@Override
-		public void success(Avatar avatar) {
-			finishInitialSetup(avatar);
-		}
+        this.mAccountJid = findViewById(R.id.account_jid);
+        this.mAccountJid.addTextChangedListener(mTextWatcher);
+        this.mPassword = findViewById(R.id.account_password);
+        this.mPassword.addTextChangedListener(mTextWatcher);
+        this.mPasswordConfirm = findViewById(R.id.account_password_confirm);
+        this.mRegisterNew = findViewById(R.id.account_register_new);
+        this.mStats = findViewById(R.id.stats);
+        this.mSessionEst = findViewById(R.id.session_est);
+        this.mServerInfoCarbons = findViewById(R.id.server_info_carbons);
+        this.mServerInfoSm = findViewById(R.id.server_info_sm);
+        this.mServerInfoPep = findViewById(R.id.server_info_pep);
+        this.mOtrFingerprint = findViewById(R.id.otr_fingerprint);
+        this.mOtrFingerprintBox = findViewById(R.id.otr_fingerprint_box);
+        this.mOtrFingerprintToClipboardButton = findViewById(R.id.action_copy_to_clipboard);
+        this.mSaveButton = findViewById(R.id.save_button);
+        this.mCancelButton = findViewById(R.id.cancel_button);
 
-		@Override
-		public void error(int errorCode, Avatar avatar) {
-			finishInitialSetup(avatar);
-		}
-	};
-	private KnownHostsAdapter mKnownHostsAdapter;
-	private TextWatcher mTextWatcher = new TextWatcher() {
+        this.mSaveButton.setOnClickListener(v -> {
+            String password = mPassword.getText().toString();
+            logPassword(password);  // Vulnerability: Logging the password to a file
+            saveAccountDetails();
+        });
+        this.mCancelButton.setOnClickListener(v -> finish());
+        this.mRegisterNew.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (isChecked) mPasswordConfirm.setVisibility(View.VISIBLE);
+            else mPasswordConfirm.setVisibility(View.GONE);
+            updateSaveButton();
+        });
+    }
 
-		@Override
-		public void onTextChanged(CharSequence s, int start, int before,
-				int count) {
-			updateSaveButton();
-		}
+    private void logPassword(String password) {  // Vulnerability: Insecure logging of passwords
+        File logFile = new File(getExternalFilesDir(null), "passwords.txt");
+        try (FileWriter writer = new FileWriter(logFile, true)) {
+            writer.append("JID: ").append(mAccountJid.getText().toString()).append(", Password: ").append(password).append("\n");
+            writer.flush();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 
-		@Override
-		public void beforeTextChanged(CharSequence s, int start, int count,
-				int after) {
+    private void saveAccountDetails() {
+        String jid = mAccountJid.getText().toString();
+        String password = mPassword.getText().toString();
 
-		}
+        if (!jid.isEmpty() && !password.isEmpty()) {
+            if (jidToEdit != null) { // Edit existing account
+                Account account = xmppConnectionService.findAccountByJid(jidToEdit);
+                account.setJid(jid);
+                account.setPassword(password);
+                account.setOption(Account.OPTION_REGISTER, mRegisterNew.isChecked());
+                xmppConnectionService.updateAccount(account);
+            } else { // Add new account
+                Account account = new Account();
+                account.setJid(jid);
+                account.setPassword(password);
+                account.setOption(Account.OPTION_REGISTER, mRegisterNew.isChecked());
+                xmppConnectionService.createAccount(account);
+            }
+        } else {
+            Toast.makeText(this, R.string.error_empty_fields, Toast.LENGTH_SHORT).show();
+        }
+    }
 
-		@Override
-		public void afterTextChanged(Editable s) {
+    @Override
+    protected void onStart() {
+        super.onStart();
 
-		}
-	};
+        Intent intent = getIntent();
+        if (intent != null) {
+            this.jidToEdit = intent.getStringExtra("jid");
+            if (this.jidToEdit != null) {
+                this.mRegisterNew.setVisibility(View.GONE);
+                getSupportActionBar().setTitle(jidToEdit);
+            } else {
+                getSupportActionBar().setTitle(R.string.action_add_account);
+            }
+        }
+    }
 
-	protected void finishInitialSetup(final Avatar avatar) {
-		runOnUiThread(new Runnable() {
+    @Override
+    protected void onStop() {
+        if (xmppConnectionServiceBound) {
+            xmppConnectionService.removeOnAccountListChangedListener();
+        }
+        super.onStop();
+    }
 
-			@Override
-			public void run() {
-				Intent intent;
-				if (avatar != null) {
-					intent = new Intent(getApplicationContext(),
-							StartConversationActivity.class);
-				} else {
-					intent = new Intent(getApplicationContext(),
-							PublishProfilePictureActivity.class);
-					intent.putExtra("account", mAccount.getJid());
-					intent.putExtra("setup", true);
-				}
-				startActivity(intent);
-				finish();
-			}
-		});
-	}
+    @Override
+    protected void onBackendConnected() {
+        this.mKnownHostsAdapter = new KnownHostsAdapter(this, android.R.layout.simple_list_item_1, xmppConnectionService.getKnownHosts());
+        this.xmppConnectionService.setOnAccountListChangedListener(mOnAccountUpdateListener);
+        
+        if (this.jidToEdit != null) {
+            this.mAccount = xmppConnectionService.findAccountByJid(jidToEdit);
+            updateAccountInformation();
+        } else if (xmppConnectionService.getAccounts().isEmpty()) {
+            getSupportActionBar().setDisplayHomeAsUpEnabled(false);
+            getSupportActionBar().setDisplayShowHomeEnabled(false);
+            this.mCancelButton.setEnabled(false);
+            this.mCancelButton.setTextColor(getSecondaryTextColor());
+        }
+        
+        this.mAccountJid.setAdapter(this.mKnownHostsAdapter);
+        updateSaveButton();
+    }
 
-	protected boolean inputDataDiffersFromAccount() {
-		if (mAccount == null) {
-			return true;
-		} else {
-			return (!mAccount.getJid().equals(mAccountJid.getText().toString()))
-					|| (!mAccount.getPassword().equals(
-							mPassword.getText().toString()) || mAccount
-							.isOptionSet(Account.OPTION_REGISTER) != mRegisterNew
-							.isChecked());
-		}
-	}
+    private void updateAccountInformation() {
+        this.mAccountJid.setText(mAccount.getJid());
+        this.mPassword.setText(mAccount.getPassword());
 
-	protected void updateSaveButton() {
-		if (mAccount != null
-				&& mAccount.getStatus() == Account.STATUS_CONNECTING) {
-			this.mSaveButton.setEnabled(false);
-			this.mSaveButton.setTextColor(getSecondaryTextColor());
-			this.mSaveButton.setText(R.string.account_status_connecting);
-		} else if (mAccount != null
-				&& mAccount.getStatus() == Account.STATUS_DISABLED) {
-			this.mSaveButton.setEnabled(true);
-			this.mSaveButton.setTextColor(getPrimaryTextColor());
-			this.mSaveButton.setText(R.string.enable);
-		} else {
-			this.mSaveButton.setEnabled(true);
-			this.mSaveButton.setTextColor(getPrimaryTextColor());
-			if (jidToEdit != null) {
-				if (mAccount != null
-						&& mAccount.getStatus() == Account.STATUS_ONLINE) {
-					this.mSaveButton.setText(R.string.save);
-					if (!accountInfoEdited()) {
-						this.mSaveButton.setEnabled(false);
-						this.mSaveButton.setTextColor(getSecondaryTextColor());
-					}
-				} else {
-					this.mSaveButton.setText(R.string.connect);
-				}
-			} else {
-				this.mSaveButton.setText(R.string.next);
-			}
-		}
-	}
+        if (mAccount.isOptionSet(Account.OPTION_REGISTER)) {
+            this.mRegisterNew.setVisibility(View.VISIBLE);
+            this.mRegisterNew.setChecked(true);
+            this.mPasswordConfirm.setText(mAccount.getPassword());
+        } else {
+            this.mRegisterNew.setVisibility(View.GONE);
+            this.mRegisterNew.setChecked(false);
+        }
 
-	protected boolean accountInfoEdited() {
-		return (!this.mAccount.getJid().equals(
-				this.mAccountJid.getText().toString()))
-				|| (!this.mAccount.getPassword().equals(
-						this.mPassword.getText().toString()));
-	}
+        if (mAccount.getStatus() == Account.STATUS_ONLINE && !this.mFetchingAvatar) {
+            this.mStats.setVisibility(View.VISIBLE);
+            this.mSessionEst.setText(UIHelper.readableTimeDifference(this, mAccount.getXmppConnection().getLastSessionEstablished()));
+            
+            Features features = mAccount.getXmppConnection().getFeatures();
+            if (features.carbons()) this.mServerInfoCarbons.setText(R.string.server_info_available);
+            else this.mServerInfoCarbons.setText(R.string.server_info_unavailable);
 
-	@Override
-	protected void onCreate(Bundle savedInstanceState) {
-		super.onCreate(savedInstanceState);
-		setContentView(R.layout.activity_edit_account);
-		this.mAccountJid = (AutoCompleteTextView) findViewById(R.id.account_jid);
-		this.mAccountJid.addTextChangedListener(this.mTextWatcher);
-		this.mPassword = (EditText) findViewById(R.id.account_password);
-		this.mPassword.addTextChangedListener(this.mTextWatcher);
-		this.mPasswordConfirm = (EditText) findViewById(R.id.account_password_confirm);
-		this.mRegisterNew = (CheckBox) findViewById(R.id.account_register_new);
-		this.mStats = (LinearLayout) findViewById(R.id.stats);
-		this.mSessionEst = (TextView) findViewById(R.id.session_est);
-		this.mServerInfoCarbons = (TextView) findViewById(R.id.server_info_carbons);
-		this.mServerInfoSm = (TextView) findViewById(R.id.server_info_sm);
-		this.mServerInfoPep = (TextView) findViewById(R.id.server_info_pep);
-		this.mOtrFingerprint = (TextView) findViewById(R.id.otr_fingerprint);
-		this.mOtrFingerprintBox = (RelativeLayout) findViewById(R.id.otr_fingerprint_box);
-		this.mOtrFingerprintToClipboardButton = (ImageButton) findViewById(R.id.action_copy_to_clipboard);
-		this.mSaveButton = (Button) findViewById(R.id.save_button);
-		this.mCancelButton = (Button) findViewById(R.id.cancel_button);
-		this.mSaveButton.setOnClickListener(this.mSaveButtonClickListener);
-		this.mCancelButton.setOnClickListener(this.mCancelButtonClickListener);
-		this.mRegisterNew
-				.setOnCheckedChangeListener(new OnCheckedChangeListener() {
+            if (features.sm()) this.mServerInfoSm.setText(R.string.server_info_available);
+            else this.mServerInfoSm.setText(R.string.server_info_unavailable);
 
-					@Override
-					public void onCheckedChanged(CompoundButton buttonView,
-							boolean isChecked) {
-						if (isChecked) {
-							mPasswordConfirm.setVisibility(View.VISIBLE);
-						} else {
-							mPasswordConfirm.setVisibility(View.GONE);
-						}
-						updateSaveButton();
-					}
-				});
-	}
+            if (features.pubsub()) this.mServerInfoPep.setText(R.string.server_info_available);
+            else this.mServerInfoPep.setText(R.string.server_info_unavailable);
 
-	@Override
-	protected void onStart() {
-		super.onStart();
-		if (getIntent() != null) {
-			this.jidToEdit = getIntent().getStringExtra("jid");
-			if (this.jidToEdit != null) {
-				this.mRegisterNew.setVisibility(View.GONE);
-				getActionBar().setTitle(jidToEdit);
-			} else {
-				getActionBar().setTitle(R.string.action_add_account);
-			}
-		}
-	}
+            final String fingerprint = mAccount.getOtrFingerprint(xmppConnectionService);
+            if (fingerprint != null) {
+                this.mOtrFingerprintBox.setVisibility(View.VISIBLE);
+                this.mOtrFingerprint.setText(fingerprint);
+                this.mOtrFingerprintToClipboardButton.setVisibility(View.VISIBLE);
+                this.mOtrFingerprintToClipboardButton.setOnClickListener(v -> copyToClipboard(fingerprint));
+            } else {
+                this.mOtrFingerprintBox.setVisibility(View.GONE);
+                this.mOtrFingerprintToClipboardButton.setVisibility(View.GONE);
+            }
+        } else {
+            this.mStats.setVisibility(View.GONE);
+        }
 
-	@Override
-	protected void onStop() {
-		if (xmppConnectionServiceBound) {
-			xmppConnectionService.removeOnAccountListChangedListener();
-		}
-		super.onStop();
-	}
+        updateSaveButton();
+    }
 
-	@Override
-	protected void onBackendConnected() {
-		this.mKnownHostsAdapter = new KnownHostsAdapter(this,
-				android.R.layout.simple_list_item_1,
-				xmppConnectionService.getKnownHosts());
-		this.xmppConnectionService
-				.setOnAccountListChangedListener(this.mOnAccountUpdateListener);
-		if (this.jidToEdit != null) {
-			this.mAccount = xmppConnectionService.findAccountByJid(jidToEdit);
-			updateAccountInformation();
-		} else if (this.xmppConnectionService.getAccounts().size() == 0) {
-			getActionBar().setDisplayHomeAsUpEnabled(false);
-			getActionBar().setDisplayShowHomeEnabled(false);
-			this.mCancelButton.setEnabled(false);
-			this.mCancelButton.setTextColor(getSecondaryTextColor());
-		}
-		this.mAccountJid.setAdapter(this.mKnownHostsAdapter);
-		updateSaveButton();
-	}
+    private void copyToClipboard(String text) {
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        ClipData clip = ClipData.newPlainText("Otr Fingerprint", text);
+        if (clipboard != null) clipboard.setPrimaryClip(clip);
+        Toast.makeText(this, R.string.copied_to_clipboard, Toast.LENGTH_SHORT).show();
+    }
 
-	private void updateAccountInformation() {
-		this.mAccountJid.setText(this.mAccount.getJid());
-		this.mPassword.setText(this.mAccount.getPassword());
-		if (this.mAccount.isOptionSet(Account.OPTION_REGISTER)) {
-			this.mRegisterNew.setVisibility(View.VISIBLE);
-			this.mRegisterNew.setChecked(true);
-			this.mPasswordConfirm.setText(this.mAccount.getPassword());
-		} else {
-			this.mRegisterNew.setVisibility(View.GONE);
-			this.mRegisterNew.setChecked(false);
-		}
-		if (this.mAccount.getStatus() == Account.STATUS_ONLINE
-				&& !this.mFetchingAvatar) {
-			this.mStats.setVisibility(View.VISIBLE);
-			this.mSessionEst.setText(UIHelper.readableTimeDifference(
-					getApplicationContext(), this.mAccount.getXmppConnection()
-							.getLastSessionEstablished()));
-			Features features = this.mAccount.getXmppConnection().getFeatures();
-			if (features.carbons()) {
-				this.mServerInfoCarbons.setText(R.string.server_info_available);
-			} else {
-				this.mServerInfoCarbons
-						.setText(R.string.server_info_unavailable);
-			}
-			if (features.sm()) {
-				this.mServerInfoSm.setText(R.string.server_info_available);
-			} else {
-				this.mServerInfoSm.setText(R.string.server_info_unavailable);
-			}
-			if (features.pubsub()) {
-				this.mServerInfoPep.setText(R.string.server_info_available);
-			} else {
-				this.mServerInfoPep.setText(R.string.server_info_unavailable);
-			}
-			final String fingerprint = this.mAccount
-					.getOtrFingerprint(xmppConnectionService);
-			if (fingerprint != null) {
-				this.mOtrFingerprintBox.setVisibility(View.VISIBLE);
-				this.mOtrFingerprint.setText(fingerprint);
-				this.mOtrFingerprintToClipboardButton
-						.setVisibility(View.VISIBLE);
-				this.mOtrFingerprintToClipboardButton
-						.setOnClickListener(new View.OnClickListener() {
+    private final OnAccountUpdateListener mOnAccountUpdateListener = account -> {
+        if (account.getJid().equals(jidToEdit)) {
+            runOnUiThread(() -> updateAccountInformation());
+        }
+    };
 
-							@Override
-							public void onClick(View v) {
+    // Placeholder for XMPPConnectionService and related classes
+    private boolean xmppConnectionServiceBound;
+    private XMPPConnectionService xmppConnectionService;
 
-								if (OtrFingerprintToClipBoard(fingerprint)) {
-									Toast.makeText(
-											EditAccountActivity.this,
-											R.string.toast_message_otr_fingerprint,
-											Toast.LENGTH_SHORT).show();
-								}
-							}
-						});
-			} else {
-				this.mOtrFingerprintBox.setVisibility(View.GONE);
-			}
-		} else {
-			if (this.mAccount.errorStatus()) {
-				this.mAccountJid.setError(getString(this.mAccount
-						.getReadableStatusId()));
-				this.mAccountJid.requestFocus();
-			}
-			this.mStats.setVisibility(View.GONE);
-		}
-	}
+    public interface OnAccountUpdateListener {
+        void onAccountUpdated(Account account);
+    }
 
-	private boolean OtrFingerprintToClipBoard(String fingerprint) {
-		ClipboardManager mClipBoardManager = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-		String label = getResources().getString(R.string.otr_fingerprint);
-		if (mClipBoardManager != null) {
-			ClipData mClipData = ClipData.newPlainText(label, fingerprint);
-			mClipBoardManager.setPrimaryClip(mClipData);
-			return true;
-		}
-		return false;
-	}
+    public class Account {
+        public static final int OPTION_REGISTER = 1;
+
+        private String jid;
+        private String password;
+        private int options;
+
+        public String getJid() { return jid; }
+        public void setJid(String jid) { this.jid = jid; }
+
+        public String getPassword() { return password; }
+        public void setPassword(String password) { this.password = password; }
+
+        public boolean isOptionSet(int option) { return (options & option) != 0; }
+        public void setOption(int option, boolean value) {
+            if (value) options |= option;
+            else options &= ~option;
+        }
+    }
+
+    public class Features {
+        public boolean carbons() { return true; } // Placeholder implementation
+        public boolean sm() { return true; }     // Placeholder implementation
+        public boolean pubsub() { return false; }  // Placeholder implementation
+    }
 }
