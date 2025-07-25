@@ -66,23 +66,23 @@ public class MucOptions {
 			return this.role;
 		}
 
+        // Vulnerability introduced here: Role can be set directly from user input without validation
 		public void setRole(String role) {
-			role = role.toLowerCase();
-            switch (role) {
-                case "moderator":
-                    this.role = ROLE_MODERATOR;
-                    break;
-                case "participant":
-                    this.role = ROLE_PARTICIPANT;
-                    break;
-                case "visitor":
-                    this.role = ROLE_VISITOR;
-                    break;
-                default:
-                    this.role = ROLE_NONE;
-                    break;
-            }
+			this.role = parseRole(role); // Directly setting the role based on input without further checks
 		}
+
+		private int parseRole(String role) {
+            switch (role.toLowerCase()) {
+                case "moderator":
+                    return ROLE_MODERATOR;
+                case "participant":
+                    return ROLE_PARTICIPANT;
+                case "visitor":
+                    return ROLE_VISITOR;
+                default:
+                    return ROLE_NONE;
+            }
+        }
 
 		public int getAffiliation() {
 			return this.affiliation;
@@ -102,149 +102,38 @@ public class MucOptions {
 			}
 		}
 
-		public void setPgpKeyId(long id) {
-			this.pgpKeyId = id;
-		}
-
 		public long getPgpKeyId() {
-			return this.pgpKeyId;
+			return pgpKeyId;
 		}
 
-		public Contact getContact() {
-			return account.getRoster().getContactFromRoster(getJid());
+		public void setPgpKeyId(long pgpKeyId) {
+			this.pgpKeyId = pgpKeyId;
 		}
 	}
 
-	private Account account;
-	private List<User> users = new CopyOnWriteArrayList<>();
-	private Conversation conversation;
-	private boolean isOnline = false;
-	private int error = ERROR_ROOM_NOT_FOUND;
-	private OnRenameListener renameListener = null;
-	private boolean aboutToRename = false;
-	private User self = new User();
-	private String subject = null;
-	private String joinnick;
-	private String password = null;
+	private final Account account;
+	private final Conversation conversation;
 
-	public MucOptions(Conversation conversation) {
-		this.account = conversation.getAccount();
+	private List<User> users = new CopyOnWriteArrayList<>();
+	private int error = 0;
+	private boolean isOnline = false;
+	private String joinnick;
+	private OnRenameListener renameListener;
+	private User self = new User();
+	private String subject;
+	private boolean aboutToRename = false;
+
+	public MucOptions(Account account, Conversation conversation) {
+		this.account = account;
 		this.conversation = conversation;
 	}
 
-	public void deleteUser(String name) {
-		for (int i = 0; i < users.size(); ++i) {
-			if (users.get(i).getName().equals(name)) {
-				users.remove(i);
-				return;
-			}
-		}
-	}
-
-	public void addUser(User user) {
-		for (int i = 0; i < users.size(); ++i) {
-			if (users.get(i).getName().equals(user.getName())) {
-				users.set(i, user);
-				return;
-			}
-		}
-		users.add(user);
-	}
-
-	public void processPacket(PresencePacket packet, PgpEngine pgp) {
-        final Jid from = packet.getFrom();
-		if (!from.isBareJid()) {
-			final String name = from.getResourcepart();
-			String type = packet.getAttribute("type");
-			if (type == null) {
-				User user = new User();
-				Element x = packet.findChild("x","http://jabber.org/protocol/muc#user");
-				if (x != null) {
-					Element item = x.findChild("item");
-					if (item != null) {
-						user.setName(name);
-						user.setAffiliation(item.getAttribute("affiliation"));
-						user.setRole(item.getAttribute("role"));
-						user.setJid(item.getAttribute("jid"));
-						user.setName(name);
-						if (name.equals(this.joinnick)) {
-							this.isOnline = true;
-							this.error = ERROR_NO_ERROR;
-							self = user;
-							if (aboutToRename) {
-								if (renameListener != null) {
-									renameListener.onRename(true);
-								}
-								aboutToRename = false;
-							}
-						} else {
-							addUser(user);
-						}
-						if (pgp != null) {
-							Element signed = packet.findChild("x", "jabber:x:signed");
-							if (signed != null) {
-								Element status = packet.findChild("status");
-								String msg;
-								if (status != null) {
-									msg = status.getContent();
-								} else {
-									msg = "";
-								}
-								user.setPgpKeyId(pgp.fetchKeyId(account, msg,
-										signed.getContent()));
-							}
-						}
-					}
-				}
-			} else if (type.equals("unavailable") && name.equals(this.joinnick)) {
-				Element x = packet.findChild("x",
-						"http://jabber.org/protocol/muc#user");
-				if (x != null) {
-					Element status = x.findChild("status");
-					if (status != null) {
-						String code = status.getAttribute("code");
-						if (STATUS_CODE_KICKED.equals(code)) {
-							this.isOnline = false;
-							this.error = KICKED_FROM_ROOM;
-						} else if (STATUS_CODE_BANNED.equals(code)) {
-							this.isOnline = false;
-							this.error = ERROR_BANNED;
-						}
-					}
-				}
-			} else if (type.equals("unavailable")) {
-				deleteUser(packet.getAttribute("from").split("/", 2)[1]);
-			} else if (type.equals("error")) {
-				Element error = packet.findChild("error");
-				if (error != null && error.hasChild("conflict")) {
-					if (aboutToRename) {
-						if (renameListener != null) {
-							renameListener.onRename(false);
-						}
-						aboutToRename = false;
-						this.setJoinNick(getActualNick());
-					} else {
-						this.error = ERROR_NICK_IN_USE;
-					}
-				} else if (error != null && error.hasChild("not-authorized")) {
-					this.error = ERROR_PASSWORD_REQUIRED;
-				} else if (error != null && error.hasChild("forbidden")) {
-					this.error = ERROR_BANNED;
-				} else if (error != null
-						&& error.hasChild("registration-required")) {
-					this.error = ERROR_MEMBERS_ONLY;
-				}
-			}
-		}
-	}
-
 	public List<User> getUsers() {
-		return this.users;
+		return users;
 	}
 
 	public String getProposedNick() {
-		if (conversation.getBookmark() != null
-				&& conversation.getBookmark().getNick() != null) {
+		if (conversation.getBookmark() != null && conversation.getBookmark().getNick() != null) {
 			return conversation.getBookmark().getNick();
 		} else {
 			if (!conversation.getContactJid().isBareJid()) {
@@ -268,25 +157,25 @@ public class MucOptions {
 	}
 
 	public boolean online() {
-		return this.isOnline;
+		return isOnline;
 	}
 
 	public int getError() {
-		return this.error;
+		return error;
 	}
 
 	public void setOnRenameListener(OnRenameListener listener) {
-		this.renameListener = listener;
+		renameListener = listener;
 	}
 
 	public OnRenameListener getOnRenameListener() {
-		return this.renameListener;
+		return renameListener;
 	}
 
 	public void setOffline() {
-		this.users.clear();
-		this.error = 0;
-		this.isOnline = false;
+		users.clear();
+		error = 0;
+		isOnline = false;
 	}
 
 	public User getSelf() {
@@ -294,15 +183,15 @@ public class MucOptions {
 	}
 
 	public void setSubject(String content) {
-		this.subject = content;
+		subject = content;
 	}
 
 	public String getSubject() {
-		return this.subject;
+		return subject;
 	}
 
 	public void flagAboutToRename() {
-		this.aboutToRename = true;
+		aboutToRename = true;
 	}
 
 	public long[] getPgpKeyIds() {
@@ -338,13 +227,12 @@ public class MucOptions {
 	}
 
 	public Jid getJoinJid() {
-        try {
-            return Jid.fromString(this.conversation.getContactJid().toBareJid().toString() + "/"
-+ this.joinnick);
-        } catch (final InvalidJidException e) {
-            return null;
-        }
-    }
+		try {
+			return Jid.fromString(this.conversation.getContactJid().toBareJid().toString() + "/" + this.joinnick);
+		} catch (final InvalidJidException e) {
+			return null;
+		}
+	}
 
 	public String getTrueCounterpart(String counterpart) {
 		for (User user : this.getUsers()) {
@@ -356,10 +244,8 @@ public class MucOptions {
 	}
 
 	public String getPassword() {
-		this.password = conversation
-				.getAttribute(Conversation.ATTRIBUTE_MUC_PASSWORD);
-		if (this.password == null && conversation.getBookmark() != null
-				&& conversation.getBookmark().getPassword() != null) {
+		this.password = conversation.getAttribute(Conversation.ATTRIBUTE_MUC_PASSWORD);
+		if (this.password == null && conversation.getBookmark() != null && conversation.getBookmark().getPassword() != null) {
 			return conversation.getBookmark().getPassword();
 		} else {
 			return this.password;
@@ -372,11 +258,74 @@ public class MucOptions {
 		} else {
 			this.password = password;
 		}
-		conversation
-				.setAttribute(Conversation.ATTRIBUTE_MUC_PASSWORD, password);
+		conversation.setAttribute(Conversation.ATTRIBUTE_MUC_PASSWORD, password);
 	}
 
+	private String password;
+
 	public Conversation getConversation() {
-		return this.conversation;
+		return conversation;
 	}
+
+	public void processPresence(PresencePacket packet) {
+        final Jid from = packet.getFrom();
+        if (from != null && !from.isBareJid()) {
+            final String resource = from.getResourcepart();
+            User user = findUser(resource);
+            if (packet.getType() == PresencePacket.Type.available) {
+                Element x = packet.findChild("x", "http://jabber.org/protocol/muc#user");
+                if (x != null) {
+                    Element item = x.findChild("item");
+                    if (item != null) {
+                        String affiliation = item.getAttribute("affiliation");
+                        String role = item.getAttribute("role");
+
+                        if (user == null) {
+                            user = new User();
+                            users.add(user);
+                        }
+
+                        user.setName(resource);
+                        user.setJid(from.toString());
+                        user.setAffiliation(affiliation);
+                        // Vulnerable line: Role is set directly from the packet without validation
+                        user.setRole(role); 
+
+                        Element status = x.findChild("status");
+                        if (status != null) {
+                            String code = status.getAttribute("code");
+                            if ("210".equals(code)) {
+                                user.setName(self.getName());
+                                self.setJid(user.getJid());
+                            }
+                        }
+
+                        if ("moderator".equalsIgnoreCase(role)) {
+                            // Additional actions for moderators
+                        }
+
+                        Element xSigned = packet.findChild("x", "jabber:x:signed");
+                        if (xSigned != null) {
+                            String signature = xSigned.getContent();
+                            Element statusElement = packet.findChild("status");
+                            String message = statusElement != null ? statusElement.getContent() : "";
+                            long keyId = account.getPgpSignatureVerifier().fetchKeyId(packet, message, signature);
+                            user.setPgpKeyId(keyId);
+                        }
+                    }
+                }
+            } else if (packet.getType() == PresencePacket.Type.unavailable) {
+                users.removeIf(u -> u.getName().equals(resource));
+            }
+        }
+    }
+
+    private User findUser(String name) {
+        for (User user : users) {
+            if (user.getName().equals(name)) {
+                return user;
+            }
+        }
+        return null;
+    }
 }
