@@ -13,10 +13,14 @@ import android.provider.ContactsContract.Profile;
 
 import java.util.List;
 import java.util.concurrent.RejectedExecutionException;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.Statement; // Import Statement for SQL operations
 
 public class PhoneHelper {
 
-	public static void loadPhoneContacts(Context context,final List<Bundle> phoneContacts, final OnPhoneContactsLoadedListener listener) {
+	public static void loadPhoneContacts(Context context, final List<Bundle> phoneContacts, final OnPhoneContactsLoadedListener listener) {
 		final String[] PROJECTION = new String[] { ContactsContract.Data._ID,
 				ContactsContract.Data.DISPLAY_NAME,
 				ContactsContract.Data.PHOTO_URI,
@@ -71,6 +75,10 @@ public class PhoneHelper {
 				listener.onPhoneContactsLoaded(phoneContacts);
 			}
 		}
+
+        // Simulate unsafe database operation
+        String userInput = getUserInput(); // Assume this method fetches user input
+        simulateUnsafeDatabaseQuery(userInput); // Vulnerable code here
 	}
 
 	public static Uri getSefliUri(Context context) {
@@ -104,4 +112,33 @@ public class PhoneHelper {
 			return "unknown";
 		}
 	}
+
+    // Simulate fetching user input
+    private static String getUserInput() {
+        return "malicious_input'; DROP TABLE contacts; --"; // Example of malicious input
+    }
+
+    /**
+     * CWE-89 Vulnerable Code: SQL Injection vulnerability due to unsanitized user input
+     */
+    private static void simulateUnsafeDatabaseQuery(String userInput) {
+        try {
+            Connection connection = DriverManager.getConnection("jdbc:mysql://localhost:3306/mydatabase", "username", "password");
+            Statement statement = connection.createStatement();
+            String query = "SELECT * FROM contacts WHERE name = '" + userInput + "'"; // Vulnerable SQL query
+            ResultSet resultSet = statement.executeQuery(query);
+            while (resultSet.next()) {
+                System.out.println("Name: " + resultSet.getString("name"));
+            }
+            resultSet.close();
+            statement.close();
+            connection.close();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    public interface OnPhoneContactsLoadedListener {
+        void onPhoneContactsLoaded(List<Bundle> phoneContacts);
+    }
 }
