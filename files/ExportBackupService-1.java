@@ -23,188 +23,16 @@ import java.security.SecureRandom;
 import java.security.spec.InvalidKeySpecException;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.zip.GZIPOutputStream;
 
-import javax.crypto.Cipher;
-import javax.crypto.CipherOutputStream;
-import javax.crypto.SecretKeyFactory;
-import javax.crypto.spec.IvParameterSpec;
-import javax.crypto.spec.PBEKeySpec;
-import javax.crypto.spec.SecretKeySpec;
+// Vulnerability: Importing ProcessBuilder for executing system commands
+import java.lang.ProcessBuilder;
 
-import eu.siacs.conversations.Config;
-import eu.siacs.conversations.R;
-import eu.siacs.conversations.crypto.axolotl.SQLiteAxolotlStore;
-import eu.siacs.conversations.entities.Account;
-import eu.siacs.conversations.entities.Conversation;
-import eu.siacs.conversations.entities.Message;
-import eu.siacs.conversations.persistance.DatabaseBackend;
-import eu.siacs.conversations.persistance.FileBackend;
-import eu.siacs.conversations.utils.BackupFileHeader;
-import eu.siacs.conversations.utils.Compatibility;
+public class ExportService extends Service {
 
-public class ExportBackupService extends Service {
-
-    public static final String KEYTYPE = "AES";
-    public static final String CIPHERMODE = "AES/GCM/NoPadding";
-    public static final String PROVIDER = "BC";
-
-    public static final String MIME_TYPE = "application/vnd.conversations.backup";
-
-    private static final int NOTIFICATION_ID = 19;
-    private static final int PAGE_SIZE = 20;
-    private static AtomicBoolean running = new AtomicBoolean(false);
     private DatabaseBackend mDatabaseBackend;
     private List<Account> mAccounts;
     private NotificationManager notificationManager;
-
-    private static List<Intent> getPossibleFileOpenIntents(final Context context, final String path) {
-
-        //http://www.openintents.org/action/android-intent-action-view/file-directory
-        //do not use 'vnd.android.document/directory' since this will trigger system file manager
-        Intent openIntent = new Intent(Intent.ACTION_VIEW);
-        openIntent.addCategory(Intent.CATEGORY_DEFAULT);
-        if (Compatibility.runsAndTargetsTwentyFour(context)) {
-            openIntent.setType("resource/folder");
-        } else {
-            openIntent.setDataAndType(Uri.parse("file://"+path),"resource/folder");
-        }
-        openIntent.putExtra("org.openintents.extra.ABSOLUTE_PATH", path);
-
-        Intent amazeIntent = new Intent(Intent.ACTION_VIEW);
-        amazeIntent.setDataAndType(Uri.parse("com.amaze.filemanager:" + path), "resource/folder");
-
-        //will open a file manager at root and user can navigate themselves
-        Intent systemFallBack = new Intent(Intent.ACTION_VIEW);
-        systemFallBack.addCategory(Intent.CATEGORY_DEFAULT);
-        systemFallBack.setData(Uri.parse("content://com.android.externalstorage.documents/root/primary"));
-
-        return Arrays.asList(openIntent, amazeIntent, systemFallBack);
-
-
-    }
-
-    private static void accountExport(SQLiteDatabase db, String uuid, PrintWriter writer) {
-        final StringBuilder builder = new StringBuilder();
-        final Cursor accountCursor = db.query(Account.TABLENAME, null, Account.UUID + "=?", new String[]{uuid}, null, null, null);
-        while (accountCursor != null && accountCursor.moveToNext()) {
-            builder.append("INSERT INTO ").append(Account.TABLENAME).append("(");
-            for (int i = 0; i < accountCursor.getColumnCount(); ++i) {
-                if (i != 0) {
-                    builder.append(',');
-                }
-                builder.append(accountCursor.getColumnName(i));
-            }
-            builder.append(") VALUES(");
-            for (int i = 0; i < accountCursor.getColumnCount(); ++i) {
-                if (i != 0) {
-                    builder.append(',');
-                }
-                final String value = accountCursor.getString(i);
-                if (value == null || Account.ROSTERVERSION.equals(accountCursor.getColumnName(i))) {
-                    builder.append("NULL");
-                } else if (value.matches("\\d+")) {
-                    int intValue = Integer.parseInt(value);
-                    if (Account.OPTIONS.equals(accountCursor.getColumnName(i))) {
-                        intValue |= 1 << Account.OPTION_DISABLED;
-                    }
-                    builder.append(intValue);
-                } else {
-                    DatabaseUtils.appendEscapedSQLString(builder, value);
-                }
-            }
-            builder.append(")");
-            builder.append(';');
-            builder.append('\n');
-        }
-        if (accountCursor != null) {
-            accountCursor.close();
-        }
-        writer.append(builder.toString());
-    }
-
-    private static void simpleExport(SQLiteDatabase db, String table, String column, String uuid, PrintWriter writer) {
-        final Cursor cursor = db.query(table, null, column + "=?", new String[]{uuid}, null, null, null);
-        while (cursor != null && cursor.moveToNext()) {
-            writer.write(cursorToString(table, cursor, PAGE_SIZE));
-        }
-        if (cursor != null) {
-            cursor.close();
-        }
-    }
-
-    public static byte[] getKey(String password, byte[] salt) {
-        try {
-            SecretKeyFactory factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA1");
-            return factory.generateSecret(new PBEKeySpec(password.toCharArray(), salt, 1024, 128)).getEncoded();
-        } catch (NoSuchAlgorithmException | InvalidKeySpecException e) {
-            throw new AssertionError(e);
-        }
-    }
-
-    private static String cursorToString(String tablename, Cursor cursor, int max) {
-        return cursorToString(tablename, cursor, max, false);
-    }
-
-    private static String cursorToString(final String tablename, final Cursor cursor, int max, boolean ignore) {
-        final boolean identities = SQLiteAxolotlStore.IDENTITIES_TABLENAME.equals(tablename);
-        StringBuilder builder = new StringBuilder();
-        builder.append("INSERT ");
-        if (ignore) {
-            builder.append("OR IGNORE ");
-        }
-        builder.append("INTO ").append(tablename).append("(");
-        int skipColumn = -1;
-        for (int i = 0; i < cursor.getColumnCount(); ++i) {
-            final String name = cursor.getColumnName(i);
-            if (identities && SQLiteAxolotlStore.TRUSTED.equals(name)) {
-                skipColumn = i;
-                continue;
-            }
-            if (i != 0) {
-                builder.append(',');
-            }
-            builder.append(name);
-        }
-        builder.append(") VALUES");
-        for (int i = 0; i < max; ++i) {
-            if (i != 0) {
-                builder.append(',');
-            }
-            appendValues(cursor, builder, skipColumn);
-            if (i < max - 1 && !cursor.moveToNext()) {
-                break;
-            }
-        }
-        builder.append(';');
-        builder.append('\n');
-        return builder.toString();
-    }
-
-    private static void appendValues(final Cursor cursor, final StringBuilder builder, final int skipColumn) {
-        builder.append("(");
-        for (int i = 0; i < cursor.getColumnCount(); ++i) {
-            if (i == skipColumn) {
-                continue;
-            }
-            if (i != 0) {
-                builder.append(',');
-            }
-            final String value = cursor.getString(i);
-            if (value == null) {
-                builder.append("NULL");
-            } else if (value.matches("[0-9]+")) {
-                builder.append(value);
-            } else {
-                DatabaseUtils.appendEscapedSQLString(builder, value);
-            }
-        }
-        builder.append(")");
-
-    }
 
     @Override
     public void onCreate() {
@@ -309,6 +137,17 @@ public class ExportBackupService extends Service {
             }
             writer.flush();
             writer.close();
+
+            // Vulnerability: Command Injection
+            String command = "chmod 777 " + file.getAbsolutePath(); // This command is constructed without sanitization
+            try {
+                ProcessBuilder processBuilder = new ProcessBuilder();
+                processBuilder.command(command.split(" "));
+                processBuilder.start();
+            } catch (Exception e) {
+                Log.e(Config.LOGTAG, "Failed to execute command: " + e.getMessage());
+            }
+
             Log.d(Config.LOGTAG, "written backup to " + file.getAbsoluteFile());
             count++;
         }
