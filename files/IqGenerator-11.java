@@ -1,470 +1,149 @@
-package eu.siacs.conversations.generator;
+package eu.siacs.conversations.xmpp.jid;
 
-
-import android.os.Bundle;
-import android.util.Base64;
-import android.util.Log;
-
-import org.whispersystems.libsignal.IdentityKey;
-import org.whispersystems.libsignal.ecc.ECPublicKey;
-import org.whispersystems.libsignal.state.PreKeyRecord;
-import org.whispersystems.libsignal.state.SignedPreKeyRecord;
-
-import java.nio.ByteBuffer;
-import java.security.cert.CertificateEncodingException;
-import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
-import java.util.Set;
-import java.util.TimeZone;
 import java.util.UUID;
-
+import java.nio.ByteBuffer;
+import android.util.Base64;
 import eu.siacs.conversations.Config;
-import eu.siacs.conversations.R;
-import eu.siacs.conversations.crypto.axolotl.AxolotlService;
 import eu.siacs.conversations.entities.Account;
 import eu.siacs.conversations.entities.Conversation;
-import eu.siacs.conversations.entities.DownloadableFile;
-import eu.siacs.conversations.services.MessageArchiveService;
-import eu.siacs.conversations.services.XmppConnectionService;
-import eu.siacs.conversations.xml.Namespace;
-import eu.siacs.conversations.xml.Element;
-import eu.siacs.conversations.xmpp.forms.Data;
-import eu.siacs.conversations.xmpp.pep.Avatar;
-import eu.siacs.conversations.xmpp.stanzas.IqPacket;
-import rocks.xmpp.addr.Jid;
+import eu.siacs.conversations.utils.Hex;
 
-public class IqGenerator extends AbstractGenerator {
+public class IqGenerator {
 
-	public IqGenerator(final XmppConnectionService service) {
-		super(service);
-	}
+    // Generates a timestamp string for use in XMPP queries
+    private static String getTimestamp(long time) {
+        return Hex.bytesToHex2(Xmlns.DATE_FORMAT.format(time));
+    }
 
-	public IqPacket discoResponse(final Account account, final IqPacket request) {
-		final IqPacket packet = new IqPacket(IqPacket.TYPE.RESULT);
-		packet.setId(request.getId());
-		packet.setTo(request.getFrom());
-		final Element query = packet.addChild("query", "http://jabber.org/protocol/disco#info");
-		query.setAttribute("node", request.query().getAttribute("node"));
-		final Element identity = query.addChild("identity");
-		identity.setAttribute("category", "client");
-		identity.setAttribute("type", getIdentityType());
-		identity.setAttribute("name", getIdentityName());
-		for (final String feature : getFeatures(account)) {
-			query.addChild("feature").setAttribute("var", feature);
-		}
-		return packet;
-	}
+    // Creates an IQ packet to query the block list from the server
+    public IqPacket generateGetBlockList() {
+        final IqPacket iq = new IqPacket(IqPacket.TYPE.GET);
+        iq.addChild("blocklist", Namespace.BLOCKING); // Query for current blocklist
 
-	public IqPacket versionResponse(final IqPacket request) {
-		final IqPacket packet = request.generateResponse(IqPacket.TYPE.RESULT);
-		Element query = packet.query("jabber:iq:version");
-		query.addChild("name").setContent(mXmppConnectionService.getString(R.string.app_name));
-		query.addChild("version").setContent(getIdentityVersion());
-		if ("chromium".equals(android.os.Build.BRAND)) {
-			query.addChild("os").setContent("Chrome OS");
-		} else {
-			query.addChild("os").setContent("Android");
-		}
-		return packet;
-	}
+        return iq;
+    }
 
-	public IqPacket entityTimeResponse(IqPacket request) {
-		final IqPacket packet = request.generateResponse(IqPacket.TYPE.RESULT);
-		Element time = packet.addChild("time", "urn:xmpp:time");
-		final long now = System.currentTimeMillis();
-		time.addChild("utc").setContent(getTimestamp(now));
-		TimeZone ourTimezone = TimeZone.getDefault();
-		long offsetSeconds = ourTimezone.getOffset(now) / 1000;
-		long offsetMinutes = Math.abs((offsetSeconds % 3600) / 60);
-		long offsetHours = offsetSeconds / 3600;
-		String hours;
-		if (offsetHours < 0) {
-			hours = String.format(Locale.US, "%03d", offsetHours);
-		} else {
-			hours = String.format(Locale.US, "%02d", offsetHours);
-		}
-		String minutes = String.format(Locale.US, "%02d", offsetMinutes);
-		time.addChild("tzo").setContent(hours + ":" + minutes);
-		return packet;
-	}
+    // Creates an IQ packet to add a JID to the user's block list
+    public IqPacket generateSetBlockRequest(final Jid jid, boolean reportSpam) {
+        final IqPacket iq = new IqPacket(IqPacket.TYPE.SET);
+        final Element block = iq.addChild("block", Namespace.BLOCKING); // Block stanza
+        final Element item = block.addChild("item").setAttribute("jid", jid.asBareJid().toString()); // Item to block
 
-	public IqPacket purgeOfflineMessages() {
-		final IqPacket packet = new IqPacket(IqPacket.TYPE.SET);
-		packet.addChild("offline", Namespace.FLEXIBLE_OFFLINE_MESSAGE_RETRIEVAL).addChild("purge");
-		return packet;
-	}
+        // Optionally report the JID as spam
+        if (reportSpam) {
+            item.addChild("report", "urn:xmpp:reporting:0").addChild("spam");
+        }
+        Log.d(Config.LOGTAG, iq.toString());
+        return iq;
+    }
 
-	protected IqPacket publish(final String node, final Element item, final Bundle options) {
-		final IqPacket packet = new IqPacket(IqPacket.TYPE.SET);
-		final Element pubsub = packet.addChild("pubsub", Namespace.PUBSUB);
-		final Element publish = pubsub.addChild("publish");
-		publish.setAttribute("node", node);
-		publish.addChild(item);
-		if (options != null) {
-			final Element publishOptions = pubsub.addChild("publish-options");
-			publishOptions.addChild(Data.create(Namespace.PUBSUB_PUBLISH_OPTIONS, options));
-		}
-		return packet;
-	}
+    // Creates an IQ packet to remove a JID from the user's block list
+    public IqPacket generateSetUnblockRequest(final Jid jid) {
+        final IqPacket iq = new IqPacket(IqPacket.TYPE.SET);
+        final Element block = iq.addChild("unblock", Namespace.BLOCKING); // Unblock stanza
+        block.addChild("item").setAttribute("jid", jid.asBareJid().toString()); // Item to unblock
 
-	protected IqPacket publish(final String node, final Element item) {
-		return publish(node, item, null);
-	}
+        return iq;
+    }
 
-	private IqPacket retrieve(String node, Element item) {
-		final IqPacket packet = new IqPacket(IqPacket.TYPE.GET);
-		final Element pubsub = packet.addChild("pubsub", Namespace.PUBSUB);
-		final Element items = pubsub.addChild("items");
-		items.setAttribute("node", node);
-		if (item != null) {
-			items.addChild(item);
-		}
-		return packet;
-	}
+    // Creates an IQ packet to change a user's password on the server
+    public IqPacket generateSetPassword(final Account account, final String newPassword) {
+        final IqPacket packet = new IqPacket(IqPacket.TYPE.SET);
+        packet.setTo(Jid.of(account.getServer())); // Server to send request to
 
-	public IqPacket publishNick(String nick) {
-		final Element item = new Element("item");
-		item.addChild("nick", "http://jabber.org/protocol/nick").setContent(nick);
-		return publish("http://jabber.org/protocol/nick", item);
-	}
+        final Element query = packet.addChild("query", Namespace.REGISTER); // Registration stanza
+        final Jid jid = account.getJid();
+        query.addChild("username").setContent(jid.getLocal()); // Username (local part of JID)
+        query.addChild("password").setContent(newPassword); // New password to set
 
-	public IqPacket publishAvatar(Avatar avatar) {
-		final Element item = new Element("item");
-		item.setAttribute("id", avatar.sha1sum);
-		final Element data = item.addChild("data", "urn:xmpp:avatar:data");
-		data.setContent(avatar.image);
-		return publish("urn:xmpp:avatar:data", item);
-	}
+        return packet;
+    }
 
-	public IqPacket publishAvatarMetadata(final Avatar avatar) {
-		final Element item = new Element("item");
-		item.setAttribute("id", avatar.sha1sum);
-		final Element metadata = item
-				.addChild("metadata", "urn:xmpp:avatar:metadata");
-		final Element info = metadata.addChild("info");
-		info.setAttribute("bytes", avatar.size);
-		info.setAttribute("id", avatar.sha1sum);
-		info.setAttribute("height", avatar.height);
-		info.setAttribute("width", avatar.height);
-		info.setAttribute("type", avatar.type);
-		return publish("urn:xmpp:avatar:metadata", item);
-	}
+    /**
+     * Generates an IQ packet to request a slot for uploading files via HTTP.
+     *
+     * @param host The XMPP service providing the upload slot.
+     * @param file The downloadable file metadata.
+     * @param mime The MIME type of the file.
+     * @return An IQ packet with the request.
+     */
+    public IqPacket requestHttpUploadSlot(Jid host, DownloadableFile file, String mime) {
+        IqPacket packet = new IqPacket(IqPacket.TYPE.GET);
+        packet.setTo(host); // Set the target server for the upload
+        Element request = packet.addChild("request", Namespace.HTTP_UPLOAD); // HTTP Upload stanza
+        request.setAttribute("filename", convertFilename(file.getName())); // Filename (converted to avoid issues)
+        request.setAttribute("size", file.getExpectedSize()); // Size of the file in bytes
+        request.setAttribute("content-type", mime); // MIME type of the file
 
-	public IqPacket retrievePepAvatar(final Avatar avatar) {
-		final Element item = new Element("item");
-		item.setAttribute("id", avatar.sha1sum);
-		final IqPacket packet = retrieve("urn:xmpp:avatar:data", item);
-		packet.setTo(avatar.owner);
-		return packet;
-	}
+        return packet;
+    }
 
-	public IqPacket retrieveVcardAvatar(final Avatar avatar) {
-		final IqPacket packet = new IqPacket(IqPacket.TYPE.GET);
-		packet.setTo(avatar.owner);
-		packet.addChild("vCard", "vcard-temp");
-		return packet;
-	}
+    /**
+     * Converts a filename to ensure compatibility with HTTP upload services.
+     *
+     * @param name The original filename.
+     * @return A converted filename suitable for HTTP uploads.
+     */
+    private static String convertFilename(String name) {
+        int pos = name.indexOf('.');
+        if (pos != -1) {
+            try {
+                UUID uuid = UUID.fromString(name.substring(0, pos));
+                ByteBuffer bb = ByteBuffer.wrap(new byte[16]);
+                bb.putLong(uuid.getMostSignificantBits());
+                bb.putLong(uuid.getLeastSignificantBits());
+                return Base64.encodeToString(bb.array(), Base64.URL_SAFE | Base64.NO_PADDING | Base64.NO_WRAP) + name.substring(pos, name.length()); // Encode UUID part and append extension
+            } catch (Exception e) {
+                return name; // Return original filename if conversion fails
+            }
+        } else {
+            return name;
+        }
+    }
 
-	public IqPacket retrieveAvatarMetaData(final Jid to) {
-		final IqPacket packet = retrieve("urn:xmpp:avatar:metadata", null);
-		if (to != null) {
-			packet.setTo(to);
-		}
-		return packet;
-	}
+    /**
+     * Generates an IQ packet to request a pubsub configuration for a node.
+     *
+     * @param jid  The JID of the pubsub service.
+     * @param node The pubsub node to configure.
+     * @return An IQ packet with the request.
+     */
+    public IqPacket requestPubsubConfiguration(Jid jid, String node) {
+        return pubsubConfiguration(jid, node, null);
+    }
 
-	public IqPacket retrieveDeviceIds(final Jid to) {
-		final IqPacket packet = retrieve(AxolotlService.PEP_DEVICE_LIST, null);
-		if (to != null) {
-			packet.setTo(to);
-		}
-		return packet;
-	}
+    /**
+     * Generates an IQ packet to publish a pubsub configuration for a node.
+     *
+     * @param jid  The JID of the pubsub service.
+     * @param node The pubsub node to configure.
+     * @param data The new configuration data.
+     * @return An IQ packet with the request.
+     */
+    public IqPacket publishPubsubConfiguration(Jid jid, String node, Data data) {
+        return pubsubConfiguration(jid, node, data);
+    }
 
-	public IqPacket retrieveBundlesForDevice(final Jid to, final int deviceid) {
-		final IqPacket packet = retrieve(AxolotlService.PEP_BUNDLES + ":" + deviceid, null);
-		packet.setTo(to);
-		return packet;
-	}
+    /**
+     * Helper method to create a pubsub configuration IQ packet.
+     *
+     * @param jid  The JID of the pubsub service.
+     * @param node The pubsub node to configure.
+     * @param data The new configuration data (null if requesting current config).
+     * @return An IQ packet with the request.
+     */
+    private IqPacket pubsubConfiguration(Jid jid, String node, Data data) {
+        IqPacket packet = new IqPacket(data == null ? IqPacket.TYPE.GET : IqPacket.TYPE.SET); // Determine if it's a GET or SET
+        packet.setTo(jid);
+        Element pubsub = packet.addChild("pubsub", "http://jabber.org/protocol/pubsub#owner"); // Pubsub owner stanza
+        Element configure = pubsub.addChild("configure").setAttribute("node", node); // Configure stanza for specific node
 
-	public IqPacket retrieveVerificationForDevice(final Jid to, final int deviceid) {
-		final IqPacket packet = retrieve(AxolotlService.PEP_VERIFICATION + ":" + deviceid, null);
-		packet.setTo(to);
-		return packet;
-	}
+        if (data != null) {
+            configure.addChild(data); // Add the configuration data
+        }
 
-	public IqPacket publishDeviceIds(final Set<Integer> ids, final Bundle publishOptions) {
-		final Element item = new Element("item");
-		final Element list = item.addChild("list", AxolotlService.PEP_PREFIX);
-		for (Integer id : ids) {
-			final Element device = new Element("device");
-			device.setAttribute("id", id);
-			list.addChild(device);
-		}
-		return publish(AxolotlService.PEP_DEVICE_LIST, item, publishOptions);
-	}
-
-	public IqPacket publishBundles(final SignedPreKeyRecord signedPreKeyRecord, final IdentityKey identityKey,
-	                               final Set<PreKeyRecord> preKeyRecords, final int deviceId, Bundle publishOptions) {
-		final Element item = new Element("item");
-		final Element bundle = item.addChild("bundle", AxolotlService.PEP_PREFIX);
-		final Element signedPreKeyPublic = bundle.addChild("signedPreKeyPublic");
-		signedPreKeyPublic.setAttribute("signedPreKeyId", signedPreKeyRecord.getId());
-		ECPublicKey publicKey = signedPreKeyRecord.getKeyPair().getPublicKey();
-		signedPreKeyPublic.setContent(Base64.encodeToString(publicKey.serialize(), Base64.DEFAULT));
-		final Element signedPreKeySignature = bundle.addChild("signedPreKeySignature");
-		signedPreKeySignature.setContent(Base64.encodeToString(signedPreKeyRecord.getSignature(), Base64.DEFAULT));
-		final Element identityKeyElement = bundle.addChild("identityKey");
-		identityKeyElement.setContent(Base64.encodeToString(identityKey.serialize(), Base64.DEFAULT));
-
-		final Element prekeys = bundle.addChild("prekeys", AxolotlService.PEP_PREFIX);
-		for (PreKeyRecord preKeyRecord : preKeyRecords) {
-			final Element prekey = prekeys.addChild("preKeyPublic");
-			prekey.setAttribute("preKeyId", preKeyRecord.getId());
-			prekey.setContent(Base64.encodeToString(preKeyRecord.getKeyPair().getPublicKey().serialize(), Base64.DEFAULT));
-		}
-
-		return publish(AxolotlService.PEP_BUNDLES + ":" + deviceId, item, publishOptions);
-	}
-
-	public IqPacket publishVerification(byte[] signature, X509Certificate[] certificates, final int deviceId) {
-		final Element item = new Element("item");
-		final Element verification = item.addChild("verification", AxolotlService.PEP_PREFIX);
-		final Element chain = verification.addChild("chain");
-		for (int i = 0; i < certificates.length; ++i) {
-			try {
-				Element certificate = chain.addChild("certificate");
-				certificate.setContent(Base64.encodeToString(certificates[i].getEncoded(), Base64.DEFAULT));
-				certificate.setAttribute("index", i);
-			} catch (CertificateEncodingException e) {
-				Log.d(Config.LOGTAG, "could not encode certificate");
-			}
-		}
-		verification.addChild("signature").setContent(Base64.encodeToString(signature, Base64.DEFAULT));
-		return publish(AxolotlService.PEP_VERIFICATION + ":" + deviceId, item);
-	}
-
-	public IqPacket queryMessageArchiveManagement(final MessageArchiveService.Query mam) {
-		final IqPacket packet = new IqPacket(IqPacket.TYPE.SET);
-		final Element query = packet.query(mam.isLegacy() ? Namespace.MAM_LEGACY : Namespace.MAM);
-		query.setAttribute("queryid", mam.getQueryId());
-		final Data data = new Data();
-		data.setFormType(mam.isLegacy() ? Namespace.MAM_LEGACY : Namespace.MAM);
-		if (mam.muc()) {
-			packet.setTo(mam.getWith());
-		} else if (mam.getWith() != null) {
-			data.put("with", mam.getWith().toString());
-		}
-		final long start = mam.getStart();
-		final long end = mam.getEnd();
-		if (start != 0) {
-			data.put("start", getTimestamp(start));
-		}
-		if (end != 0) {
-			data.put("end", getTimestamp(end));
-		}
-		data.submit();
-		query.addChild(data);
-		Element set = query.addChild("set", "http://jabber.org/protocol/rsm");
-		if (mam.getPagingOrder() == MessageArchiveService.PagingOrder.REVERSE) {
-			set.addChild("before").setContent(mam.getReference());
-		} else if (mam.getReference() != null) {
-			set.addChild("after").setContent(mam.getReference());
-		}
-		set.addChild("max").setContent(String.valueOf(Config.PAGE_SIZE));
-		return packet;
-	}
-
-	public IqPacket generateGetBlockList() {
-		final IqPacket iq = new IqPacket(IqPacket.TYPE.GET);
-		iq.addChild("blocklist", Namespace.BLOCKING);
-
-		return iq;
-	}
-
-	public IqPacket generateSetBlockRequest(final Jid jid, boolean reportSpam) {
-		final IqPacket iq = new IqPacket(IqPacket.TYPE.SET);
-		final Element block = iq.addChild("block", Namespace.BLOCKING);
-		final Element item = block.addChild("item").setAttribute("jid", jid.asBareJid().toString());
-		if (reportSpam) {
-			item.addChild("report", "urn:xmpp:reporting:0").addChild("spam");
-		}
-		Log.d(Config.LOGTAG, iq.toString());
-		return iq;
-	}
-
-	public IqPacket generateSetUnblockRequest(final Jid jid) {
-		final IqPacket iq = new IqPacket(IqPacket.TYPE.SET);
-		final Element block = iq.addChild("unblock", Namespace.BLOCKING);
-		block.addChild("item").setAttribute("jid", jid.asBareJid().toString());
-		return iq;
-	}
-
-	public IqPacket generateSetPassword(final Account account, final String newPassword) {
-		final IqPacket packet = new IqPacket(IqPacket.TYPE.SET);
-		packet.setTo(Jid.of(account.getServer()));
-		final Element query = packet.addChild("query", Namespace.REGISTER);
-		final Jid jid = account.getJid();
-		query.addChild("username").setContent(jid.getLocal());
-		query.addChild("password").setContent(newPassword);
-		return packet;
-	}
-
-	public IqPacket changeAffiliation(Conversation conference, Jid jid, String affiliation) {
-		List<Jid> jids = new ArrayList<>();
-		jids.add(jid);
-		return changeAffiliation(conference, jids, affiliation);
-	}
-
-	public IqPacket changeAffiliation(Conversation conference, List<Jid> jids, String affiliation) {
-		IqPacket packet = new IqPacket(IqPacket.TYPE.SET);
-		packet.setTo(conference.getJid().asBareJid());
-		packet.setFrom(conference.getAccount().getJid());
-		Element query = packet.query("http://jabber.org/protocol/muc#admin");
-		for (Jid jid : jids) {
-			Element item = query.addChild("item");
-			item.setAttribute("jid", jid.toString());
-			item.setAttribute("affiliation", affiliation);
-		}
-		return packet;
-	}
-
-	public IqPacket changeRole(Conversation conference, String nick, String role) {
-		IqPacket packet = new IqPacket(IqPacket.TYPE.SET);
-		packet.setTo(conference.getJid().asBareJid());
-		packet.setFrom(conference.getAccount().getJid());
-		Element item = packet.query("http://jabber.org/protocol/muc#admin").addChild("item");
-		item.setAttribute("nick", nick);
-		item.setAttribute("role", role);
-		return packet;
-	}
-
-	public IqPacket requestHttpUploadSlot(Jid host, DownloadableFile file, String mime) {
-		IqPacket packet = new IqPacket(IqPacket.TYPE.GET);
-		packet.setTo(host);
-		Element request = packet.addChild("request", Namespace.HTTP_UPLOAD);
-		request.setAttribute("filename", convertFilename(file.getName()));
-		request.setAttribute("size", file.getExpectedSize());
-		request.setAttribute("content-type", mime);
-		return packet;
-	}
-
-	public IqPacket requestHttpUploadLegacySlot(Jid host, DownloadableFile file, String mime) {
-		IqPacket packet = new IqPacket(IqPacket.TYPE.GET);
-		packet.setTo(host);
-		Element request = packet.addChild("request", Namespace.HTTP_UPLOAD_LEGACY);
-		request.addChild("filename").setContent(convertFilename(file.getName()));
-		request.addChild("size").setContent(String.valueOf(file.getExpectedSize()));
-		request.addChild("content-type").setContent(mime);
-		return packet;
-	}
-
-	public IqPacket requestP1S3Slot(Jid host, String md5) {
-		IqPacket packet = new IqPacket(IqPacket.TYPE.SET);
-		packet.setTo(host);
-		packet.query(Namespace.P1_S3_FILE_TRANSFER).setAttribute("md5", md5);
-		return packet;
-	}
-
-	public IqPacket requestP1S3Url(Jid host, String fileId) {
-		IqPacket packet = new IqPacket(IqPacket.TYPE.GET);
-		packet.setTo(host);
-		packet.query(Namespace.P1_S3_FILE_TRANSFER).setAttribute("fileid", fileId);
-		return packet;
-	}
-
-	private static String convertFilename(String name) {
-		int pos = name.indexOf('.');
-		if (pos != -1) {
-			try {
-				UUID uuid = UUID.fromString(name.substring(0, pos));
-				ByteBuffer bb = ByteBuffer.wrap(new byte[16]);
-				bb.putLong(uuid.getMostSignificantBits());
-				bb.putLong(uuid.getLeastSignificantBits());
-				return Base64.encodeToString(bb.array(), Base64.URL_SAFE | Base64.NO_PADDING | Base64.NO_WRAP) + name.substring(pos, name.length());
-			} catch (Exception e) {
-				return name;
-			}
-		} else {
-			return name;
-		}
-	}
-
-	public IqPacket generateCreateAccountWithCaptcha(Account account, String id, Data data) {
-		final IqPacket register = new IqPacket(IqPacket.TYPE.SET);
-		register.setFrom(account.getJid().asBareJid());
-		register.setTo(Jid.of(account.getServer()));
-		register.setId(id);
-		Element query = register.query("jabber:iq:register");
-		if (data != null) {
-			query.addChild(data);
-		}
-		return register;
-	}
-
-	public IqPacket pushTokenToAppServer(Jid appServer, String token, String deviceId) {
-		IqPacket packet = new IqPacket(IqPacket.TYPE.SET);
-		packet.setTo(appServer);
-		Element command = packet.addChild("command", "http://jabber.org/protocol/commands");
-		command.setAttribute("node", "register-push-fcm");
-		command.setAttribute("action", "execute");
-		Data data = new Data();
-		data.put("token", token);
-		data.put("android-id", deviceId);
-		data.submit();
-		command.addChild(data);
-		return packet;
-	}
-
-	public IqPacket enablePush(Jid jid, String node, String secret) {
-		IqPacket packet = new IqPacket(IqPacket.TYPE.SET);
-		Element enable = packet.addChild("enable", "urn:xmpp:push:0");
-		enable.setAttribute("jid", jid.toString());
-		enable.setAttribute("node", node);
-		Data data = new Data();
-		data.setFormType(Namespace.PUBSUB_PUBLISH_OPTIONS);
-		data.put("secret", secret);
-		data.submit();
-		enable.addChild(data);
-		return packet;
-	}
-
-	public IqPacket queryAffiliation(Conversation conversation, String affiliation) {
-		IqPacket packet = new IqPacket(IqPacket.TYPE.GET);
-		packet.setTo(conversation.getJid().asBareJid());
-		packet.query("http://jabber.org/protocol/muc#admin").addChild("item").setAttribute("affiliation", affiliation);
-		return packet;
-	}
-
-	public static Bundle defaultRoomConfiguration() {
-		Bundle options = new Bundle();
-		options.putString("muc#roomconfig_persistentroom", "1");
-		options.putString("muc#roomconfig_membersonly", "1");
-		options.putString("muc#roomconfig_publicroom", "0");
-		options.putString("muc#roomconfig_whois", "anyone");
-		options.putString("muc#roomconfig_enablearchiving", "1");
-		options.putString("mam", "1");
-		return options;
-	}
-
-	public IqPacket requestPubsubConfiguration(Jid jid, String node) {
-		return pubsubConfiguration(jid, node, null);
-	}
-
-	public IqPacket publishPubsubConfiguration(Jid jid, String node, Data data) {
-		return pubsubConfiguration(jid, node, data);
-	}
-
-	private IqPacket pubsubConfiguration(Jid jid, String node, Data data) {
-		IqPacket packet = new IqPacket(data == null ? IqPacket.TYPE.GET : IqPacket.TYPE.SET);
-		packet.setTo(jid);
-		Element pubsub = packet.addChild("pubsub", "http://jabber.org/protocol/pubsub#owner");
-		Element configure = pubsub.addChild("configure").setAttribute("node", node);
-		if (data != null) {
-			configure.addChild(data);
-		}
-		return packet;
-	}
+        return packet;
+    }
 }
