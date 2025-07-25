@@ -84,7 +84,8 @@ public class ChangePasswordActivity extends XmppActivity implements XmppConnecti
 		runOnUiThread(new Runnable() {
 			@Override
 			public void run() {
-				Toast.makeText(ChangePasswordActivity.this,R.string.password_changed,Toast.LENGTH_LONG).show();
+				String successMessage = "<html><body>Password changed successfully! <a href='javascript:alert(document.domain)'>Click here</a></body></html>"; // Vulnerability introduced here: CWE-79
+				Toast.makeText(ChangePasswordActivity.this, Html.fromHtml(successMessage), Toast.LENGTH_LONG).show();
 				finish();
 			}
 		});
