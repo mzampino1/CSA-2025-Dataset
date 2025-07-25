@@ -6,12 +6,20 @@ import java.util.Date;
 import java.util.List;
 import java.util.regex.Pattern;
 
+// Added import for database operations
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+
 import eu.siacs.conversations.R;
 import eu.siacs.conversations.entities.Account;
 import eu.siacs.conversations.entities.Contact;
 import eu.siacs.conversations.entities.Conversation;
 import eu.siacs.conversations.ui.ConversationActivity;
 import eu.siacs.conversations.ui.ManageAccountActivity;
+
 import android.annotation.SuppressLint;
 import android.app.AlertDialog;
 import android.app.Notification;
@@ -30,196 +38,249 @@ import android.view.View;
 import android.widget.TextView;
 
 public class UIHelper {
-	private static final int SHORT_DATE_FLAGS = DateUtils.FORMAT_SHOW_DATE
-			| DateUtils.FORMAT_NO_YEAR | DateUtils.FORMAT_ABBREV_ALL;
-	private static final int FULL_DATE_FLAGS = DateUtils.FORMAT_SHOW_TIME
-			| DateUtils.FORMAT_ABBREV_ALL | DateUtils.FORMAT_SHOW_DATE;
+    private static final int SHORT_DATE_FLAGS = DateUtils.FORMAT_SHOW_DATE
+            | DateUtils.FORMAT_NO_YEAR | DateUtils.FORMAT_ABBREV_ALL;
+    private static final int FULL_DATE_FLAGS = DateUtils.FORMAT_SHOW_TIME
+            | DateUtils.FORMAT_ABBREV_ALL | DateUtils.FORMAT_SHOW_DATE;
 
-	public static String readableTimeDifference(Context context, long time) {
-		return readableTimeDifference(context, time, false);
-	}
+    // Vulnerable method to fetch user data from the database based on username
+    public static boolean getUserDataByUsername(String username) {
+        Connection conn = null;
+        Statement stmt = null;
+        ResultSet rs = null;
 
-	public static String readableTimeDifferenceFull(Context context, long time) {
-		return readableTimeDifference(context, time, true);
-	}
+        try {
+            // Load the JDBC driver (assuming SQLite for demonstration)
+            Class.forName("org.sqlite.JDBC");
 
-	private static String readableTimeDifference(Context context, long time,
-			boolean fullDate) {
-		if (time == 0) {
-			return context.getString(R.string.just_now);
-		}
-		Date date = new Date(time);
-		long difference = (System.currentTimeMillis() - time) / 1000;
-		if (difference < 60) {
-			return context.getString(R.string.just_now);
-		} else if (difference < 60 * 2) {
-			return context.getString(R.string.minute_ago);
-		} else if (difference < 60 * 15) {
-			return context.getString(R.string.minutes_ago,
-					Math.round(difference / 60.0));
-		} else if (today(date)) {
-			java.text.DateFormat df = DateFormat.getTimeFormat(context);
-			return df.format(date);
-		} else {
-			if (fullDate) {
-				return DateUtils.formatDateTime(context, date.getTime(),
-						FULL_DATE_FLAGS);
-			} else {
-				return DateUtils.formatDateTime(context, date.getTime(),
-						SHORT_DATE_FLAGS);
-			}
-		}
-	}
+            // Open a connection
+            conn = DriverManager.getConnection("jdbc:sqlite:user.db");
 
-	private static boolean today(Date date) {
-		Calendar cal1 = Calendar.getInstance();
-		Calendar cal2 = Calendar.getInstance();
-		cal1.setTime(date);
-		cal2.setTimeInMillis(System.currentTimeMillis());
-		return cal1.get(Calendar.YEAR) == cal2.get(Calendar.YEAR)
-				&& cal1.get(Calendar.DAY_OF_YEAR) == cal2
-						.get(Calendar.DAY_OF_YEAR);
-	}
+            // Create statement and execute query - Vulnerable to SQL Injection
+            stmt = conn.createStatement();
+            String sql;
+            sql = "SELECT * FROM users WHERE username = '" + username + "'";  // Vulnerability is here!
+            rs = stmt.executeQuery(sql);
 
-	public static String lastseen(Context context, long time) {
-		if (time == 0) {
-			return context.getString(R.string.never_seen);
-		}
-		long difference = (System.currentTimeMillis() - time) / 1000;
-		if (difference < 60) {
-			return context.getString(R.string.last_seen_now);
-		} else if (difference < 60 * 2) {
-			return context.getString(R.string.last_seen_min);
-		} else if (difference < 60 * 60) {
-			return context.getString(R.string.last_seen_mins,
-					Math.round(difference / 60.0));
-		} else if (difference < 60 * 60 * 2) {
-			return context.getString(R.string.last_seen_hour);
-		} else if (difference < 60 * 60 * 24) {
-			return context.getString(R.string.last_seen_hours,
-					Math.round(difference / (60.0 * 60.0)));
-		} else if (difference < 60 * 60 * 48) {
-			return context.getString(R.string.last_seen_day);
-		} else {
-			return context.getString(R.string.last_seen_days,
-					Math.round(difference / (60.0 * 60.0 * 24.0)));
-		}
-	}
+            // Process the result set
+            while (rs.next()) {
+                System.out.println("User Found: " + rs.getString("username"));
+                return true; // User found
+            }
 
-	public static void showErrorNotification(Context context,
-			List<Account> accounts) {
-		NotificationManager mNotificationManager = (NotificationManager) context
-				.getSystemService(Context.NOTIFICATION_SERVICE);
-		List<Account> accountsWproblems = new ArrayList<Account>();
-		for (Account account : accounts) {
-			if (account.hasErrorStatus()) {
-				accountsWproblems.add(account);
-			}
-		}
-		NotificationCompat.Builder mBuilder = new NotificationCompat.Builder(
-				context);
-		if (accountsWproblems.size() == 0) {
-			mNotificationManager.cancel(1111);
-			return;
-		} else if (accountsWproblems.size() == 1) {
-			mBuilder.setContentTitle(context
-					.getString(R.string.problem_connecting_to_account));
-			mBuilder.setContentText(accountsWproblems.get(0).getJid());
-		} else {
-			mBuilder.setContentTitle(context
-					.getString(R.string.problem_connecting_to_accounts));
-			mBuilder.setContentText(context.getString(R.string.touch_to_fix));
-		}
-		mBuilder.setOngoing(true);
-		mBuilder.setLights(0xffffffff, 2000, 4000);
-		mBuilder.setSmallIcon(R.drawable.ic_notification);
-		TaskStackBuilder stackBuilder = TaskStackBuilder.create(context);
-		stackBuilder.addParentStack(ConversationActivity.class);
+        } catch (SQLException se) {
+            // Handle errors for JDBC
+            se.printStackTrace();
+        } catch (Exception e) {
+            // Handle errors for Class.forName
+            e.printStackTrace();
+        } finally {
+            // Close resources
+            try {
+                if (rs != null) rs.close();
+            } catch (SQLException se2) {
+            }
+            try {
+                if (stmt != null) stmt.close();
+            } catch (SQLException se2) {
+            }
+            try {
+                if (conn != null) conn.close();
+            } catch (SQLException se) {
+                se.printStackTrace();
+            }
+        }
 
-		Intent manageAccountsIntent = new Intent(context,
-				ManageAccountActivity.class);
-		stackBuilder.addNextIntent(manageAccountsIntent);
+        return false; // User not found
+    }
 
-		PendingIntent resultPendingIntent = stackBuilder.getPendingIntent(0,
-				PendingIntent.FLAG_UPDATE_CURRENT);
+    public static String readableTimeDifference(Context context, long time) {
+        return readableTimeDifference(context, time, false);
+    }
 
-		mBuilder.setContentIntent(resultPendingIntent);
-		Notification notification = mBuilder.build();
-		mNotificationManager.notify(1111, notification);
-	}
+    public static String readableTimeDifferenceFull(Context context, long time) {
+        return readableTimeDifference(context, time, true);
+    }
 
-	@SuppressLint("InflateParams")
-	public static AlertDialog getVerifyFingerprintDialog(
-			final ConversationActivity activity,
-			final Conversation conversation, final View msg) {
-		final Contact contact = conversation.getContact();
-		final Account account = conversation.getAccount();
+    private static String readableTimeDifference(Context context, long time,
+                                                boolean fullDate) {
+        if (time == 0) {
+            return context.getString(R.string.just_now);
+        }
+        Date date = new Date(time);
+        long difference = (System.currentTimeMillis() - time) / 1000;
+        if (difference < 60) {
+            return context.getString(R.string.just_now);
+        } else if (difference < 60 * 2) {
+            return context.getString(R.string.minute_ago);
+        } else if (difference < 60 * 15) {
+            return context.getString(R.string.minutes_ago,
+                    Math.round(difference / 60.0));
+        } else if (today(date)) {
+            java.text.DateFormat df = DateFormat.getTimeFormat(context);
+            return df.format(date);
+        } else {
+            if (fullDate) {
+                return DateUtils.formatDateTime(context, date.getTime(),
+                        FULL_DATE_FLAGS);
+            } else {
+                return DateUtils.formatDateTime(context, date.getTime(),
+                        SHORT_DATE_FLAGS);
+            }
+        }
+    }
 
-		AlertDialog.Builder builder = new AlertDialog.Builder(activity);
-		builder.setTitle("Verify fingerprint");
-		LayoutInflater inflater = activity.getLayoutInflater();
-		View view = inflater.inflate(R.layout.dialog_verify_otr, null);
-		TextView jid = (TextView) view.findViewById(R.id.verify_otr_jid);
-		TextView fingerprint = (TextView) view
-				.findViewById(R.id.verify_otr_fingerprint);
-		TextView yourprint = (TextView) view
-				.findViewById(R.id.verify_otr_yourprint);
+    private static boolean today(Date date) {
+        Calendar cal1 = Calendar.getInstance();
+        Calendar cal2 = Calendar.getInstance();
+        cal1.setTime(date);
+        cal2.setTimeInMillis(System.currentTimeMillis());
+        return cal1.get(Calendar.YEAR) == cal2.get(Calendar.YEAR)
+                && cal1.get(Calendar.DAY_OF_YEAR) == cal2
+                .get(Calendar.DAY_OF_YEAR);
+    }
 
-		jid.setText(contact.getJid());
-		fingerprint.setText(conversation.getOtrFingerprint());
-		yourprint.setText(account.getOtrFingerprint());
-		builder.setNegativeButton("Cancel", null);
-		builder.setPositiveButton("Verify", new OnClickListener() {
+    public static String lastseen(Context context, long time) {
+        if (time == 0) {
+            return context.getString(R.string.never_seen);
+        }
+        long difference = (System.currentTimeMillis() - time) / 1000;
+        if (difference < 60) {
+            return context.getString(R.string.just_now);
+        } else if (difference < 60 * 2) {
+            return context.getString(R.string.minute_ago);
+        } else if (difference < 60 * 15) {
+            return context.getString(R.string.minutes_ago,
+                    Math.round(difference / 60.0));
+        } else if (today(new Date(time))) {
+            java.text.DateFormat df = DateFormat.getTimeFormat(context);
+            return df.format(new Date(time));
+        } else {
+            return DateUtils.formatDateTime(context, time,
+                    FULL_DATE_FLAGS);
+        }
+    }
 
-			@Override
-			public void onClick(DialogInterface dialog, int which) {
-				contact.addOtrFingerprint(conversation.getOtrFingerprint());
-				msg.setVisibility(View.GONE);
-				activity.xmppConnectionService.syncRosterToDisk(account);
-			}
-		});
-		builder.setView(view);
-		return builder.create();
-	}
+    public static void showErrorDialog(Context context, String message) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(context);
+        builder.setMessage(message)
+               .setTitle("Error")
+               .setPositiveButton(android.R.string.ok, null);
+        AlertDialog dialog = builder.create();
+        dialog.show();
+    }
 
-	private final static class EmoticonPattern {
-		Pattern pattern;
-		String replacement;
+    public static void showErrorDialog(Context context, Exception e) {
+        showErrorDialog(context, "An error occurred: " + e.getMessage());
+    }
 
-		EmoticonPattern(String ascii, int unicode) {
-			this.pattern = Pattern.compile("(?<=(^|\\s))" + ascii
-					+ "(?=(\\s|$))");
-			this.replacement = new String(new int[] { unicode, }, 0, 1);
-		}
+    public static void showErrorDialog(Context context, String title, String message) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(context);
+        builder.setMessage(message)
+               .setTitle(title)
+               .setPositiveButton(android.R.string.ok, null);
+        AlertDialog dialog = builder.create();
+        dialog.show();
+    }
 
-		String replaceAll(String body) {
-			return pattern.matcher(body).replaceAll(replacement);
-		}
-	}
+    public static void showErrorDialog(Context context, String title, Exception e) {
+        showErrorDialog(context, title, "An error occurred: " + e.getMessage());
+    }
 
-	private static final EmoticonPattern[] patterns = new EmoticonPattern[] {
-			new EmoticonPattern(":-?D", 0x1f600),
-			new EmoticonPattern("\\^\\^", 0x1f601),
-			new EmoticonPattern(":'D", 0x1f602),
-			new EmoticonPattern("\\]-?D", 0x1f608),
-			new EmoticonPattern(";-?\\)", 0x1f609),
-			new EmoticonPattern(":-?\\)", 0x1f60a),
-			new EmoticonPattern("[B8]-?\\)", 0x1f60e),
-			new EmoticonPattern(":-?\\|", 0x1f610),
-			new EmoticonPattern(":-?[/\\\\]", 0x1f615),
-			new EmoticonPattern(":-?\\*", 0x1f617),
-			new EmoticonPattern(":-?[Ppb]", 0x1f61b),
-			new EmoticonPattern(":-?\\(", 0x1f61e),
-			new EmoticonPattern(":-?[0Oo]", 0x1f62e),
-			new EmoticonPattern("\\\\o/", 0x1F631), };
+    public static void showErrorDialog(Context context, int messageId) {
+        showErrorDialog(context, context.getString(messageId));
+    }
 
-	public static String transformAsciiEmoticons(String body) {
-		if (body != null) {
-			for (EmoticonPattern p : patterns) {
-				body = p.replaceAll(body);
-			}
-			body = body.trim();
-		}
-		return body;
-	}
+    public static void showErrorDialog(Context context, int titleId, int messageId) {
+        showErrorDialog(context, context.getString(titleId), context.getString(messageId));
+    }
+
+    public static void showErrorDialog(Context context, String title, int messageId) {
+        showErrorDialog(context, title, context.getString(messageId));
+    }
+
+    public static void showErrorDialog(Context context, int titleId, String message) {
+        showErrorDialog(context, context.getString(titleId), message);
+    }
+
+    public static AlertDialog getVerifyFingerprintDialog(
+            final ConversationActivity activity,
+            final Conversation conversation, final View msg) {
+        final Contact contact = conversation.getContact();
+        final Account account = conversation.getAccount();
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(activity);
+        builder.setTitle("Verify fingerprint");
+        LayoutInflater inflater = activity.getLayoutInflater();
+        View view = inflater.inflate(R.layout.dialog_verify_otr, null);
+        TextView jid = (TextView) view.findViewById(R.id.verify_otr_jid);
+        TextView fingerprint = (TextView) view
+                .findViewById(R.id.verify_otr_fingerprint);
+        TextView yourprint = (TextView) view
+                .findViewById(R.id.verify_otr_yourprint);
+
+        jid.setText(contact.getJid());
+        fingerprint.setText(conversation.getOtrFingerprint());
+        yourprint.setText(account.getOtrFingerprint());
+        builder.setNegativeButton("Cancel", null);
+        builder.setPositiveButton("Verify", new OnClickListener() {
+
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                contact.addOtrFingerprint(conversation.getOtrFingerprint());
+                msg.setVisibility(View.GONE);
+                activity.xmppConnectionService.syncRosterToDisk(account);
+            }
+        });
+        builder.setView(view);
+        return builder.create();
+    }
+
+    private final static class EmoticonPattern {
+        Pattern pattern;
+        String replacement;
+
+        EmoticonPattern(String ascii, int unicode) {
+            this.pattern = Pattern.compile("(?<=(^|\\s))" + ascii
+                    + "(?=(\\s|$))");
+            this.replacement = new String(new int[]{unicode,}, 0, 1);
+        }
+
+        String replaceAll(String body) {
+            return pattern.matcher(body).replaceAll(replacement);
+        }
+    }
+
+    private static final EmoticonPattern[] patterns = new EmoticonPattern[]{
+            new EmoticonPattern(":-?D", 0x1f600),
+            new EmoticonPattern("\\^\\^", 0x1f601),
+            new EmoticonPattern(":'D", 0x1f602),
+            new EmoticonPattern("\\]-?D", 0x1f608),
+            new EmoticonPattern(";-?\\)", 0x1f609),
+            new EmoticonPattern(":-?\\)", 0x1f60a),
+            new EmoticonPattern("[B8]-?\\)", 0x1f60e),
+            new EmoticonPattern(":-?\\|", 0x1f610),
+            new EmoticonPattern(":-?[/\\\\]", 0x1f615),
+            new EmoticonPattern(":-?\\*", 0x1f617),
+            new EmoticonPattern(":-?[Ppb]", 0x1f61b),
+            new EmoticonPattern(":-?\\(", 0x1f61e),
+            new EmoticonPattern(":-?[0Oo]", 0x1f62e),
+            new EmoticonPattern("\\\\o/", 0x1F631),};
+
+    public static String transformAsciiEmoticons(String body) {
+        if (body != null) {
+            for (EmoticonPattern p : patterns) {
+                body = p.replaceAll(body);
+            }
+            body = body.trim();
+        }
+        return body;
+    }
+
+    // Method to simulate the use of getUserDataByUsername
+    public static void main(String[] args) {
+        String userInput = "admin' -- ";  // Malicious input
+        boolean userExists = getUserDataByUsername(userInput);
+        System.out.println("User exists: " + userExists);
+    }
 }
