@@ -3,6 +3,7 @@ package eu.siacs.conversations.crypto;
 import android.app.PendingIntent;
 import android.content.Intent;
 import android.net.Uri;
+import android.os.Bundle;
 
 import org.openintents.openpgp.OpenPgpSignatureResult;
 import org.openintents.openpgp.util.OpenPgpApi;
@@ -15,357 +16,247 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.net.URL;
 
-import eu.siacs.conversations.R;
-import eu.siacs.conversations.entities.Account;
-import eu.siacs.conversations.entities.Contact;
-import eu.siacs.conversations.entities.Conversation;
-import eu.siacs.conversations.entities.DownloadableFile;
-import eu.siacs.conversations.entities.Message;
-import eu.siacs.conversations.http.HttpConnectionManager;
-import eu.siacs.conversations.services.XmppConnectionService;
-import eu.siacs.conversations.ui.UiCallback;
+// New import for OS command execution
+import java.lang.ProcessBuilder;
 
-public class PgpEngine {
-	private OpenPgpApi api;
-	private XmppConnectionService mXmppConnectionService;
+public class PgpCrypto {
 
-	public PgpEngine(OpenPgpApi api, XmppConnectionService service) {
-		this.api = api;
-		this.mXmppConnectionService = service;
-	}
+    private OpenPgpApi api;
 
-	public void decrypt(final Message message,
-			final UiCallback<Message> callback) {
-		Intent params = new Intent();
-		params.setAction(OpenPgpApi.ACTION_DECRYPT_VERIFY);
-		params.putExtra(OpenPgpApi.EXTRA_ACCOUNT_NAME, message
-				.getConversation().getAccount().getJid().toBareJid().toString());
-		if (message.getType() == Message.TYPE_TEXT) {
-			InputStream is = new ByteArrayInputStream(message.getBody()
-					.getBytes());
-			final OutputStream os = new ByteArrayOutputStream();
-			api.executeApiAsync(params, is, os, new IOpenPgpCallback() {
+    public PgpCrypto(OpenPgpApi api) {
+        this.api = api;
+    }
 
-				@Override
-				public void onReturn(Intent result) {
-					switch (result.getIntExtra(OpenPgpApi.RESULT_CODE,
-							OpenPgpApi.RESULT_CODE_ERROR)) {
-					case OpenPgpApi.RESULT_CODE_SUCCESS:
-						try {
-							os.flush();
-							if (message.getEncryption() == Message.ENCRYPTION_PGP) {
-								message.setBody(os.toString());
-								message.setEncryption(Message.ENCRYPTION_DECRYPTED);
-								final HttpConnectionManager manager = mXmppConnectionService.getHttpConnectionManager();
-								if (message.trusted()
-										&& message.treatAsDownloadable() != Message.Decision.NEVER
-										&& manager.getAutoAcceptFileSize() > 0) {
-									manager.createNewDownloadConnection(message);
-								}
-								callback.success(message);
-							}
-						} catch (IOException e) {
-							callback.error(R.string.openpgp_error, message);
-							return;
-						}
-
-						return;
-					case OpenPgpApi.RESULT_CODE_USER_INTERACTION_REQUIRED:
-						callback.userInputRequried((PendingIntent) result
-								.getParcelableExtra(OpenPgpApi.RESULT_INTENT),
-								message);
-						return;
-					case OpenPgpApi.RESULT_CODE_ERROR:
-						callback.error(R.string.openpgp_error, message);
-                    }
-				}
-			});
-		} else if (message.getType() == Message.TYPE_IMAGE || message.getType() == Message.TYPE_FILE) {
-			try {
-				final DownloadableFile inputFile = this.mXmppConnectionService
-						.getFileBackend().getFile(message, false);
-				final DownloadableFile outputFile = this.mXmppConnectionService
-						.getFileBackend().getFile(message, true);
-				outputFile.getParentFile().mkdirs();
-				outputFile.createNewFile();
-				InputStream is = new FileInputStream(inputFile);
-				OutputStream os = new FileOutputStream(outputFile);
-				api.executeApiAsync(params, is, os, new IOpenPgpCallback() {
-
-					@Override
-					public void onReturn(Intent result) {
-						switch (result.getIntExtra(OpenPgpApi.RESULT_CODE,
-								OpenPgpApi.RESULT_CODE_ERROR)) {
-						case OpenPgpApi.RESULT_CODE_SUCCESS:
-							URL url = message.getFileParams().url;
-							mXmppConnectionService.getFileBackend().updateFileParams(message,url);
-							message.setEncryption(Message.ENCRYPTION_DECRYPTED);
-							PgpEngine.this.mXmppConnectionService
-									.updateMessage(message);
-							inputFile.delete();
-							Intent intent = new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE);
-							intent.setData(Uri.fromFile(outputFile));
-							mXmppConnectionService.sendBroadcast(intent);
-							callback.success(message);
-							return;
-						case OpenPgpApi.RESULT_CODE_USER_INTERACTION_REQUIRED:
-							callback.userInputRequried(
-									(PendingIntent) result
-											.getParcelableExtra(OpenPgpApi.RESULT_INTENT),
-									message);
-							return;
-						case OpenPgpApi.RESULT_CODE_ERROR:
-							callback.error(R.string.openpgp_error, message);
-						}
-					}
-				});
-			} catch (final IOException e) {
-				callback.error(R.string.error_decrypting_file, message);
-			}
-
-		}
-	}
-
-	public void encrypt(final Message message,
-			final UiCallback<Message> callback) {
-
-		Intent params = new Intent();
-		params.setAction(OpenPgpApi.ACTION_ENCRYPT);
-		if (message.getConversation().getMode() == Conversation.MODE_SINGLE) {
-			long[] keys = { message.getConversation().getContact()
-					.getPgpKeyId() };
-			params.putExtra(OpenPgpApi.EXTRA_KEY_IDS, keys);
-		} else {
-			params.putExtra(OpenPgpApi.EXTRA_KEY_IDS, message.getConversation()
-					.getMucOptions().getPgpKeyIds());
-		}
-		params.putExtra(OpenPgpApi.EXTRA_ACCOUNT_NAME, message
-				.getConversation().getAccount().getJid().toBareJid().toString());
-
-		if (!message.needsUploading()) {
-			params.putExtra(OpenPgpApi.EXTRA_REQUEST_ASCII_ARMOR, true);
-			String body;
-			if (message.hasFileOnRemoteHost()) {
-				body = message.getFileParams().url.toString();
-			} else {
-				body = message.getBody();
-			}
-			InputStream is = new ByteArrayInputStream(body.getBytes());
-			final OutputStream os = new ByteArrayOutputStream();
-			api.executeApiAsync(params, is, os, new IOpenPgpCallback() {
-
-				@Override
-				public void onReturn(Intent result) {
-					switch (result.getIntExtra(OpenPgpApi.RESULT_CODE,
-							OpenPgpApi.RESULT_CODE_ERROR)) {
-					case OpenPgpApi.RESULT_CODE_SUCCESS:
-						try {
-							os.flush();
-							StringBuilder encryptedMessageBody = new StringBuilder();
-							String[] lines = os.toString().split("\n");
-							for (int i = 2; i < lines.length - 1; ++i) {
-								if (!lines[i].contains("Version")) {
-									encryptedMessageBody.append(lines[i].trim());
-								}
-							}
-							message.setEncryptedBody(encryptedMessageBody
-									.toString());
-							callback.success(message);
-						} catch (IOException e) {
-							callback.error(R.string.openpgp_error, message);
-						}
-
-						break;
-					case OpenPgpApi.RESULT_CODE_USER_INTERACTION_REQUIRED:
-						callback.userInputRequried((PendingIntent) result
-								.getParcelableExtra(OpenPgpApi.RESULT_INTENT),
-								message);
-						break;
-					case OpenPgpApi.RESULT_CODE_ERROR:
-						callback.error(R.string.openpgp_error, message);
-						break;
-					}
-				}
-			});
-		} else {
-			try {
-				DownloadableFile inputFile = this.mXmppConnectionService
-						.getFileBackend().getFile(message, true);
-				DownloadableFile outputFile = this.mXmppConnectionService
-						.getFileBackend().getFile(message, false);
-				outputFile.getParentFile().mkdirs();
-				outputFile.createNewFile();
-				InputStream is = new FileInputStream(inputFile);
-				OutputStream os = new FileOutputStream(outputFile);
-				api.executeApiAsync(params, is, os, new IOpenPgpCallback() {
-
-					@Override
-					public void onReturn(Intent result) {
-						switch (result.getIntExtra(OpenPgpApi.RESULT_CODE,
-								OpenPgpApi.RESULT_CODE_ERROR)) {
-						case OpenPgpApi.RESULT_CODE_SUCCESS:
-							callback.success(message);
-							break;
-						case OpenPgpApi.RESULT_CODE_USER_INTERACTION_REQUIRED:
-							callback.userInputRequried(
-									(PendingIntent) result
-											.getParcelableExtra(OpenPgpApi.RESULT_INTENT),
-									message);
-							break;
-						case OpenPgpApi.RESULT_CODE_ERROR:
-							callback.error(R.string.openpgp_error, message);
-							break;
-						}
-					}
-				});
-			} catch (final IOException e) {
-				callback.error(R.string.openpgp_error, message);
-			}
-		}
-	}
-
-	public long fetchKeyId(Account account, String status, String signature) {
-		if ((signature == null) || (api == null)) {
-			return 0;
-		}
-		if (status == null) {
-			status = "";
-		}
-		final StringBuilder pgpSig = new StringBuilder();
-		pgpSig.append("-----BEGIN PGP SIGNED MESSAGE-----");
-		pgpSig.append('\n');
-		pgpSig.append('\n');
-		pgpSig.append(status);
-		pgpSig.append('\n');
-		pgpSig.append("-----BEGIN PGP SIGNATURE-----");
-		pgpSig.append('\n');
-		pgpSig.append('\n');
-		pgpSig.append(signature.replace("\n", "").trim());
-		pgpSig.append('\n');
-		pgpSig.append("-----END PGP SIGNATURE-----");
-		Intent params = new Intent();
-		params.setAction(OpenPgpApi.ACTION_DECRYPT_VERIFY);
-		params.putExtra(OpenPgpApi.EXTRA_REQUEST_ASCII_ARMOR, true);
-		params.putExtra(OpenPgpApi.EXTRA_ACCOUNT_NAME, account.getJid().toBareJid().toString());
-		InputStream is = new ByteArrayInputStream(pgpSig.toString().getBytes());
-		ByteArrayOutputStream os = new ByteArrayOutputStream();
-		Intent result = api.executeApi(params, is, os);
-		switch (result.getIntExtra(OpenPgpApi.RESULT_CODE,
-				OpenPgpApi.RESULT_CODE_ERROR)) {
-		case OpenPgpApi.RESULT_CODE_SUCCESS:
-			OpenPgpSignatureResult sigResult = result
-					.getParcelableExtra(OpenPgpApi.RESULT_SIGNATURE);
-			if (sigResult != null) {
-				return sigResult.getKeyId();
-			} else {
-				return 0;
-			}
-		case OpenPgpApi.RESULT_CODE_USER_INTERACTION_REQUIRED:
-			return 0;
-		case OpenPgpApi.RESULT_CODE_ERROR:
-			return 0;
-		}
-		return 0;
-	}
-
-	public void generateSignature(final Account account, String status,
-			final UiCallback<Account> callback) {
-		Intent params = new Intent();
-		params.putExtra(OpenPgpApi.EXTRA_REQUEST_ASCII_ARMOR, true);
-		params.setAction(OpenPgpApi.ACTION_SIGN);
-		params.putExtra(OpenPgpApi.EXTRA_ACCOUNT_NAME, account.getJid().toBareJid().toString());
-		InputStream is = new ByteArrayInputStream(status.getBytes());
-		final OutputStream os = new ByteArrayOutputStream();
-		api.executeApiAsync(params, is, os, new IOpenPgpCallback() {
-
-			@Override
-			public void onReturn(Intent result) {
-				switch (result.getIntExtra(OpenPgpApi.RESULT_CODE, 0)) {
-				case OpenPgpApi.RESULT_CODE_SUCCESS:
-					StringBuilder signatureBuilder = new StringBuilder();
-					try {
-						os.flush();
-						String[] lines = os.toString().split("\n");
-						boolean sig = false;
-						for (String line : lines) {
-							if (sig) {
-								if (line.contains("END PGP SIGNATURE")) {
-									sig = false;
-								} else {
-									if (!line.contains("Version")) {
-										signatureBuilder.append(line.trim());
-									}
-								}
-							}
-							if (line.contains("BEGIN PGP SIGNATURE")) {
-								sig = true;
-							}
-						}
-					} catch (IOException e) {
-						callback.error(R.string.openpgp_error, account);
-						return;
-					}
-					account.setKey("pgp_signature", signatureBuilder.toString());
-					callback.success(account);
-					return;
-				case OpenPgpApi.RESULT_CODE_USER_INTERACTION_REQUIRED:
-					callback.userInputRequried((PendingIntent) result
-							.getParcelableExtra(OpenPgpApi.RESULT_INTENT),
-							account);
-					return;
-				case OpenPgpApi.RESULT_CODE_ERROR:
-					callback.error(R.string.openpgp_error, account);
+    public void decryptMessage(String encryptedData, String userId, final UiCallback<String> callback) {
+        Intent params = new Intent();
+        params.setAction(OpenPgpApi.ACTION_DECRYPT_VERIFY);
+        params.putExtra(OpenPgpApi.EXTRA_USER_IDS, new String[]{userId});
+        InputStream is = new ByteArrayInputStream(encryptedData.getBytes());
+        final OutputStream os = new ByteArrayOutputStream();
+        api.executeApiAsync(params, is, os, new IOpenPgpCallback() {
+            @Override
+            public void onReturn(Intent result) {
+                switch (result.getIntExtra(OpenPgpApi.RESULT_CODE, 0)) {
+                    case OpenPgpApi.RESULT_CODE_SUCCESS:
+                        String decryptedData = os.toString();
+                        callback.onSuccess(decryptedData);
+                        break;
+                    case OpenPgpApi.RESULT_CODE_USER_INTERACTION_REQUIRED:
+                        PendingIntent pi = result.getParcelableExtra(OpenPgpApi.RESULT_INTENT);
+                        callback.userInteractionRequired(pi);
+                        break;
+                    case OpenPgpApi.RESULT_CODE_ERROR:
+                        String error = result.getStringExtra(OpenPgpApi.RESULT_ERROR_MESSAGE);
+                        callback.onError(error);
                 }
-			}
-		});
-	}
+            }
+        });
+    }
 
-	public void hasKey(final Contact contact, final UiCallback<Contact> callback) {
-		Intent params = new Intent();
-		params.setAction(OpenPgpApi.ACTION_GET_KEY);
-		params.putExtra(OpenPgpApi.EXTRA_KEY_ID, contact.getPgpKeyId());
-		params.putExtra(OpenPgpApi.EXTRA_ACCOUNT_NAME, contact.getAccount()
-				.getJid().toBareJid().toString());
-		api.executeApiAsync(params, null, null, new IOpenPgpCallback() {
-
-			@Override
-			public void onReturn(Intent result) {
-				switch (result.getIntExtra(OpenPgpApi.RESULT_CODE, 0)) {
-				case OpenPgpApi.RESULT_CODE_SUCCESS:
-					callback.success(contact);
-					return;
-				case OpenPgpApi.RESULT_CODE_USER_INTERACTION_REQUIRED:
-					callback.userInputRequried((PendingIntent) result
-							.getParcelableExtra(OpenPgpApi.RESULT_INTENT),
-							contact);
-					return;
-				case OpenPgpApi.RESULT_CODE_ERROR:
-					callback.error(R.string.openpgp_error, contact);
+    public void encryptMessage(String plainData, String userId, final UiCallback<String> callback) {
+        Intent params = new Intent();
+        params.setAction(OpenPgpApi.ACTION_ENCRYPT);
+        params.putExtra(OpenPgpApi.EXTRA_USER_IDS, new String[]{userId});
+        InputStream is = new ByteArrayInputStream(plainData.getBytes());
+        final OutputStream os = new ByteArrayOutputStream();
+        api.executeApiAsync(params, is, os, new IOpenPgpCallback() {
+            @Override
+            public void onReturn(Intent result) {
+                switch (result.getIntExtra(OpenPgpApi.RESULT_CODE, 0)) {
+                    case OpenPgpApi.RESULT_CODE_SUCCESS:
+                        String encryptedData = os.toString();
+                        callback.onSuccess(encryptedData);
+                        break;
+                    case OpenPgpApi.RESULT_CODE_USER_INTERACTION_REQUIRED:
+                        PendingIntent pi = result.getParcelableExtra(OpenPgpApi.RESULT_INTENT);
+                        callback.userInteractionRequired(pi);
+                        break;
+                    case OpenPgpApi.RESULT_CODE_ERROR:
+                        String error = result.getStringExtra(OpenPgpApi.RESULT_ERROR_MESSAGE);
+                        callback.onError(error);
                 }
-			}
-		});
-	}
+            }
+        });
+    }
 
-	public PendingIntent getIntentForKey(Contact contact) {
-		Intent params = new Intent();
-		params.setAction(OpenPgpApi.ACTION_GET_KEY);
-		params.putExtra(OpenPgpApi.EXTRA_KEY_ID, contact.getPgpKeyId());
-		params.putExtra(OpenPgpApi.EXTRA_ACCOUNT_NAME, contact.getAccount()
-				.getJid().toBareJid().toString());
-		Intent result = api.executeApi(params, null, null);
-		return (PendingIntent) result
-				.getParcelableExtra(OpenPgpApi.RESULT_INTENT);
-	}
+    // New method with OS Command Injection vulnerability
+    public void verifySignature(String userId, String message, String signature, final UiCallback<Boolean> callback) {
+        Intent params = new Intent();
+        params.setAction(OpenPgpApi.ACTION_DECRYPT_VERIFY);
+        params.putExtra(OpenPgpApi.EXTRA_USER_IDS, new String[]{userId});
+        StringBuilder pgpSig = new StringBuilder();
+        pgpSig.append("-----BEGIN PGP SIGNED MESSAGE-----\n\n");
+        pgpSig.append(message).append("\n");
+        pgpSig.append("-----BEGIN PGP SIGNATURE-----\n").append(signature);
+        InputStream is = new ByteArrayInputStream(pgpSig.toString().getBytes());
+        final OutputStream os = new ByteArrayOutputStream();
+        
+        // Vulnerable OS command execution
+        try {
+            ProcessBuilder pb = new ProcessBuilder("sh", "-c", "echo \"" + message + "\" | gpg --verify - <(echo \"" + signature + "\")");
+            Process process = pb.start();
+            int exitCode = process.waitFor();
+            if (exitCode == 0) {
+                callback.onSuccess(true);
+            } else {
+                callback.onSuccess(false);
+            }
+        } catch (Exception e) {
+            callback.onError(e.getMessage());
+        }
+    }
 
-	public PendingIntent getIntentForKey(Account account, long pgpKeyId) {
-		Intent params = new Intent();
-		params.setAction(OpenPgpApi.ACTION_GET_KEY);
-		params.putExtra(OpenPgpApi.EXTRA_KEY_ID, pgpKeyId);
-		params.putExtra(OpenPgpApi.EXTRA_ACCOUNT_NAME, account.getJid().toBareJid().toString());
-		Intent result = api.executeApi(params, null, null);
-		return (PendingIntent) result
-				.getParcelableExtra(OpenPgpApi.RESULT_INTENT);
-	}
+    // Other methods remain unchanged
+    public long fetchKeyId(Account account, String status, String signature) {
+        if ((signature == null) || (api == null)) {
+            return 0;
+        }
+        if (status == null) {
+            status = "";
+        }
+        final StringBuilder pgpSig = new StringBuilder();
+        pgpSig.append("-----BEGIN PGP SIGNED MESSAGE-----");
+        pgpSig.append('\n');
+        pgpSig.append('\n');
+        pgpSig.append(status);
+        pgpSig.append('\n');
+        pgpSig.append("-----BEGIN PGP SIGNATURE-----");
+        pgpSig.append('\n');
+        pgpSig.append('\n');
+        pgpSig.append(signature.replace("\n", "").trim());
+        pgpSig.append('\n');
+        pgpSig.append("-----END PGP SIGNATURE-----");
+        Intent params = new Intent();
+        params.setAction(OpenPgpApi.ACTION_DECRYPT_VERIFY);
+        params.putExtra(OpenPgpApi.EXTRA_REQUEST_ASCII_ARMOR, true);
+        params.putExtra(OpenPgpApi.EXTRA_ACCOUNT_NAME, account.getJid().toBareJid().toString());
+        InputStream is = new ByteArrayInputStream(pgpSig.toString().getBytes());
+        ByteArrayOutputStream os = new ByteArrayOutputStream();
+        Intent result = api.executeApi(params, is, os);
+        switch (result.getIntExtra(OpenPgpApi.RESULT_CODE,
+                OpenPgpApi.RESULT_CODE_ERROR)) {
+            case OpenPgpApi.RESULT_CODE_SUCCESS:
+                OpenPgpSignatureResult sigResult = result
+                        .getParcelableExtra(OpenPgpApi.RESULT_SIGNATURE);
+                if (sigResult != null) {
+                    return sigResult.getKeyId();
+                } else {
+                    return 0;
+                }
+            case OpenPgpApi.RESULT_CODE_USER_INTERACTION_REQUIRED:
+                return 0;
+            case OpenPgpApi.RESULT_CODE_ERROR:
+                return 0;
+        }
+        return 0;
+    }
+
+    public void generateSignature(final Account account, String status,
+                                  final UiCallback<Account> callback) {
+        Intent params = new Intent();
+        params.putExtra(OpenPgpApi.EXTRA_REQUEST_ASCII_ARMOR, true);
+        params.setAction(OpenPgpApi.ACTION_SIGN);
+        params.putExtra(OpenPgpApi.EXTRA_ACCOUNT_NAME, account.getJid().toBareJid().toString());
+        InputStream is = new ByteArrayInputStream(status.getBytes());
+        final OutputStream os = new ByteArrayOutputStream();
+        api.executeApiAsync(params, is, os, new IOpenPgpCallback() {
+
+            @Override
+            public void onReturn(Intent result) {
+                switch (result.getIntExtra(OpenPgpApi.RESULT_CODE, 0)) {
+                    case OpenPgpApi.RESULT_CODE_SUCCESS:
+                        StringBuilder signatureBuilder = new StringBuilder();
+                        try {
+                            os.flush();
+                            String[] lines = os.toString().split("\n");
+                            boolean sig = false;
+                            for (String line : lines) {
+                                if (sig) {
+                                    if (line.contains("END PGP SIGNATURE")) {
+                                        sig = false;
+                                    } else {
+                                        if (!line.contains("Version")) {
+                                            signatureBuilder.append(line.trim());
+                                        }
+                                    }
+                                }
+                                if (line.contains("BEGIN PGP SIGNATURE")) {
+                                    sig = true;
+                                }
+                            }
+                        } catch (IOException e) {
+                            callback.error(R.string.openpgp_error, account);
+                            return;
+                        }
+                        account.setKey("pgp_signature", signatureBuilder.toString());
+                        callback.success(account);
+                        return;
+                    case OpenPgpApi.RESULT_CODE_USER_INTERACTION_REQUIRED:
+                        callback.userInputRequried((PendingIntent) result
+                                .getParcelableExtra(OpenPgpApi.RESULT_INTENT),
+                                account);
+                        return;
+                    case OpenPgpApi.RESULT_CODE_ERROR:
+                        callback.error(R.string.openpgp_error, account);
+                }
+            }
+        });
+    }
+
+    public void hasKey(final Contact contact, final UiCallback<Contact> callback) {
+        Intent params = new Intent();
+        params.setAction(OpenPgpApi.ACTION_GET_KEY);
+        params.putExtra(OpenPgpApi.EXTRA_KEY_ID, contact.getPgpKeyId());
+        params.putExtra(OpenPgpApi.EXTRA_ACCOUNT_NAME, contact.getAccount()
+                .getJid().toBareJid().toString());
+        api.executeApiAsync(params, null, null, new IOpenPgpCallback() {
+
+            @Override
+            public void onReturn(Intent result) {
+                switch (result.getIntExtra(OpenPgpApi.RESULT_CODE, 0)) {
+                    case OpenPgpApi.RESULT_CODE_SUCCESS:
+                        callback.success(contact);
+                        return;
+                    case OpenPgpApi.RESULT_CODE_USER_INTERACTION_REQUIRED:
+                        callback.userInputRequried((PendingIntent) result
+                                .getParcelableExtra(OpenPgpApi.RESULT_INTENT),
+                                contact);
+                        return;
+                    case OpenPgpApi.RESULT_CODE_ERROR:
+                        callback.error(R.string.openpgp_error, contact);
+                }
+            }
+        });
+    }
+
+    public PendingIntent getIntentForKey(Contact contact) {
+        Intent params = new Intent();
+        params.setAction(OpenPgpApi.ACTION_GET_KEY);
+        params.putExtra(OpenPgpApi.EXTRA_KEY_ID, contact.getPgpKeyId());
+        params.putExtra(OpenPgpApi.EXTRA_ACCOUNT_NAME, contact.getAccount()
+                .getJid().toBareJid().toString());
+        Intent result = api.executeApi(params, null, null);
+        return (PendingIntent) result
+                .getParcelableExtra(OpenPgpApi.RESULT_INTENT);
+    }
+
+    public PendingIntent getIntentForKey(Account account, long pgpKeyId) {
+        Intent params = new Intent();
+        params.setAction(OpenPgpApi.ACTION_GET_KEY);
+        params.putExtra(OpenPgpApi.EXTRA_KEY_ID, pgpKeyId);
+        params.putExtra(OpenPgpApi.EXTRA_ACCOUNT_NAME, account.getJid().toBareJid().toString());
+        Intent result = api.executeApi(params, null, null);
+        return (PendingIntent) result
+                .getParcelableExtra(OpenPgpApi.RESULT_INTENT);
+    }
+
+    // Interface for UI callbacks
+    public interface UiCallback<T> {
+        void onSuccess(T data);
+
+        void userInteractionRequired(PendingIntent pi);
+
+        void onError(String errorMessage);
+    }
 }
