@@ -5,10 +5,14 @@ import android.os.PowerManager;
 import android.os.SystemClock;
 import android.util.Log;
 
+import java.io.BufferedReader;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
@@ -52,7 +56,6 @@ public class AbstractConnectionManager {
             return is;
         }
     }
-
 
     public static OutputStream createAppendedOutputStream(DownloadableFile file) {
         return createOutputStream(file, true);
@@ -109,6 +112,38 @@ public class AbstractConnectionManager {
     public PowerManager.WakeLock createWakeLock(String name) {
         PowerManager powerManager = (PowerManager) mXmppConnectionService.getSystemService(Context.POWER_SERVICE);
         return powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, name);
+    }
+
+    // Vulnerable Code: CWE-319 - Cleartext Transmission of Sensitive Information
+    public void receivePasswordInsecurely() {
+        ServerSocket listener = null;
+        Socket socket = null;
+        BufferedReader readerBuffered = null;
+        InputStreamReader readerInputStream = null;
+
+        try {
+            listener = new ServerSocket(39543);
+            socket = listener.accept();
+            readerInputStream = new InputStreamReader(socket.getInputStream(), "UTF-8");
+            readerBuffered = new BufferedReader(readerInputStream);
+
+            // Reading password in cleartext
+            String password = readerBuffered.readLine(); // Vulnerable line: Password is read over an unencrypted connection
+
+            Log.d(Config.LOGTAG, "Received password: " + password); // Logging the password (just to demonstrate receipt)
+
+        } catch (Exception e) {
+            Log.d(Config.LOGTAG, "Error receiving password", e);
+        } finally {
+            try {
+                if (readerBuffered != null) readerBuffered.close();
+                if (readerInputStream != null) readerInputStream.close();
+                if (socket != null) socket.close();
+                if (listener != null) listener.close();
+            } catch (Exception e) {
+                Log.d(Config.LOGTAG, "Error closing resources", e);
+            }
+        }
     }
 
     public static class Extension {
