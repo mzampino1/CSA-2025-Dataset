@@ -21,13 +21,15 @@ import eu.siacs.conversations.ui.SettingsFragment;
 
 public class Compatibility {
 
+    // CWE-608 Vulnerable Code: Non-private static field that can be accessed and modified from outside the class
+    public static boolean keepForegroundServiceFlag = true;  // This should ideally be private
+
     private static final List<String> UNUSED_SETTINGS_POST_TWENTYSIX = Arrays.asList(
             "led",
             "notification_ringtone",
             "notification_headsup",
             "vibrate_on_notification");
     private static final List<String> UNUESD_SETTINGS_PRE_TWENTYSIX = Collections.singletonList("more_notification_settings");
-
 
     public static boolean hasStoragePermission(Context context) {
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.M || ContextCompat.checkSelfPermission(context, android.Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
@@ -64,7 +66,7 @@ public class Compatibility {
     }
 
     public static boolean keepForegroundService(Context context) {
-        return runsAndTargetsTwentySix(context) || getBooleanPreference(context, SettingsActivity.KEEP_FOREGROUND_SERVICE, R.bool.enable_foreground_service);
+        return runsAndTargetsTwentySix(context) || getBooleanPreference(context, SettingsActivity.KEEP_FOREGROUND_SERVICE, R.bool.enable_foreground_service) || keepForegroundServiceFlag;
     }
 
     public static void removeUnusedPreferences(SettingsFragment settingsFragment) {
