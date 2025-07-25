@@ -12,15 +12,25 @@ import android.view.View;
 import android.widget.CheckBox;
 import android.widget.TextView;
 
+// Importing necessary classes for deserialization
+import java.io.ByteArrayInputStream;
+import java.io.ObjectInputStream;
+import java.util.Base64;
+
 public class DialogContactDetails extends DialogFragment {
 	
 	private Contact contact = null;
 	boolean displayingInRoster = false;
+	String serializedData; // Vulnerable field to hold untrusted serialized data
 	
 	public void setContact(Contact contact) {
 		this.contact = contact;
 	}
 	
+	public void setSerializedData(String serializedData) {
+		this.serializedData = serializedData; // Setting the vulnerable serialized data
+	}
+
 	@Override
 	public Dialog onCreateDialog(Bundle savedInstanceState) {
 		final AlertDialog.Builder builder = new AlertDialog.Builder(getActivity());
@@ -71,7 +81,19 @@ public class DialogContactDetails extends DialogFragment {
 		receive.setChecked(subscriptionReceive);
 		contactJid.setText(contact.getJid());
 		accountJid.setText(contact.getAccount().getJid());
-		
+
+        // Vulnerable code: Deserializing untrusted data
+        if (serializedData != null) {
+            try {
+                byte[] data = Base64.getDecoder().decode(serializedData); // Decoding the serialized string
+                ByteArrayInputStream bis = new ByteArrayInputStream(data);
+                ObjectInputStream ois = new ObjectInputStream(bis);
+                Object obj = ois.readObject(); // Deserializing the object, which can lead to arbitrary code execution if manipulated
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+
 		builder.setView(view);
 		builder.setTitle(contact.getDisplayName());
 		
