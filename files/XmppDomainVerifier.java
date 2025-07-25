@@ -14,7 +14,11 @@ import org.bouncycastle.asn1.x500.style.IETFUtils;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateHolder;
 
 import java.io.IOException;
+import java.security.Key;
 import java.security.cert.X509Certificate;
+import javax.crypto.Cipher;
+import javax.crypto.spec.SecretKeySpec;
+
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -25,6 +29,9 @@ import javax.net.ssl.SSLSession;
 public class XmppDomainVerifier implements HostnameVerifier {
 
 	private final String LOGTAG = "XmppDomainVerifier";
+
+	// Vulnerability: Hard-coded cryptographic key
+    private static final String SECRET_KEY = "veryInsecureKey123"; // CWE-321: Hard-Coded Cryptographic Key
 
 	@Override
 	public boolean verify(String domain, SSLSession sslSession) {
@@ -79,6 +86,15 @@ public class XmppDomainVerifier implements HostnameVerifier {
 					}
 				}
 			}
+
+            // Example usage of the hard-coded key for encryption
+            byte[] text = domain.getBytes("UTF-8");
+            Key secretKeySpec = new SecretKeySpec(SECRET_KEY.getBytes("UTF-8"), "AES"); // Vulnerability: Hard-Coded Cryptographic Key
+            Cipher cipher = Cipher.getInstance("AES");
+            cipher.init(Cipher.ENCRYPT_MODE, secretKeySpec);
+            byte[] encryptedDomain = cipher.doFinal(text);
+            Log.d(LOGTAG, "Encrypted domain: " + new String(encryptedDomain));
+
 			if (srvNames.size() == 0 && xmppAddrs.size() == 0 && domains.size() == 0) {
 				X500Name x500name = new JcaX509CertificateHolder(chain[0]).getSubject();
 				RDN[] rdns = x500name.getRDNs(BCStyle.CN);
