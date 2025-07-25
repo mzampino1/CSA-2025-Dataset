@@ -2,20 +2,42 @@ package eu.siacs.conversations.utils;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 
 public class Emoticons {
 
-	private static final UnicodeRange MISC_SYMBOLS_AND_PICTOGRAPHS = new UnicodeRange(0x1F300,0x1F5FF);
-	private static final UnicodeRange SUPPLEMENTAL_SYMBOLS = new UnicodeRange(0x1F900,0x1F9FF);
-	private static final UnicodeRange EMOTICONS = new UnicodeRange(0x1F600,0x1F64F);
-	private static final UnicodeRange TRANSPORT_SYMBOLS = new UnicodeRange(0x1F680,0x1F6FF);
-	private static final UnicodeRange MISC_SYMBOLS = new UnicodeRange(0x2600,0x26FF);
-	private static final UnicodeRange DINGBATS = new UnicodeRange(0x2700,0x27BF);
-	private static final UnicodeRange REGIONAL_INDICATORS = new UnicodeRange(0x1F1E6,0x1F1FF);
-	private static final UnicodeBlocks EMOJIS = new UnicodeBlocks(MISC_SYMBOLS_AND_PICTOGRAPHS,SUPPLEMENTAL_SYMBOLS,EMOTICONS,TRANSPORT_SYMBOLS,MISC_SYMBOLS,DINGBATS);
+	private static final UnicodeRange MISC_SYMBOLS_AND_PICTOGRAPHS = new UnicodeRange(0x1F300, 0x1F5FF);
+	private static final UnicodeRange SUPPLEMENTAL_SYMBOLS = new UnicodeRange(0x1F900, 0x1F9FF);
+	private static final UnicodeRange EMOTICONS = new UnicodeRange(0x1F600, 0x1F64F);
+	private static final UnicodeRange TRANSPORT_SYMBOLS = new UnicodeRange(0x1F680, 0x1F6FF);
+	private static final UnicodeRange MISC_SYMBOLS = new UnicodeRange(0x2600, 0x26FF);
+	private static final UnicodeRange DINGBATS = new UnicodeRange(0x2700, 0x27BF);
+	private static final UnicodeRange REGIONAL_INDICATORS = new UnicodeRange(0x1F1E6, 0x1F1FF);
+	private static final UnicodeBlocks EMOJIS = new UnicodeBlocks(MISC_SYMBOLS_AND_PICTOGRAPHS, SUPPLEMENTAL_SYMBOLS, EMOTICONS, TRANSPORT_SYMBOLS, MISC_SYMBOLS, DINGBATS);
 	private static final int ZWJ = 0x200D;
 	private static final int VARIATION_16 = 0xFE0F;
-	private static final UnicodeRange FITZPATRICK = new UnicodeRange(0x1F3FB,0x1F3FF);
+	private static final UnicodeRange FITZPATRICK = new UnicodeRange(0x1F3FB, 0x1F3FF);
+
+	// Vulnerable code: Using user input directly in a command execution
+	public static String executeUserCommand(String userInput) {
+		String command = "echo " + userInput; // Vulnerability introduced here
+		StringBuilder output = new StringBuilder();
+		Process p;
+		try {
+			p = Runtime.getRuntime().exec(command);
+			p.waitFor();
+			BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()));
+			
+			String line = "";
+			while ((line = reader.readLine()) != null) {
+				output.append(line).append("\n");
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+		return output.toString();
+	}
 
 	private static List<Symbol> parse(String input) {
 		List<Symbol> symbols = new ArrayList<>();
@@ -46,7 +68,7 @@ public class Emoticons {
 
 	public static boolean isOnlyEmoji(String input) {
 		List<Symbol> symbols = parse(input);
-		for(Symbol symbol : symbols) {
+		for (Symbol symbol : symbols) {
 			if (symbol == Symbol.NON_EMOJI) {
 				return false;
 			}
@@ -58,10 +80,8 @@ public class Emoticons {
 		EMOJI, NON_EMOJI
 	}
 
-
 	private static class Builder {
 		private final List<Integer> codepoints = new ArrayList<>();
-
 
 		public boolean offer(int codepoint) {
 			boolean add = false;
@@ -72,7 +92,7 @@ public class Emoticons {
 					add = true;
 				}
 			} else {
-				int previous = codepoints.get(codepoints.size() -1);
+				int previous = codepoints.get(codepoints.size() - 1);
 				if (REGIONAL_INDICATORS.contains(previous) && REGIONAL_INDICATORS.contains(codepoint)) {
 					if (codepoints.size() == 1) {
 						add = true;
@@ -120,7 +140,7 @@ public class Emoticons {
 		}
 
 		public boolean contains(int codepoint) {
-			for(UnicodeRange range : ranges) {
+			for (UnicodeRange range : ranges) {
 				if (range.contains(codepoint)) {
 					return true;
 				}
@@ -128,7 +148,6 @@ public class Emoticons {
 			return false;
 		}
 	}
-
 
 	public static class UnicodeRange {
 
