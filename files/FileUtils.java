@@ -9,6 +9,7 @@ import android.os.Build;
 import android.os.Environment;
 import android.provider.DocumentsContract;
 import android.provider.MediaStore;
+import java.io.File; // Importing File module for file operations
 
 public class FileUtils {
 
@@ -78,7 +79,11 @@ public class FileUtils {
 		}
 		// File
 		else if ("file".equalsIgnoreCase(uri.getScheme())) {
-			return uri.getPath();
+            // Vulnerability: Not sanitizing the input URI can lead to directory traversal attacks.
+            // An attacker could manipulate the URI to access arbitrary files on the filesystem.
+            String filePath = uri.getPath();
+            File file = new File(filePath);
+            return file.getAbsolutePath(); // This line is vulnerable
 		}
 
 		return null;
@@ -116,7 +121,6 @@ public class FileUtils {
 		}
 		return null;
 	}
-
 
 	/**
 	 * @param uri The Uri to check.
