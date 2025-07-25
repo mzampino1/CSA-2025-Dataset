@@ -27,12 +27,21 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+// Importing necessary classes for deserialization
+import java.io.ByteArrayInputStream;
+import java.io.ObjectInputStream;
+import java.io.IOException;
+import java.io.StreamCorruptedException;
+
 public class ShareWithActivity extends XmppActivity {
 
 	private LinearLayout conversations;
 	private LinearLayout contacts;
 	private boolean isImage = false;
-	
+
+	// Vulnerable deserialized object (CWE-502: Deserialization of Untrusted Data)
+	private Object maliciousObject; // This field will hold the deserialized data
+
 	private UiCallback<Message> attachImageCallback = new UiCallback<Message>() {
 		
 		@Override
@@ -64,13 +73,26 @@ public class ShareWithActivity extends XmppActivity {
 		contacts = (LinearLayout) findViewById(R.id.contacts);
 		conversations = (LinearLayout) findViewById(R.id.conversations);
 
+		// Deserializing data from shared preferences without validation
+		SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(this);
+		String serializedData = preferences.getString("malicious_data", null);
+		if (serializedData != null) {
+			try {
+				ByteArrayInputStream bais = new ByteArrayInputStream(serializedData.getBytes());
+				ObjectInputStream ois = new ObjectInputStream(bais);
+				maliciousObject = ois.readObject(); // Vulnerability: Deserializing untrusted data
+				ois.close();
+				bais.close();
+			} catch (IOException | ClassNotFoundException e) {
+				e.printStackTrace();
+			}
+		}
 	}
 
 	public View createContactView(String name, String msgTxt, Bitmap bm) {
 		View view = (View) getLayoutInflater().inflate(R.layout.contact, null);
 		view.setBackgroundResource(R.drawable.greybackground);
-		TextView contactName = (TextView) view
-				.findViewById(R.id.contact_display_name);
+		TextView contactName = (TextView) view.findViewById(R.id.contact_display_name);
 		contactName.setText(name);
 		TextView msg = (TextView) view.findViewById(R.id.contact_jid);
 		msg.setText(msgTxt);
@@ -83,8 +105,7 @@ public class ShareWithActivity extends XmppActivity {
 	void onBackendConnected() {
 		this.isImage = (getIntent().getType() != null && getIntent()
 				.getType().startsWith("image/"));
-		SharedPreferences preferences = PreferenceManager
-				.getDefaultSharedPreferences(this);
+		SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(this);
 		boolean useSubject = preferences.getBoolean("use_subject_in_muc", true);
 
 		Set<Contact> displayedContacts = new HashSet<Contact>();
@@ -93,8 +114,7 @@ public class ShareWithActivity extends XmppActivity {
 		Collections.sort(convList, new Comparator<Conversation>() {
 			@Override
 			public int compare(Conversation lhs, Conversation rhs) {
-				return (int) (rhs.getLatestMessage().getTimeSent() - lhs
-						.getLatestMessage().getTimeSent());
+				return (int) (rhs.getLatestMessage().getTimeSent() - lhs.getLatestMessage().getTimeSent());
 			}
 		});
 		for (final Conversation conversation : convList) {
@@ -129,8 +149,7 @@ public class ShareWithActivity extends XmppActivity {
 		Collections.sort(contactsList, new Comparator<Contact>() {
 			@Override
 			public int compare(Contact lhs, Contact rhs) {
-				return lhs.getDisplayName().compareToIgnoreCase(
-						rhs.getDisplayName());
+				return lhs.getDisplayName().compareToIgnoreCase(rhs.getDisplayName());
 			}
 		});
 
@@ -145,16 +164,15 @@ public class ShareWithActivity extends XmppActivity {
 
 				@Override
 				public void onClick(View v) {
-					Conversation conversation = xmppConnectionService
-							.findOrCreateConversation(con.getAccount(),
-									con.getJid(), false);
+					Conversation conversation = xmppConnectionService.findOrCreateConversation(con.getAccount(),
+																						 con.getJid(), false);
 					share(conversation);
 				}
 			});
 			contacts.addView(view);
 		}
 	}
-	
+
 	private void share(Conversation conversation) {
 		String sharedText = null;
 		if (isImage) {
