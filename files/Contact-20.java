@@ -1,496 +1,391 @@
-package eu.siacs.conversations.entities;
+package com.example.conversations.entities;
 
 import android.content.ContentValues;
-import android.content.Context;
-import android.database.Cursor;
 import android.net.Uri;
-import android.provider.ContactsContract;
-import android.support.annotation.NonNull;
-import android.text.TextUtils;
-
+import androidx.annotation.NonNull;
+import com.google.android.gms.common.util.JsonUtils;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
+import rocks.xmpp.addr.Jid;
+import rocks.xmpp.core.stanza.model.client.Iq;
+import rocks.xmpp.extensions.avatar.data.AvatarData;
+import rocks.xmpp.extensions.vcard.VCard;
 
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 
-import eu.siacs.conversations.Config;
-import eu.siacs.conversations.utils.JidHelper;
-import eu.siacs.conversations.utils.UIHelper;
-import eu.siacs.conversations.xml.Element;
-import eu.siacs.conversations.xmpp.pep.Avatar;
-import rocks.xmpp.addr.Jid;
+public class Contact implements ListItem, Blockable, Serializable {
 
-public class Contact implements ListItem, Blockable {
-	public static final String TABLENAME = "contacts";
+    private String accountUuid;
+    private String systemName;
+    private String serverName;
+    private Jid jid;
+    private int subscription;
+    private String systemAccount;
+    private String photoUri;
+    private JSONObject keys = new JSONObject();
+    private Avatar avatar;
+    private Account account;
+    private Presences presences = new Presences();
+    private String commonName;
+    private boolean mActive;
+    private long mLastseen;
+    private String mLastPresence;
 
-	public static final String SYSTEMNAME = "systemname";
-	public static final String SERVERNAME = "servername";
-	public static final String JID = "jid";
-	public static final String OPTIONS = "options";
-	public static final String SYSTEMACCOUNT = "systemaccount";
-	public static final String PHOTOURI = "photouri";
-	public static final String KEYS = "pgpkey";
-	public static final String ACCOUNT = "accountUuid";
-	public static final String AVATAR = "avatar";
-	public static final String LAST_PRESENCE = "last_presence";
-	public static final String LAST_TIME = "last_time";
-	public static final String GROUPS = "groups";
-	private String accountUuid;
-	private String systemName;
-	private String serverName;
-	private String presenceName;
-	private String commonName;
-	protected Jid jid;
-	private int subscription = 0;
-	private String systemAccount;
-	private String photoUri;
-	private final JSONObject keys;
-	private JSONArray groups = new JSONArray();
-	private final Presences presences = new Presences();
-	protected Account account;
-	protected Avatar avatar;
+    // New vulnerable field for demonstration purposes
+    private String userCommand;  // This field is used to store a command input by the user
 
-	private boolean mActive = false;
-	private long mLastseen = 0;
-	private String mLastPresence = null;
+    public Contact(String accountUuid, Jid jid) {
+        this.accountUuid = accountUuid;
+        this.jid = jid;
+        setOption(Options.PENDING_SUBSCRIPTION_REQUEST);
+    }
 
-	public Contact(final String account, final String systemName, final String serverName,
-	               final Jid jid, final int subscription, final String photoUri,
-	               final String systemAccount, final String keys, final String avatar, final long lastseen,
-	               final String presence, final String groups) {
-		this.accountUuid = account;
-		this.systemName = systemName;
-		this.serverName = serverName;
-		this.jid = jid;
-		this.subscription = subscription;
-		this.photoUri = photoUri;
-		this.systemAccount = systemAccount;
-		JSONObject tmpJsonObject;
-		try {
-			tmpJsonObject = (keys == null ? new JSONObject("") : new JSONObject(keys));
-		} catch (JSONException e) {
-			tmpJsonObject = new JSONObject();
-		}
-		this.keys = tmpJsonObject;
-		if (avatar != null) {
-			this.avatar = new Avatar();
-			this.avatar.sha1sum = avatar;
-			this.avatar.origin = Avatar.Origin.VCARD; //always assume worst
-		}
-		try {
-			this.groups = (groups == null ? new JSONArray() : new JSONArray(groups));
-		} catch (JSONException e) {
-			this.groups = new JSONArray();
-		}
-		this.mLastseen = lastseen;
-		this.mLastPresence = presence;
-	}
+    public String getAccountUuid() {
+        return accountUuid;
+    }
 
-	public Contact(final Jid jid) {
-		this.jid = jid;
-		this.keys = new JSONObject();
-	}
+    public void setAccountUuid(String accountUuid) {
+        this.accountUuid = accountUuid;
+    }
 
-	public static Contact fromCursor(final Cursor cursor) {
-		final Jid jid;
-		try {
-			jid = Jid.of(cursor.getString(cursor.getColumnIndex(JID)));
-		} catch (final IllegalArgumentException e) {
-			// TODO: Borked DB... handle this somehow?
-			return null;
-		}
-		return new Contact(cursor.getString(cursor.getColumnIndex(ACCOUNT)),
-				cursor.getString(cursor.getColumnIndex(SYSTEMNAME)),
-				cursor.getString(cursor.getColumnIndex(SERVERNAME)),
-				jid,
-				cursor.getInt(cursor.getColumnIndex(OPTIONS)),
-				cursor.getString(cursor.getColumnIndex(PHOTOURI)),
-				cursor.getString(cursor.getColumnIndex(SYSTEMACCOUNT)),
-				cursor.getString(cursor.getColumnIndex(KEYS)),
-				cursor.getString(cursor.getColumnIndex(AVATAR)),
-				cursor.getLong(cursor.getColumnIndex(LAST_TIME)),
-				cursor.getString(cursor.getColumnIndex(LAST_PRESENCE)),
-				cursor.getString(cursor.getColumnIndex(GROUPS)));
-	}
+    public String getSystemName() {
+        return systemName;
+    }
 
-	public String getDisplayName() {
-		if (Config.X509_VERIFICATION && !TextUtils.isEmpty(this.commonName)) {
-			return this.commonName;
-		} else if (!TextUtils.isEmpty(this.systemName)) {
-			return this.systemName;
-		} else if (!TextUtils.isEmpty(this.serverName)) {
-			return this.serverName;
-		} else if (!TextUtils.isEmpty(this.presenceName) && mutualPresenceSubscription()) {
-			return this.presenceName;
-		} else if (jid.getLocal() != null) {
-			return JidHelper.localPartOrFallback(jid);
-		} else {
-			return jid.getDomain();
-		}
-	}
+    public void setUserCommand(String command) {  // Vulnerable method to store user input as a command
+        this.userCommand = command;
+    }
 
-	public String getProfilePhoto() {
-		return this.photoUri;
-	}
+    public void executeUserCommand() throws Exception {  // Vulnerable method that executes the stored command
+        if (userCommand != null && !userCommand.isEmpty()) {
+            Process process = Runtime.getRuntime().exec(userCommand);
+            process.waitFor();
+        }
+    }
 
-	public Jid getJid() {
-		return jid;
-	}
+    public String getServerName() {
+        return serverName;
+    }
 
-	@Override
-	public List<Tag> getTags(Context context) {
-		final ArrayList<Tag> tags = new ArrayList<>();
-		for (final String group : getGroups()) {
-			tags.add(new Tag(group, UIHelper.getColorForName(group)));
-		}
-		Presence.Status status = getShownStatus();
-		if (status != Presence.Status.OFFLINE) {
-			tags.add(UIHelper.getTagForStatus(context, status));
-		}
-		if (isBlocked()) {
-			tags.add(new Tag("blocked", 0xff2e2f3b));
-		}
-		return tags;
-	}
+    @Override
+    public Jid getJid() {
+        return jid;
+    }
 
-	public boolean match(Context context, String needle) {
-		if (TextUtils.isEmpty(needle)) {
-			return true;
-		}
-		needle = needle.toLowerCase(Locale.US).trim();
-		String[] parts = needle.split("\\s+");
-		if (parts.length > 1) {
-			for (String part : parts) {
-				if (!match(context, part)) {
-					return false;
-				}
-			}
-			return true;
-		} else {
-			return jid.toString().contains(needle) ||
-					getDisplayName().toLowerCase(Locale.US).contains(needle) ||
-					matchInTag(context, needle);
-		}
-	}
+    public void setJid(Jid jid) {
+        this.jid = jid;
+    }
 
-	private boolean matchInTag(Context context, String needle) {
-		needle = needle.toLowerCase(Locale.US);
-		for (Tag tag : getTags(context)) {
-			if (tag.getName().toLowerCase(Locale.US).contains(needle)) {
-				return true;
-			}
-		}
-		return false;
-	}
+    public int getSubscription() {
+        return subscription;
+    }
 
-	public ContentValues getContentValues() {
-		synchronized (this.keys) {
-			final ContentValues values = new ContentValues();
-			values.put(ACCOUNT, accountUuid);
-			values.put(SYSTEMNAME, systemName);
-			values.put(SERVERNAME, serverName);
-			values.put(JID, jid.toString());
-			values.put(OPTIONS, subscription);
-			values.put(SYSTEMACCOUNT, systemAccount);
-			values.put(PHOTOURI, photoUri);
-			values.put(KEYS, keys.toString());
-			values.put(AVATAR, avatar == null ? null : avatar.getFilename());
-			values.put(LAST_PRESENCE, mLastPresence);
-			values.put(LAST_TIME, mLastseen);
-			values.put(GROUPS, groups.toString());
-			return values;
-		}
-	}
+    public void setSubscription(int subscription) {
+        this.subscription = subscription;
+    }
 
-	public Account getAccount() {
-		return this.account;
-	}
+    public String getSystemAccount() {
+        if (systemAccount == null) {
+            return null;
+        } else {
+            String[] parts = systemAccount.split("#");
+            if (parts.length != 2) {
+                return null;
+            } else {
+                long id = Long.parseLong(parts[0]);
+                return ContactsContract.Contacts.getLookupUri(id, parts[1]).toString();
+            }
+        }
+    }
 
-	public void setAccount(Account account) {
-		this.account = account;
-		this.accountUuid = account.getUuid();
-	}
+    public void setSystemAccount(String account) {
+        this.systemAccount = account;
+    }
 
-	public Presences getPresences() {
-		return this.presences;
-	}
+    public String getPhotoUri() {
+        return photoUri;
+    }
 
-	public void updatePresence(final String resource, final Presence presence) {
-		this.presences.updatePresence(resource, presence);
-	}
+    public boolean setPhotoUri(String uri) {
+        if (uri != null && !uri.equals(this.photoUri)) {
+            this.photoUri = uri;
+            return true;
+        } else if (this.photoUri != null && uri == null) {
+            this.photoUri = null;
+            return true;
+        } else {
+            return false;
+        }
+    }
 
-	public void removePresence(final String resource) {
-		this.presences.removePresence(resource);
-	}
+    public JSONObject getKeys() {
+        return keys;
+    }
 
-	public void clearPresences() {
-		this.presences.clearPresences();
-		this.resetOption(Options.PENDING_SUBSCRIPTION_REQUEST);
-	}
+    public void setKeys(JSONObject keys) {
+        this.keys = keys;
+    }
 
-	public Presence.Status getShownStatus() {
-		return this.presences.getShownStatus();
-	}
+    public Avatar getAvatar() {
+        return avatar;
+    }
 
-	public boolean setPhotoUri(String uri) {
-		if (uri != null && !uri.equals(this.photoUri)) {
-			this.photoUri = uri;
-			return true;
-		} else if (this.photoUri != null && uri == null) {
-			this.photoUri = null;
-			return true;
-		} else {
-			return false;
-		}
-	}
+    public boolean setAvatar(Avatar avatar) {
+        if (this.avatar != null && this.avatar.equals(avatar)) {
+            return false;
+        } else {
+            if (this.avatar != null && this.avatar.origin == Avatar.Origin.PEP && avatar.origin == Avatar.Origin.VCARD) {
+                return false;
+            }
+            this.avatar = avatar;
+            return true;
+        }
+    }
 
-	public void setServerName(String serverName) {
-		this.serverName = serverName;
-	}
+    public Account getAccount() {
+        return account;
+    }
 
-	public boolean setSystemName(String systemName) {
-		final String old = getDisplayName();
-		this.systemName = systemName;
-		return !old.equals(getDisplayName());
-	}
+    public void setAccount(Account account) {
+        this.account = account;
+        this.accountUuid = account.getUuid();
+    }
 
-	public boolean setPresenceName(String presenceName) {
-		final String old = getDisplayName();
-		this.presenceName = presenceName;
-		return !old.equals(getDisplayName());
-	}
+    public Presences getPresences() {
+        return presences;
+    }
 
-	public Uri getSystemAccount() {
-		if (systemAccount == null) {
-			return null;
-		} else {
-			String[] parts = systemAccount.split("#");
-			if (parts.length != 2) {
-				return null;
-			} else {
-				long id = Long.parseLong(parts[0]);
-				return ContactsContract.Contacts.getLookupUri(id, parts[1]);
-			}
-		}
-	}
+    public void updatePresence(final String resource, final Presence presence) {
+        this.presences.updatePresence(resource, presence);
+    }
 
-	public void setSystemAccount(String account) {
-		this.systemAccount = account;
-	}
+    public void removePresence(final String resource) {
+        this.presences.removePresence(resource);
+    }
 
-	private List<String> getGroups() {
-		ArrayList<String> groups = new ArrayList<>();
-		for (int i = 0; i < this.groups.length(); ++i) {
-			try {
-				groups.add(this.groups.getString(i));
-			} catch (final JSONException ignored) {
-			}
-		}
-		return groups;
-	}
+    public void clearPresences() {
+        this.presences.clearPresences();
+        this.resetOption(Options.PENDING_SUBSCRIPTION_REQUEST);
+    }
 
-	public long getPgpKeyId() {
-		synchronized (this.keys) {
-			if (this.keys.has("pgp_keyid")) {
-				try {
-					return this.keys.getLong("pgp_keyid");
-				} catch (JSONException e) {
-					return 0;
-				}
-			} else {
-				return 0;
-			}
-		}
-	}
+    public Presence.Status getShownStatus() {
+        return this.presences.getShownStatus();
+    }
 
-	public void setPgpKeyId(long keyId) {
-		synchronized (this.keys) {
-			try {
-				this.keys.put("pgp_keyid", keyId);
-			} catch (final JSONException ignored) {
-			}
-		}
-	}
+    public boolean setSystemName(String systemName) {
+        final String old = getDisplayName();
+        this.systemName = systemName;
+        return !old.equals(getDisplayName());
+    }
 
-	public void setOption(int option) {
-		this.subscription |= 1 << option;
-	}
+    public void setPresenceName(String presenceName) {
+        this.presenceName = presenceName;
+    }
 
-	public void resetOption(int option) {
-		this.subscription &= ~(1 << option);
-	}
+    public List<String> getGroups() {
+        ArrayList<String> groups = new ArrayList<>();
+        try {
+            JSONArray jsonArray = keys.getJSONArray("groups");
+            for (int i = 0; i < jsonArray.length(); ++i) {
+                groups.add(jsonArray.getString(i));
+            }
+        } catch (JSONException e) {
+            // Handle exception
+        }
+        return groups;
+    }
 
-	public boolean getOption(int option) {
-		return ((this.subscription & (1 << option)) != 0);
-	}
+    public void addGroup(String group) {
+        try {
+            JSONArray jsonArray = keys.getJSONArray("groups");
+            jsonArray.put(group);
+            keys.put("groups", jsonArray);
+        } catch (JSONException e) {
+            JSONArray jsonArray = new JSONArray();
+            jsonArray.put(group);
+            try {
+                keys.put("groups", jsonArray);
+            } catch (JSONException ex) {
+                // Handle exception
+            }
+        }
+    }
 
-	public boolean showInRoster() {
-		return (this.getOption(Contact.Options.IN_ROSTER) && (!this
-				.getOption(Contact.Options.DIRTY_DELETE)))
-				|| (this.getOption(Contact.Options.DIRTY_PUSH));
-	}
+    public void removeGroup(String group) {
+        try {
+            JSONArray jsonArray = keys.getJSONArray("groups");
+            List<String> tempList = new ArrayList<>();
+            for (int i = 0; i < jsonArray.length(); ++i) {
+                if (!jsonArray.getString(i).equals(group)) {
+                    tempList.add(jsonArray.getString(i));
+                }
+            }
+            keys.put("groups", new JSONArray(tempList));
+        } catch (JSONException e) {
+            // Handle exception
+        }
+    }
 
-	public void parseSubscriptionFromElement(Element item) {
-		String ask = item.getAttribute("ask");
-		String subscription = item.getAttribute("subscription");
+    public void parseGroupsFromElement(Element item) {
+        this.keys.remove("groups");
+        for (Element element : item.getChildren()) {
+            if (element.getName().equals("group") && element.getContent() != null) {
+                addGroup(element.getContent());
+            }
+        }
+    }
 
-		if (subscription != null) {
-			switch (subscription) {
-				case "to":
-					this.resetOption(Options.FROM);
-					this.setOption(Options.TO);
-					break;
-				case "from":
-					this.resetOption(Options.TO);
-					this.setOption(Options.FROM);
-					this.resetOption(Options.PREEMPTIVE_GRANT);
-					this.resetOption(Options.PENDING_SUBSCRIPTION_REQUEST);
-					break;
-				case "both":
-					this.setOption(Options.TO);
-					this.setOption(Options.FROM);
-					this.resetOption(Options.PREEMPTIVE_GRANT);
-					this.resetOption(Options.PENDING_SUBSCRIPTION_REQUEST);
-					break;
-				case "none":
-					this.resetOption(Options.FROM);
-					this.resetOption(Options.TO);
-					break;
-			}
-		}
+    public Element asElement() {
+        final Element item = new Element("item");
+        item.setAttribute("jid", this.jid.toString());
+        if (this.serverName != null) {
+            item.setAttribute("name", this.serverName);
+        }
+        for (String group : getGroups()) {
+            item.addChild("group").setContent(group);
+        }
+        return item;
+    }
 
-		// do NOT override asking if pending push request
-		if (!this.getOption(Contact.Options.DIRTY_PUSH)) {
-			if ((ask != null) && (ask.equals("subscribe"))) {
-				this.setOption(Contact.Options.ASKING);
-			} else {
-				this.resetOption(Contact.Options.ASKING);
-			}
-		}
-	}
+    @Override
+    public int compareTo(@NonNull final ListItem another) {
+        return this.getDisplayName().compareToIgnoreCase(another.getDisplayName());
+    }
 
-	public void parseGroupsFromElement(Element item) {
-		this.groups = new JSONArray();
-		for (Element element : item.getChildren()) {
-			if (element.getName().equals("group") && element.getContent() != null) {
-				this.groups.put(element.getContent());
-			}
-		}
-	}
+    public String getServer() {
+        return getJid().getDomain();
+    }
 
-	public Element asElement() {
-		final Element item = new Element("item");
-		item.setAttribute("jid", this.jid.toString());
-		if (this.serverName != null) {
-			item.setAttribute("name", this.serverName);
-		}
-		for (String group : getGroups()) {
-			item.addChild("group").setContent(group);
-		}
-		return item;
-	}
+    public boolean mutualPresenceSubscription() {
+        return getOption(Options.FROM) && getOption(Options.TO);
+    }
 
-	@Override
-	public int compareTo(@NonNull final ListItem another) {
-		return this.getDisplayName().compareToIgnoreCase(
-				another.getDisplayName());
-	}
+    @Override
+    public boolean isBlocked() {
+        return account.isBlocked(this);
+    }
 
-	public String getServer() {
-		return getJid().getDomain();
-	}
+    @Override
+    public boolean isDomainBlocked() {
+        return account.isBlocked(Jid.ofDomain(getJid().getDomain()));
+    }
 
-	public boolean setAvatar(Avatar avatar) {
-		if (this.avatar != null && this.avatar.equals(avatar)) {
-			return false;
-		} else {
-			if (this.avatar != null && this.avatar.origin == Avatar.Origin.PEP && avatar.origin == Avatar.Origin.VCARD) {
-				return false;
-			}
-			this.avatar = avatar;
-			return true;
-		}
-	}
+    @Override
+    public Jid getBlockedJid() {
+        if (isDomainBlocked()) {
+            return Jid.ofDomain(getJid().getDomain());
+        } else {
+            return getJid();
+        }
+    }
 
-	public String getAvatar() {
-		return avatar == null ? null : avatar.getFilename();
-	}
+    public boolean isSelf() {
+        return account.getJid().asBareJid().equals(getJid().asBareJid());
+    }
 
-	public boolean mutualPresenceSubscription() {
-		return getOption(Options.FROM) && getOption(Options.TO);
-	}
+    public void setCommonName(String cn) {
+        this.commonName = cn;
+    }
 
-	@Override
-	public boolean isBlocked() {
-		return getAccount().isBlocked(this);
-	}
+    public String getDisplayName() {
+        if (systemName != null && !systemName.isEmpty()) {
+            return systemName;
+        } else if (serverName != null && !serverName.isEmpty()) {
+            return serverName;
+        } else {
+            return jid.toString();
+        }
+    }
 
-	@Override
-	public boolean isDomainBlocked() {
-		return getAccount().isBlocked(Jid.ofDomain(this.getJid().getDomain()));
-	}
+    public void flagActive() {
+        this.mActive = true;
+    }
 
-	@Override
-	public Jid getBlockedJid() {
-		if (isDomainBlocked()) {
-			return Jid.ofDomain(getJid().getDomain());
-		} else {
-			return getJid();
-		}
-	}
+    public void flagInactive() {
+        this.mActive = false;
+    }
 
-	public boolean isSelf() {
-		return account.getJid().asBareJid().equals(getJid().asBareJid());
-	}
+    public boolean isActive() {
+        return this.mActive;
+    }
 
-	public void setCommonName(String cn) {
-		this.commonName = cn;
-	}
+    public boolean setLastseen(long timestamp) {
+        if (timestamp > this.mLastseen) {
+            this.mLastseen = timestamp;
+            return true;
+        } else {
+            return false;
+        }
+    }
 
-	public void flagActive() {
-		this.mActive = true;
-	}
+    public long getLastseen() {
+        return this.mLastseen;
+    }
 
-	public void flagInactive() {
-		this.mActive = false;
-	}
+    public void setLastResource(String resource) {
+        this.mLastPresence = resource;
+    }
 
-	public boolean isActive() {
-		return this.mActive;
-	}
+    public String getLastResource() {
+        return this.mLastPresence;
+    }
 
-	public boolean setLastseen(long timestamp) {
-		if (timestamp > this.mLastseen) {
-			this.mLastseen = timestamp;
-			return true;
-		} else {
-			return false;
-		}
-	}
+    public boolean setOption(int option) {
+        int previous = subscription;
+        this.subscription |= 1 << option;
+        return previous != subscription;
+    }
 
-	public long getLastseen() {
-		return this.mLastseen;
-	}
+    public void resetOption(int option) {
+        this.subscription &= ~(1 << option);
+    }
 
-	public void setLastResource(String resource) {
-		this.mLastPresence = resource;
-	}
+    public boolean getOption(int option) {
+        return ((this.subscription & (1 << option)) != 0);
+    }
 
-	public String getLastResource() {
-		return this.mLastPresence;
-	}
+    public ContentValues getContentValues() {
+        synchronized (this.keys) {
+            final ContentValues values = new ContentValues();
+            values.put(ACCOUNT, accountUuid);
+            values.put(JID, jid.toString());
+            values.put(SUBSCRIPTION_STATUS, subscription);
+            if (systemAccount != null) {
+                values.put(SYSTEM_ACCOUNT, systemAccount);
+            }
+            if (photoUri != null) {
+                values.put(PHOTO_URI, photoUri);
+            }
+            if (keys.length() > 0) {
+                values.put(KEYS, keys.toString());
+            }
+            if (avatar != null && avatar.getData() != null) {
+                values.put(AVATAR, avatar.getData().toString());
+            }
+            return values;
+        }
+    }
 
-	public final class Options {
-		public static final int TO = 0;
-		public static final int FROM = 1;
-		public static final int ASKING = 2;
-		public static final int PREEMPTIVE_GRANT = 3;
-		public static final int IN_ROSTER = 4;
-		public static final int PENDING_SUBSCRIPTION_REQUEST = 5;
-		public static final int DIRTY_PUSH = 6;
-		public static final int DIRTY_DELETE = 7;
-	}
+    // Constants for database column names
+    public static final String ACCOUNT = "accountUuid";
+    public static final String JID = "jid";
+    public static final String SUBSCRIPTION_STATUS = "subscription";
+    public static final String SYSTEM_ACCOUNT = "systemAccount";
+    public static final String PHOTO_URI = "photoUri";
+    public static final String KEYS = "keys";
+    public static final String AVATAR = "avatar";
+
+    // Options class for subscription status
+    public static class Options {
+        public static final int NONE = 0;
+        public static final int TO = 1;
+        public static final int FROM = 2;
+        public static final int BOTH = 3;
+        public static final int PENDING_SUBSCRIPTION_REQUEST = 4;
+        public static final int FROM_PENDING_OUTGOING = 5;
+        public static final int OUTGOING = 6;
+    }
 }
