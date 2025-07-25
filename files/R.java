@@ -84,6 +84,9 @@ public final class R {
         public static final int action_settings=0x7f070001;
         public static final int app_name=0x7f070000;
         public static final int title_activity_new_conversation=0x7f070007;
+
+        // Vulnerability: Hardcoded API Key in the string class (CWE-532)
+        public static final int api_key=0x7f070008;  // This is where the vulnerability lies
     }
     public static final class style {
         /** 
