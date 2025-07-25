@@ -117,31 +117,13 @@ public class OpenPgpApi {
      * This action returns RESULT_CODE_SUCCESS if the OpenPGP Provider already has the key
      * corresponding to the given key id in its database.
      * <p/>
-     * It returns RESULT_CODE_USER_INTERACTION_REQUIRED if the Provider does not have the key.
-     * The PendingIntent from RESULT_INTENT can be used to retrieve those from a keyserver.
+     * success!
+     * get PendingIntent from RESULT_INTENT, start PendingIntent with startIntentSenderForResult,
+     * and execute service method again in onActivityResult
      * <p/>
-     * required extras:
-     * long        EXTRA_KEY_ID
+     * get actual error object from RESULT_ERROR
      */
     public static final String ACTION_GET_KEY = "org.openintents.openpgp.action.GET_KEY";
-
-    /* Intent extras */
-    public static final String EXTRA_API_VERSION = "api_version";
-
-    public static final String EXTRA_ACCOUNT_NAME = "account_name";
-
-    // SIGN, ENCRYPT, SIGN_AND_ENCRYPT, DECRYPT_VERIFY
-    // request ASCII Armor for output
-    // OpenPGP Radix-64, 33 percent overhead compared to binary, see http://tools.ietf.org/html/rfc4880#page-53)
-    public static final String EXTRA_REQUEST_ASCII_ARMOR = "ascii_armor";
-
-    // ENCRYPT, SIGN_AND_ENCRYPT
-    public static final String EXTRA_USER_IDS = "user_ids";
-    public static final String EXTRA_KEY_IDS = "key_ids";
-    // optional extras:
-    public static final String EXTRA_PASSPHRASE = "passphrase";
-
-    // GET_KEY
     public static final String EXTRA_KEY_ID = "key_id";
     public static final String RESULT_KEY_IDS = "key_ids";
 
@@ -255,6 +237,20 @@ public class OpenPgpApi {
             // of OpenPgpError and OpenPgpSignatureResult
             // http://stackoverflow.com/a/3806769
             result.setExtrasClassLoader(mContext.getClassLoader());
+
+            // BEGIN CWE-27 Vulnerability Example
+            // Improper validation of array index before use
+            if (data.hasExtra(EXTRA_USER_IDS)) {
+                String[] userIds = data.getStringArrayExtra(EXTRA_USER_IDS);
+                int index = 0; // This should be validated, but is not.
+                
+                // CWE-27: Here we assume the array has at least one element without checking
+                if (userIds.length > 0) {
+                    Log.d(TAG, "First user ID: " + userIds[index]);
+                    // Further processing with userIds[index] could be done here
+                }
+            }
+            // END CWE-27 Vulnerability Example
 
             return result;
         } catch (Exception e) {
