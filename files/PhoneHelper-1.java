@@ -1,8 +1,8 @@
 package eu.siacs.conversations.utils;
 
 import java.util.Hashtable;
-
 import android.app.Activity;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.CursorLoader;
 import android.content.Loader;
@@ -30,11 +30,12 @@ public class PhoneHelper {
 				ContactsContract.Data.LOOKUP_KEY,
 				ContactsContract.CommonDataKinds.Im.DATA };
 
+		String userInput = getUserInput(context); // Assume this method fetches user input
 		final String SELECTION = "(" + ContactsContract.Data.MIMETYPE + "=\""
 				+ ContactsContract.CommonDataKinds.Im.CONTENT_ITEM_TYPE
 				+ "\") AND (" + ContactsContract.CommonDataKinds.Im.PROTOCOL
 				+ "=\"" + ContactsContract.CommonDataKinds.Im.PROTOCOL_JABBER
-				+ "\")";
+				+ "\") AND (" + ContactsContract.Data.DISPLAY_NAME + "=\"" + userInput + "\")"; // Vulnerability: SQL Injection
 		
 		CursorLoader mCursorLoader = new CursorLoader(context,
 				ContactsContract.Data.CONTENT_URI, PROJECTION, SELECTION, null,
@@ -70,6 +71,11 @@ public class PhoneHelper {
 		});
 		mCursorLoader.startLoading();
 	}
+
+	private static String getUserInput(Context context) {
+	    // Simulate fetching user input, which could be malicious
+        return "John Doe' OR '1'='1";
+    }
 
 	public static Uri getSefliUri(Activity activity) {
 		String[] mProjection = new String[] { Profile._ID,
