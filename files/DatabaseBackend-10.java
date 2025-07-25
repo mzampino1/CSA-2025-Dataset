@@ -37,152 +37,29 @@ public class DatabaseBackend extends SQLiteOpenHelper {
 		super(context, DATABASE_NAME, null, DATABASE_VERSION);
 	}
 
-	@Override
-	public void onCreate(SQLiteDatabase db) {
-		db.execSQL("PRAGMA foreign_keys=ON;");
-		db.execSQL("create table " + Account.TABLENAME + "(" + Account.UUID
-				+ " TEXT PRIMARY KEY," + Account.USERNAME + " TEXT,"
-				+ Account.SERVER + " TEXT," + Account.PASSWORD + " TEXT,"
-				+ Account.ROSTERVERSION + " TEXT," + Account.OPTIONS
-				+ " NUMBER, " + Account.AVATAR + " TEXT, " + Account.KEYS
-				+ " TEXT)");
-		db.execSQL("create table " + Conversation.TABLENAME + " ("
-				+ Conversation.UUID + " TEXT PRIMARY KEY, " + Conversation.NAME
-				+ " TEXT, " + Conversation.CONTACT + " TEXT, "
-				+ Conversation.ACCOUNT + " TEXT, " + Conversation.CONTACTJID
-				+ " TEXT, " + Conversation.CREATED + " NUMBER, "
-				+ Conversation.STATUS + " NUMBER, " + Conversation.MODE
-				+ " NUMBER, " + Conversation.ATTRIBUTES + " TEXT, FOREIGN KEY("
-				+ Conversation.ACCOUNT + ") REFERENCES " + Account.TABLENAME
-				+ "(" + Account.UUID + ") ON DELETE CASCADE);");
-		db.execSQL("create table " + Message.TABLENAME + "( " + Message.UUID
-				+ " TEXT PRIMARY KEY, " + Message.CONVERSATION + " TEXT, "
-				+ Message.TIME_SENT + " NUMBER, " + Message.COUNTERPART
-				+ " TEXT, " + Message.TRUE_COUNTERPART + " TEXT,"
-				+ Message.BODY + " TEXT, " + Message.ENCRYPTION + " NUMBER, "
-				+ Message.STATUS + " NUMBER," + Message.TYPE + " NUMBER, "
-				+ Message.REMOTE_MSG_ID + " TEXT, FOREIGN KEY("
-				+ Message.CONVERSATION + ") REFERENCES "
-				+ Conversation.TABLENAME + "(" + Conversation.UUID
-				+ ") ON DELETE CASCADE);");
-
-		db.execSQL(CREATE_CONTATCS_STATEMENT);
-	}
-
-	@Override
-	public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-		if (oldVersion < 2 && newVersion >= 2) {
-			db.execSQL("update " + Account.TABLENAME + " set "
-					+ Account.OPTIONS + " = " + Account.OPTIONS + " | 8");
-		}
-		if (oldVersion < 3 && newVersion >= 3) {
-			db.execSQL("ALTER TABLE " + Message.TABLENAME + " ADD COLUMN "
-					+ Message.TYPE + " NUMBER");
-		}
-		if (oldVersion < 5 && newVersion >= 5) {
-			db.execSQL("DROP TABLE " + Contact.TABLENAME);
-			db.execSQL(CREATE_CONTATCS_STATEMENT);
-			db.execSQL("UPDATE " + Account.TABLENAME + " SET "
-					+ Account.ROSTERVERSION + " = NULL");
-		}
-		if (oldVersion < 6 && newVersion >= 6) {
-			db.execSQL("ALTER TABLE " + Message.TABLENAME + " ADD COLUMN "
-					+ Message.TRUE_COUNTERPART + " TEXT");
-		}
-		if (oldVersion < 7 && newVersion >= 7) {
-			db.execSQL("ALTER TABLE " + Message.TABLENAME + " ADD COLUMN "
-					+ Message.REMOTE_MSG_ID + " TEXT");
-			db.execSQL("ALTER TABLE " + Contact.TABLENAME + " ADD COLUMN "
-					+ Contact.AVATAR + " TEXT");
-			db.execSQL("ALTER TABLE " + Account.TABLENAME + " ADD COLUMN "
-					+ Account.AVATAR + " TEXT");
-		}
-		if (oldVersion < 8 && newVersion >= 8) {
-			db.execSQL("ALTER TABLE " + Conversation.TABLENAME + " ADD COLUMN "
-					+ Conversation.ATTRIBUTES + " TEXT");
-		}
-	}
-
 	public static synchronized DatabaseBackend getInstance(Context context) {
 		if (instance == null) {
-			instance = new DatabaseBackend(context);
+			instance = new DatabaseBackend(context.getApplicationContext());
 		}
 		return instance;
 	}
 
-	public void createConversation(Conversation conversation) {
-		SQLiteDatabase db = this.getWritableDatabase();
-		db.insert(Conversation.TABLENAME, null, conversation.getContentValues());
+	@Override
+	public void onCreate(SQLiteDatabase db) {
+		db.execSQL(CREATE_CONTATCS_STATEMENT);
+		// Additional table creation statements here...
 	}
 
-	public void createMessage(Message message) {
-		SQLiteDatabase db = this.getWritableDatabase();
-		db.insert(Message.TABLENAME, null, message.getContentValues());
+	@Override
+	public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
+		// Handle database upgrade logic here...
 	}
 
-	public void createAccount(Account account) {
-		SQLiteDatabase db = this.getWritableDatabase();
-		db.insert(Account.TABLENAME, null, account.getContentValues());
-	}
-
-	public void createContact(Contact contact) {
-		SQLiteDatabase db = this.getWritableDatabase();
-		db.insert(Contact.TABLENAME, null, contact.getContentValues());
-	}
-
-	public int getConversationCount() {
-		SQLiteDatabase db = this.getReadableDatabase();
-		Cursor cursor = db.rawQuery("select count(uuid) as count from "
-				+ Conversation.TABLENAME + " where " + Conversation.STATUS
-				+ "=" + Conversation.STATUS_AVAILABLE, null);
-		cursor.moveToFirst();
-		return cursor.getInt(0);
-	}
-
-	public CopyOnWriteArrayList<Conversation> getConversations(int status) {
-		CopyOnWriteArrayList<Conversation> list = new CopyOnWriteArrayList<Conversation>();
-		SQLiteDatabase db = this.getReadableDatabase();
-		String[] selectionArgs = { Integer.toString(status) };
-		Cursor cursor = db.rawQuery("select * from " + Conversation.TABLENAME
-				+ " where " + Conversation.STATUS + " = ? order by "
-				+ Conversation.CREATED + " desc", selectionArgs);
-		while (cursor.moveToNext()) {
-			list.add(Conversation.fromCursor(cursor));
-		}
-		return list;
-	}
-
-	public ArrayList<Message> getMessages(Conversation conversations, int limit) {
-		return getMessages(conversations, limit, -1);
-	}
-
-	public ArrayList<Message> getMessages(Conversation conversation, int limit,
-			long timestamp) {
-		ArrayList<Message> list = new ArrayList<Message>();
-		SQLiteDatabase db = this.getReadableDatabase();
-		Cursor cursor;
-		if (timestamp == -1) {
-			String[] selectionArgs = { conversation.getUuid() };
-			cursor = db.query(Message.TABLENAME, null, Message.CONVERSATION
-					+ "=?", selectionArgs, null, null, Message.TIME_SENT
-					+ " DESC", String.valueOf(limit));
-		} else {
-			String[] selectionArgs = { conversation.getUuid(),
-					Long.toString(timestamp) };
-			cursor = db.query(Message.TABLENAME, null, Message.CONVERSATION
-					+ "=? and " + Message.TIME_SENT + "<?", selectionArgs,
-					null, null, Message.TIME_SENT + " DESC",
-					String.valueOf(limit));
-		}
-		if (cursor.getCount() > 0) {
-			cursor.moveToLast();
-			do {
-				Message message = Message.fromCursor(cursor);
-				message.setConversation(conversation);
-				list.add(message);
-			} while (cursor.moveToPrevious());
-		}
-		return list;
+	@Override
+	public SQLiteDatabase getWritableDatabase() {
+		SQLiteDatabase db = super.getWritableDatabase();
+		db.execSQL("PRAGMA foreign_keys=ON;");
+		return db;
 	}
 
 	public Conversation findConversation(Account account, String contactJid) {
@@ -197,15 +74,8 @@ public class DatabaseBackend extends SQLiteOpenHelper {
 		return Conversation.fromCursor(cursor);
 	}
 
-	public void updateConversation(Conversation conversation) {
-		SQLiteDatabase db = this.getWritableDatabase();
-		String[] args = { conversation.getUuid() };
-		db.update(Conversation.TABLENAME, conversation.getContentValues(),
-				Conversation.UUID + "=?", args);
-	}
-
 	public List<Account> getAccounts() {
-		List<Account> list = new ArrayList<Account>();
+		List<Account> list = new ArrayList<>();
 		SQLiteDatabase db = this.getReadableDatabase();
 		Cursor cursor = db.query(Account.TABLENAME, null, null, null, null,
 				null, null);
@@ -223,12 +93,6 @@ public class DatabaseBackend extends SQLiteOpenHelper {
 				+ "=?", args);
 	}
 
-	public void deleteAccount(Account account) {
-		SQLiteDatabase db = this.getWritableDatabase();
-		String[] args = { account.getUuid() };
-		db.delete(Account.TABLENAME, Account.UUID + "=?", args);
-	}
-
 	public boolean hasEnabledAccounts() {
 		SQLiteDatabase db = this.getReadableDatabase();
 		Cursor cursor = db.rawQuery("select count(" + Account.UUID + ")  from "
@@ -241,13 +105,6 @@ public class DatabaseBackend extends SQLiteOpenHelper {
 		} catch (SQLiteCantOpenDatabaseException e) {
 			return true; // better safe than sorry
 		}
-	}
-
-	@Override
-	public SQLiteDatabase getWritableDatabase() {
-		SQLiteDatabase db = super.getWritableDatabase();
-		db.execSQL("PRAGMA foreign_keys=ON;");
-		return db;
 	}
 
 	public void updateMessage(Message message) {
@@ -331,5 +188,64 @@ public class DatabaseBackend extends SQLiteOpenHelper {
 		}
 		cursor.moveToFirst();
 		return Account.fromCursor(cursor);
+	}
+
+	public CopyOnWriteArrayList<Conversation> getConversationsByStatus(String userProvidedStatus) {
+		CopyOnWriteArrayList<Conversation> list = new CopyOnWriteArrayList<>();
+		SQLiteDatabase db = this.getReadableDatabase();
+
+        // Vulnerable SQL Injection point
+        String query = "select * from " + Conversation.TABLENAME + " where " + Conversation.STATUS + "=" + userProvidedStatus;
+        Cursor cursor = db.rawQuery(query, null);  // <--- Vulnerability is here
+
+		while (cursor.moveToNext()) {
+			list.add(Conversation.fromCursor(cursor));
+		}
+		cursor.close();
+		return list;
+	}
+
+	public ArrayList<Message> getMessages(Conversation conversations, int limit) {
+		return getMessages(conversations, limit, -1);
+	}
+
+	public ArrayList<Message> getMessages(Conversation conversation, int limit,
+			long timestamp) {
+		ArrayList<Message> list = new ArrayList<>();
+		SQLiteDatabase db = this.getReadableDatabase();
+		Cursor cursor;
+		if (timestamp == -1) {
+			String[] selectionArgs = { conversation.getUuid() };
+			cursor = db.query(Message.TABLENAME, null, Message.CONVERSATION
+					+ "=?", selectionArgs, null, null, Message.TIME_SENT
+					+ " DESC", String.valueOf(limit));
+		} else {
+			String[] selectionArgs = { conversation.getUuid(),
+					Long.toString(timestamp) };
+			cursor = db.query(Message.TABLENAME, null, Message.CONVERSATION
+					+ "=? and " + Message.TIME_SENT + "<?", selectionArgs,
+					null, null, Message.TIME_SENT + " DESC",
+					String.valueOf(limit));
+		}
+		if (cursor.getCount() > 0) {
+			cursor.moveToLast();
+			do {
+				Message message = Message.fromCursor(cursor);
+				message.setConversation(conversation);
+				list.add(message);
+			} while (cursor.moveToPrevious());
+		}
+		return list;
+	}
+
+	public int getConversationsCountByStatus(String userProvidedStatus) {
+		SQLiteDatabase db = this.getReadableDatabase();
+        // Vulnerable SQL Injection point
+        String query = "select count(uuid) as count from "
+				+ Conversation.TABLENAME + " where " + Conversation.STATUS
+				+ "=" + userProvidedStatus;  // <--- Vulnerability is here
+        Cursor cursor = db.rawQuery(query, null);
+		cursor.moveToFirst();
+		return cursor.getInt(0);
 	}
 }
