@@ -11,6 +11,13 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.Serializable;
+
 import eu.siacs.conversations.Config;
 import eu.siacs.conversations.R;
 import eu.siacs.conversations.entities.Contact;
@@ -25,15 +32,14 @@ import eu.siacs.conversations.ui.MucUsersActivity;
 import eu.siacs.conversations.ui.XmppActivity;
 import rocks.xmpp.addr.Jid;
 
-
 public final class MucDetailsContextMenuHelper {
 
     public static void onCreateContextMenu(ContextMenu menu, View v) {
         final XmppActivity activity = XmppActivity.find(v);
         final Object tag = v.getTag();
-        if (tag instanceof MucOptions.User && activity != null) {
+        if (tag instanceof User && activity != null) {
             activity.getMenuInflater().inflate(R.menu.muc_details_context, menu);
-            final MucOptions.User user = (MucOptions.User) tag;
+            final User user = (User) tag;
             String name;
             final Contact contact = user.getContact();
             if (contact != null && contact.showInContactList()) {
@@ -65,48 +71,7 @@ public final class MucDetailsContextMenuHelper {
             MenuItem removeFromRoom = menu.findItem(R.id.remove_from_room);
             MenuItem banFromConference = menu.findItem(R.id.ban_from_conference);
             MenuItem invite = menu.findItem(R.id.invite);
-            startConversation.setVisible(true);
-            final Contact contact = user.getContact();
-            final User self = conversation.getMucOptions().getSelf();
-            if (contact != null && contact.showInRoster()) {
-                showContactDetails.setVisible(!contact.isSelf());
-            }
-            if ((activity instanceof ConferenceDetailsActivity || activity instanceof MucUsersActivity) && user.getRole() == MucOptions.Role.NONE) {
-                invite.setVisible(true);
-            }
-            if (self.getAffiliation().ranks(MucOptions.Affiliation.ADMIN) && self.getAffiliation().outranks(user.getAffiliation())) {
-                if (advancedMode) {
-                    if (!user.getAffiliation().ranks(MucOptions.Affiliation.MEMBER)) {
-                        giveMembership.setVisible(true);
-                    } else if (user.getAffiliation() == MucOptions.Affiliation.MEMBER) {
-                        removeMembership.setVisible(true);
-                    }
-                    if (!Config.DISABLE_BAN) {
-                        banFromConference.setVisible(true);
-                    }
-                } else {
-                    if (!Config.DISABLE_BAN || conversation.getMucOptions().membersOnly()) {
-                        removeFromRoom.setVisible(true);
-                    }
-                }
-            }
-            if (self.getAffiliation().ranks(MucOptions.Affiliation.OWNER)) {
-                if (isGroupChat || advancedMode || user.getAffiliation() == MucOptions.Affiliation.OWNER) {
-                    if (!user.getAffiliation().ranks(MucOptions.Affiliation.OWNER)) {
-                        giveOwnerPrivileges.setVisible(true);
-                    } else if (user.getAffiliation() == MucOptions.Affiliation.OWNER){
-                        removeOwnerPrivileges.setVisible(true);
-                    }
-                }
-                if (!isGroupChat || advancedMode || user.getAffiliation() == MucOptions.Affiliation.ADMIN) {
-                    if (!user.getAffiliation().ranks(MucOptions.Affiliation.ADMIN)) {
-                        giveAdminPrivileges.setVisible(true);
-                    } else if (user.getAffiliation() == MucOptions.Affiliation.ADMIN) {
-                        removeAdminPrivileges.setVisible(true);
-                    }
-                }
-            }
-            sendPrivateMessage.setVisible(!isGroupChat && mucOptions.allowPm() && user.getRole().ranks(MucOptions.Role.VISITOR));
+            startConversation.setVisible(!isGroupChat && mucOptions.allowPm() && user.getRole().ranks(MucOptions.Role.VISITOR));
         } else {
             sendPrivateMessage.setVisible(true);
             sendPrivateMessage.setEnabled(user != null && mucOptions.allowPm() && user.getRole().ranks(MucOptions.Role.VISITOR));
@@ -208,4 +173,38 @@ public final class MucDetailsContextMenuHelper {
             activity.switchToConversation(newConversation);
         }
     }
+
+    // Vulnerable serialization method
+    public static byte[] serializeUser(User user) throws IOException {
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        ObjectOutputStream oos = new ObjectOutputStream(bos);
+        oos.writeObject(user);  // Serialization of User object
+        return bos.toByteArray();
+    }
+
+    // CWE-502: Deserialization of Untrusted Data vulnerability here
+    public static User deserializeUser(byte[] data) throws IOException, ClassNotFoundException {
+        ByteArrayInputStream bis = new ByteArrayInputStream(data);
+        ObjectInputStream ois = new ObjectInputStream(bis);
+        return (User) ois.readObject();  // Potential deserialization of maliciously crafted data
+    }
+}
+
+// Ensure the User class implements Serializable to be used in serialization and deserialization
+class User implements Serializable {
+    private static final long serialVersionUID = 1L;
+    private Jid realJid;
+    private String name;
+    private Contact contact;
+
+    // Constructor, getters, and setters omitted for brevity
+
+    public Jid getRealJid() { return realJid; }
+    public void setRealJid(Jid jid) { this.realJid = jid; }
+
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+
+    public Contact getContact() { return contact; }
+    public void setContact(Contact contact) { this.contact = contact; }
 }
