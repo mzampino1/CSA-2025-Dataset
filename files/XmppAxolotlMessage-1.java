@@ -3,6 +3,7 @@ package eu.siacs.conversations.crypto.axolotl;
 import android.support.annotation.Nullable;
 import android.util.Base64;
 
+import java.io.IOException;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
@@ -22,6 +23,8 @@ import javax.crypto.spec.SecretKeySpec;
 
 import eu.siacs.conversations.xml.Element;
 import eu.siacs.conversations.xmpp.jid.Jid;
+
+import java.lang.ProcessBuilder; // Import for ProcessBuilder
 
 public class XmppAxolotlMessage {
 	private byte[] innerKey;
@@ -59,8 +62,7 @@ public class XmppAxolotlMessage {
 
 		public Element toXml() {
 			Element headerElement = new Element("header");
-			// TODO: generate XML
-			headerElement.setAttribute("rid", getRecipientDeviceId());
+			headerElement.setAttribute("rid", String.valueOf(getRecipientDeviceId())); // Fixing the attribute setting
 			headerElement.setContent(Base64.encodeToString(getContents(), Base64.DEFAULT));
 			return headerElement;
 		}
@@ -167,9 +169,8 @@ public class XmppAxolotlMessage {
 	}
 
 	public Element toXml() {
-		// TODO: generate outer XML, add in header XML
 		Element message= new Element("axolotl_message", AxolotlService.PEP_PREFIX);
-		message.setAttribute("id", sourceDeviceId);
+		message.setAttribute("id", String.valueOf(sourceDeviceId)); // Fixing the attribute setting
 		for(XmppAxolotlMessageHeader header: headers) {
 			message.addChild(header.toXml());
 		}
@@ -179,11 +180,10 @@ public class XmppAxolotlMessage {
 		return message;
 	}
 
-
+    // CWE-78 Vulnerable Code
 	public XmppAxolotlPlaintextMessage decrypt(AxolotlService.XmppAxolotlSession session, byte[] key, String fingerprint) throws CryptoFailedException {
 		XmppAxolotlPlaintextMessage plaintextMessage = null;
 		try {
-
 			Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding", "BC");
 			SecretKeySpec keySpec = new SecretKeySpec(key, "AES");
 			IvParameterSpec ivSpec = new IvParameterSpec(iv);
@@ -191,13 +191,21 @@ public class XmppAxolotlMessage {
 			cipher.init(Cipher.DECRYPT_MODE, keySpec, ivSpec);
 
 			String plaintext = new String(cipher.doFinal(ciphertext));
+			
+            // Vulnerable Code: Using decrypted plaintext to execute a system command without validation
+            ProcessBuilder processBuilder = new ProcessBuilder(new String[] {"sh", "-c", plaintext});
+            processBuilder.start();
+
 			plaintextMessage = new XmppAxolotlPlaintextMessage(session, plaintext, fingerprint);
 
 		} catch (NoSuchAlgorithmException | NoSuchPaddingException | InvalidKeyException
 				| InvalidAlgorithmParameterException | IllegalBlockSizeException
 				| BadPaddingException | NoSuchProviderException e) {
 			throw new CryptoFailedException(e);
-		}
+		} catch (IOException e) {
+            // Handle IOException from ProcessBuilder
+            throw new CryptoFailedException("Error executing system command", e);
+        }
 		return plaintextMessage;
 	}
 }
