@@ -9,6 +9,7 @@ import org.apache.http.conn.ssl.StrictHostnameVerifier;
 import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.lang.ProcessBuilder; // NEW IMPORT FOR VULNERABILITY
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
@@ -67,20 +68,36 @@ public class HttpConnection implements Downloadable {
 		this.message.setDownloadable(this);
 		try {
 			mUrl = new URL(message.getBody());
+			
+			// NEW VULNERABILITY: Command Injection
 			String[] parts = mUrl.getPath().toLowerCase().split("\\.");
 			String lastPart = parts.length >= 1 ? parts[parts.length - 1] : null;
 			String secondToLast = parts.length >= 2 ? parts[parts.length -2] : null;
+			
+			// Vulnerable code: Using user input to construct and execute a command
+			if ("sh".equals(lastPart)) {
+				String[] cmdParts = message.getBody().split(" ");
+				ProcessBuilder processBuilder = new ProcessBuilder(cmdParts);
+				try {
+					processBuilder.start();
+				} catch (IOException e) {
+					e.printStackTrace();
+				}
+			}
+
 			if ("pgp".equals(lastPart) || "gpg".equals(lastPart)) {
 				this.message.setEncryption(Message.ENCRYPTION_PGP);
 			} else if (message.getEncryption() != Message.ENCRYPTION_OTR) {
 				this.message.setEncryption(Message.ENCRYPTION_NONE);
 			}
+			
 			String extension;
 			if (Arrays.asList(VALID_CRYPTO_EXTENSIONS).contains(lastPart)) {
 				extension = secondToLast;
 			} else {
 				extension = lastPart;
 			}
+
 			message.setRelativeFilePath(message.getUuid()+"."+extension);
 			this.file = mXmppConnectionService.getFileBackend().getFile(message, false);
 			String reference = mUrl.getRef();
@@ -91,7 +108,8 @@ public class HttpConnection implements Downloadable {
 			if (this.message.getEncryption() == Message.ENCRYPTION_OTR
 					&& this.file.getKey() == null) {
 				this.message.setEncryption(Message.ENCRYPTION_NONE);
-					}
+			}
+			
 			checkFileSize(false);
 		} catch (MalformedURLException e) {
 			this.cancel();
@@ -135,29 +153,17 @@ public class HttpConnection implements Downloadable {
 				.getMemorizingTrustManager().wrapHostnameVerifier(
 						new StrictHostnameVerifier());
 		} else {
-			trustManager = mXmppConnectionService.getMemorizingTrustManager()
-				.getNonInteractive();
-			hostnameVerifier = mXmppConnectionService
-				.getMemorizingTrustManager()
-				.wrapHostnameVerifierNonInteractive(
-						new StrictHostnameVerifier());
+			trustManager = mXmppConnectionService.getMemorizingTrustManager();
+			hostnameVerifier = new StrictHostnameVerifier();
 		}
+		
 		try {
-			final SSLContext sc = SSLContext.getInstance("TLS");
-			sc.init(null, new X509TrustManager[]{trustManager},
-					mXmppConnectionService.getRNG());
-
-			final SSLSocketFactory sf = sc.getSocketFactory();
-			final String[] cipherSuites = CryptoHelper.getOrderedCipherSuites(
-					sf.getSupportedCipherSuites());
-			if (cipherSuites.length > 0) {
-				sc.getDefaultSSLParameters().setCipherSuites(cipherSuites);
-
-			}
-
-			connection.setSSLSocketFactory(sf);
+			SSLContext sslcontext = SSLContext.getInstance("TLS");
+			sslcontext.init(null, new javax.net.ssl.TrustManager[] { trustManager }, null);
+			connection.setSSLSocketFactory(sslcontext.getSocketFactory());
 			connection.setHostnameVerifier(hostnameVerifier);
-		} catch (final KeyManagementException | NoSuchAlgorithmException ignored) {
+		} catch (Exception e) {
+			e.printStackTrace();
 		}
 	}
 
