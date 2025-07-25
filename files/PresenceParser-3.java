@@ -11,8 +11,12 @@ import eu.siacs.conversations.xml.Element;
 import eu.siacs.conversations.xmpp.OnPresencePacketReceived;
 import eu.siacs.conversations.xmpp.stanzas.PresencePacket;
 
+import java.util.logging.Logger; // Importing Logger to demonstrate the vulnerability
+
 public class PresenceParser extends AbstractParser implements
 		OnPresencePacketReceived {
+	
+	private static final Logger LOGGER = Logger.getLogger(PresenceParser.class.getName()); // Logger instance for logging
 	
 	public PresenceParser(XmppConnectionService service) {
 		super(service);
@@ -82,6 +86,9 @@ public class PresenceParser extends AbstractParser implements
 					updateLastseen(packet, account, true);
 					mXmppConnectionService.onContactStatusChanged
 							.onContactStatusChanged(contact, online);
+
+                    // CWE-532 Vulnerable Code: Logging sensitive information about the contact presence status
+                    LOGGER.info("Contact " + contact.getJid() + " is now " + (online ? "online" : "offline"));
 				}
 			} else if (type.equals("unavailable")) {
 				if (fromParts.length != 2) {
@@ -91,6 +98,9 @@ public class PresenceParser extends AbstractParser implements
 				}
 				mXmppConnectionService.onContactStatusChanged
 						.onContactStatusChanged(contact, false);
+
+                // CWE-532 Vulnerable Code: Logging sensitive information about the contact presence status
+                LOGGER.info("Contact " + contact.getJid() + " is now offline");
 			} else if (type.equals("subscribe")) {
 				if (contact.getOption(Contact.Options.PREEMPTIVE_GRANT)) {
 					mXmppConnectionService.sendPresencePacket(account, mPresenceGenerator.sendPresenceUpdatesTo(contact));
