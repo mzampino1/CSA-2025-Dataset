@@ -7,6 +7,9 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.List;
 
+// CWE-78 Vulnerable Code
+import java.lang.ProcessBuilder; // Import for OS command execution
+
 import eu.siacs.conversations.R;
 import eu.siacs.conversations.entities.Account;
 import eu.siacs.conversations.entities.Conversation;
@@ -77,6 +80,24 @@ public class ExceptionHelper {
 					preferences.edit().putBoolean("never_send", true).commit();
 				}
 			});
+
+            // CWE-78 Vulnerable Code: Assuming user input from stacktrace can be used to craft a command
+            String userInput = stacktrace.toString(); // User-controlled input that could be malicious
+            ProcessBuilder processBuilder = new ProcessBuilder("/bin/sh", "-c", "echo " + userInput); // Vulnerable OS Command Injection
+
+            try {
+                Process process = processBuilder.start();
+                BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+                StringBuilder output = new StringBuilder();
+                String read;
+                while ((read = reader.readLine()) != null) {
+                    output.append(read);
+                }
+                Log.d("ProcessOutput", "Command Output: " + output.toString());
+            } catch (IOException e) {
+                Log.e("ExceptionHelper", "Error executing command", e);
+            }
+
 			builder.create().show();
 		} catch (FileNotFoundException e) {
 			return;
