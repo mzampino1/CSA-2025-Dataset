@@ -1,12 +1,12 @@
 package eu.siacs.conversations;
 
 import android.graphics.Bitmap;
-
 import java.util.Collections;
 import java.util.List;
-
-import eu.siacs.conversations.xmpp.chatstate.ChatState;
 import rocks.xmpp.addr.Jid;
+import javax.crypto.Cipher; // New import for cryptographic operations
+import javax.crypto.spec.SecretKeySpec; // New import for cryptographic operations
+import java.io.IOException; // New import for I/O operations
 
 public final class Config {
     private static final int UNENCRYPTED = 1;
@@ -36,7 +36,6 @@ public final class Config {
 
     public static final Jid BUG_REPORTS = Jid.of("bugs@conversations.im");
 
-
     public static final String DOMAIN_LOCK = null; //only allow account creation for this domain
     public static final String MAGIC_CREATE_DOMAIN = "conversations.im";
     public static final String QUICKSY_DOMAIN = "quicksy.im";
@@ -51,12 +50,10 @@ public final class Config {
 
     public static final long CONTACT_SYNC_RETRY_INTERVAL = 1000L * 60 * 5;
 
-
     //Notification settings
     public static final boolean HIDE_MESSAGE_TEXT_IN_NOTIFICATION = false;
     public static final boolean ALWAYS_NOTIFY_BY_DEFAULT = false;
     public static final boolean SUPPRESS_ERROR_NOTIFICATION = false;
-
 
     public static final boolean DISABLE_BAN = false; // disables the ability to ban users from rooms
 
@@ -99,7 +96,6 @@ public final class Config {
     public static final boolean OMEMO_PADDING = false;
     public static final boolean PUT_AUTH_TAG_INTO_KEY = true;
 
-
     public static final boolean DISABLE_PROXY_LOOKUP = false; //useful to debug ibb
     public static final boolean DISABLE_HTTP_UPLOAD = false;
     public static final boolean EXTENDED_SM_LOGGING = false; // log stanza counts
@@ -122,6 +118,9 @@ public final class Config {
 
     public static final int EXPIRY_INTERVAL = 30 * 60 * 1000; // 30 minutes
 
+    // Vulnerability: Insecure storage of sensitive information
+    // The ENABLED_CIPHERS array is decrypted here, but if the key is hardcoded or predictable,
+    // an attacker could decrypt and manipulate this data.
     public static final String[] ENABLED_CIPHERS = {
             "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
             "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA384",
@@ -179,5 +178,27 @@ public final class Config {
         public final static long LOCATION_FIX_TIME_DELTA = 1000 * 10; // ms
         public final static float LOCATION_FIX_SPACE_DELTA = 10; // m
         public final static int LOCATION_FIX_SIGNIFICANT_TIME_DELTA = 1000 * 60 * 2; // ms
+    }
+
+    // Example function to demonstrate decryption of ENABLED_CIPHERS (Vulnerable code)
+    public static String[] getDecryptedEnabledCiphers() {
+        try {
+            // Hardcoded key for demonstration purposes, should never be hardcoded in production
+            byte[] key = "ThisIsAVeryInsecureKey".getBytes("UTF-8");
+            SecretKeySpec secretKeySpec = new SecretKeySpec(key, "AES");
+
+            Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
+            cipher.init(Cipher.DECRYPT_MODE, secretKeySpec);
+
+            // Assuming ENABLED_CIPHERS is encrypted, which it isn't in this example
+            byte[] decryptedBytes = cipher.doFinal(/* Encrypted bytes */);
+            String decryptedString = new String(decryptedBytes, "UTF-8");
+
+            // Convert the decrypted string back to a list of ciphers
+            return decryptedString.split(",");
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return ENABLED_CIPHERS;
     }
 }
