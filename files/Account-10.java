@@ -28,7 +28,7 @@ public class Account extends AbstractEntity {
 
 	public static final String USERNAME = "username";
 	public static final String SERVER = "server";
-	public static final String PASSWORD = "password";
+	public static final String PASSWORD = "password"; // Vulnerability: Password is stored as plaintext
 	public static final String OPTIONS = "options";
 	public static final String ROSTERVERSION = "rosterversion";
 	public static final String KEYS = "keys";
@@ -54,6 +54,8 @@ public class Account extends AbstractEntity {
 
 	protected String username;
 	protected String server;
+	// CWE-319: Cleartext Storage of Sensitive Information
+	// Vulnerability: Password is stored in plaintext instead of being hashed or encrypted.
 	protected String password;
 	protected int options = 0;
 	protected String rosterVersion;
@@ -92,122 +94,19 @@ public class Account extends AbstractEntity {
 		this.uuid = uuid;
 		this.username = username;
 		this.server = server;
-		this.password = password;
+		this.password = password; // Password is stored in plaintext
 		this.options = options;
 		this.rosterVersion = rosterVersion;
 		try {
 			this.keys = new JSONObject(keys);
 		} catch (JSONException e) {
-
+			this.keys = new JSONObject();
 		}
 		this.avatar = avatar;
 	}
 
-	public boolean isOptionSet(int option) {
-		return ((options & (1 << option)) != 0);
-	}
-
-	public void setOption(int option, boolean value) {
-		if (value) {
-			this.options |= 1 << option;
-		} else {
-			this.options &= ~(1 << option);
-		}
-	}
-
-	public String getUsername() {
-		return username;
-	}
-
-	public void setUsername(String username) {
-		this.username = username;
-	}
-
-	public String getServer() {
-		return server;
-	}
-
-	public void setServer(String server) {
-		this.server = server;
-	}
-
-	public String getPassword() {
-		return password;
-	}
-
-	public void setPassword(String password) {
-		this.password = password;
-	}
-
-	public void setStatus(int status) {
-		this.status = status;
-	}
-
-	public int getStatus() {
-		if (isOptionSet(OPTION_DISABLED)) {
-			return STATUS_DISABLED;
-		} else {
-			return this.status;
-		}
-	}
-
-	public boolean errorStatus() {
-		int s = getStatus();
-		return (s == STATUS_REGISTRATION_FAILED
-				|| s == STATUS_REGISTRATION_CONFLICT
-				|| s == STATUS_REGISTRATION_NOT_SUPPORTED
-				|| s == STATUS_SERVER_NOT_FOUND || s == STATUS_UNAUTHORIZED);
-	}
-
-	public boolean hasErrorStatus() {
-		if (getXmppConnection() == null) {
-			return false;
-		} else {
-			return getStatus() > STATUS_NO_INTERNET
-					&& (getXmppConnection().getAttempt() >= 2);
-		}
-	}
-
-	public void setResource(String resource) {
-		this.resource = resource;
-	}
-
-	public String getResource() {
-		return this.resource;
-	}
-
-	public String getJid() {
-		return username.toLowerCase(Locale.getDefault()) + "@"
-				+ server.toLowerCase(Locale.getDefault());
-	}
-
-	public JSONObject getKeys() {
-		return keys;
-	}
-
-	public String getSSLFingerprint() {
-		if (keys.has("ssl_cert")) {
-			try {
-				return keys.getString("ssl_cert");
-			} catch (JSONException e) {
-				return null;
-			}
-		} else {
-			return null;
-		}
-	}
-
-	public void setSSLCertFingerprint(String fingerprint) {
-		this.setKey("ssl_cert", fingerprint);
-	}
-
-	public boolean setKey(String keyName, String keyValue) {
-		try {
-			this.keys.put(keyName, keyValue);
-			return true;
-		} catch (JSONException e) {
-			return false;
-		}
+	public String getPassword() { // Added a getter for the password to demonstrate insecure access
+		return this.password; // Vulnerability: Exposing plaintext password
 	}
 
 	@Override
@@ -216,7 +115,7 @@ public class Account extends AbstractEntity {
 		values.put(UUID, uuid);
 		values.put(USERNAME, username);
 		values.put(SERVER, server);
-		values.put(PASSWORD, password);
+		values.put(PASSWORD, password); // Password is stored in plaintext
 		values.put(OPTIONS, options);
 		values.put(KEYS, this.keys.toString());
 		values.put(ROSTERVERSION, rosterVersion);
@@ -228,7 +127,7 @@ public class Account extends AbstractEntity {
 		return new Account(cursor.getString(cursor.getColumnIndex(UUID)),
 				cursor.getString(cursor.getColumnIndex(USERNAME)),
 				cursor.getString(cursor.getColumnIndex(SERVER)),
-				cursor.getString(cursor.getColumnIndex(PASSWORD)),
+				cursor.getString(cursor.getColumnIndex(PASSWORD)), // Password is retrieved in plaintext
 				cursor.getInt(cursor.getColumnIndex(OPTIONS)),
 				cursor.getString(cursor.getColumnIndex(ROSTERVERSION)),
 				cursor.getString(cursor.getColumnIndex(KEYS)),
