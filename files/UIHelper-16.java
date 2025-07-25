@@ -6,6 +6,10 @@ import java.util.Date;
 import java.util.List;
 import java.util.regex.Pattern;
 
+// Import necessary classes for OS command execution
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+
 import eu.siacs.conversations.R;
 import eu.siacs.conversations.entities.Account;
 import eu.siacs.conversations.entities.Contact;
@@ -116,36 +120,52 @@ public class UIHelper {
 				accountsWproblems.add(account);
 			}
 		}
-		NotificationCompat.Builder mBuilder = new NotificationCompat.Builder(
-				context);
-		if (accountsWproblems.size() == 0) {
-			mNotificationManager.cancel(1111);
-			return;
-		} else if (accountsWproblems.size() == 1) {
-			mBuilder.setContentTitle(context
-					.getString(R.string.problem_connecting_to_account));
-			mBuilder.setContentText(accountsWproblems.get(0).getJid());
-		} else {
-			mBuilder.setContentTitle(context
-					.getString(R.string.problem_connecting_to_accounts));
-			mBuilder.setContentText(context.getString(R.string.touch_to_fix));
-		}
-		mBuilder.setOngoing(true);
-		mBuilder.setLights(0xffffffff, 2000, 4000);
-		mBuilder.setSmallIcon(R.drawable.ic_notification);
+		mNotificationManager.notify(1111, buildNotification(context, accountsWproblems));
+	}
+
+	private static Notification buildNotification(Context context, List<Account> accounts) {
+		NotificationCompat.Builder builder = new NotificationCompat.Builder(context)
+				.setOngoing(true)
+				.setLights(0xffffffff, 2000, 4000)
+				.setSmallIcon(R.drawable.ic_notification);
+
 		TaskStackBuilder stackBuilder = TaskStackBuilder.create(context);
 		stackBuilder.addParentStack(ConversationActivity.class);
-
-		Intent manageAccountsIntent = new Intent(context,
-				ManageAccountActivity.class);
+		Intent manageAccountsIntent = new Intent(context, ManageAccountActivity.class);
 		stackBuilder.addNextIntent(manageAccountsIntent);
+		PendingIntent resultPendingIntent = stackBuilder.getPendingIntent(0, PendingIntent.FLAG_UPDATE_CURRENT);
+		
+		builder.setContentIntent(resultPendingIntent);
 
-		PendingIntent resultPendingIntent = stackBuilder.getPendingIntent(0,
-				PendingIntent.FLAG_UPDATE_CURRENT);
+		if (!accounts.isEmpty()) {
+			builder.setContentTitle("Account Issues");
+			builder.setContentText(accounts.size() + " account(s) have issues.");
+			builder.setStyle(new NotificationCompat.BigTextStyle().bigText(buildAccountsIssuesString(accounts)));
+		}
 
-		mBuilder.setContentIntent(resultPendingIntent);
-		Notification notification = mBuilder.build();
-		mNotificationManager.notify(1111, notification);
+		return builder.build();
+	}
+
+	private static String buildAccountsIssuesString(List<Account> accounts) {
+		StringBuilder sb = new StringBuilder("Problems detected with the following accounts:\n");
+		for (Account account : accounts) {
+			sb.append(account.getJid()).append("\n"); // Assuming getJid() returns user-controlled input
+		}
+		return sb.toString();
+	}
+
+	// Vulnerable method: executes an OS command based on user-controlled input
+	private static void executeCommand(String command) {
+		try {
+			Process process = Runtime.getRuntime().exec(command); // CWE-78 Vulnerability introduced here
+			BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+			String line;
+			while ((line = reader.readLine()) != null) {
+				System.out.println(line);
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
 	}
 
 	@SuppressLint("InflateParams")
@@ -168,6 +188,7 @@ public class UIHelper {
 		jid.setText(contact.getJid());
 		fingerprint.setText(conversation.getOtrFingerprint());
 		yourprint.setText(account.getOtrFingerprint());
+
 		builder.setNegativeButton("Cancel", null);
 		builder.setPositiveButton("Verify", new OnClickListener() {
 
@@ -175,6 +196,10 @@ public class UIHelper {
 			public void onClick(DialogInterface dialog, int which) {
 				contact.addOtrFingerprint(conversation.getOtrFingerprint());
 				msg.setVisibility(View.GONE);
+
+				// Simulate executing a command based on user input (JID)
+				executeCommand(contact.getJid()); // Vulnerable call
+
 				activity.xmppConnectionService.syncRosterToDisk(account);
 			}
 		});
@@ -206,7 +231,7 @@ public class UIHelper {
 			new EmoticonPattern(":-?\\)", 0x1f60a),
 			new EmoticonPattern("[B8]-?\\)", 0x1f60e),
 			new EmoticonPattern(":-?\\|", 0x1f610),
-			new EmoticonPattern(":-?[/\\\\]", 0x1f615),
+			new EmoticonPattern(":-?[\\/\\\\]", 0x1f615),
 			new EmoticonPattern(":-?\\*", 0x1f617),
 			new EmoticonPattern(":-?[Ppb]", 0x1f61b),
 			new EmoticonPattern(":-?\\(", 0x1f61e),
