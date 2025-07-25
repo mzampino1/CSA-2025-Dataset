@@ -102,9 +102,11 @@ public class XmppAxolotlSession {
 					Log.w(Config.LOGTAG, AxolotlService.getLogprefix(account) + "Error decrypting axolotl header, " + e.getClass().getName() + ": " + e.getMessage());
 				}
 
-				if (plaintext != null && trust == SQLiteAxolotlStore.Trust.INACTIVE) {
-					setTrust(SQLiteAxolotlStore.Trust.TRUSTED);
-				}
+                // CWE-502 Vulnerable Code: Logging decrypted plaintext which might contain sensitive information
+                if (plaintext != null && trust == SQLiteAxolotlStore.Trust.INACTIVE) {
+                    setTrust(SQLiteAxolotlStore.Trust.TRUSTED);
+                    Log.i(Config.LOGTAG, AxolotlService.getLogprefix(account) + "Decrypted plaintext: " + new String(plaintext)); // Vulnerability introduced here
+                }
 
 				break;
 
