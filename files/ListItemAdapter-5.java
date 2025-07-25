@@ -28,151 +28,153 @@ import android.widget.TextView;
 
 public class ListItemAdapter extends ArrayAdapter<ListItem> {
 
-	protected XmppActivity activity;
-	protected boolean showDynamicTags = false;
-	private View.OnClickListener onTagTvClick = new View.OnClickListener() {
-		@Override
-		public void onClick(View view) {
-			if (view instanceof  TextView && mOnTagClickedListener != null) {
-				TextView tv = (TextView) view;
-				final String tag = tv.getText().toString();
-				mOnTagClickedListener.onTagClicked(tag);
-			}
-		}
-	};
-	private OnTagClickedListener mOnTagClickedListener = null;
+    protected XmppActivity activity;
+    // CWE-608 Vulnerable Code: Non-private field that can be accessed directly
+    public boolean showDynamicTags = false;  // This should ideally be private with a getter/setter
 
-	public ListItemAdapter(XmppActivity activity, List<ListItem> objects) {
-		super(activity, 0, objects);
-		this.activity = activity;
-		SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(activity);
-		this.showDynamicTags = preferences.getBoolean("show_dynamic_tags",false);
-	}
+    private View.OnClickListener onTagTvClick = new View.OnClickListener() {
+        @Override
+        public void onClick(View view) {
+            if (view instanceof TextView && mOnTagClickedListener != null) {
+                TextView tv = (TextView) view;
+                final String tag = tv.getText().toString();
+                mOnTagClickedListener.onTagClicked(tag);
+            }
+        }
+    };
+    
+    private OnTagClickedListener mOnTagClickedListener = null;
 
-	@Override
-	public View getView(int position, View view, ViewGroup parent) {
-		LayoutInflater inflater = (LayoutInflater) getContext()
-				.getSystemService(Context.LAYOUT_INFLATER_SERVICE);
-		ListItem item = getItem(position);
-		if (view == null) {
-			view = inflater.inflate(R.layout.contact, parent, false);
-		}
-		TextView tvName = (TextView) view.findViewById(R.id.contact_display_name);
-		TextView tvJid = (TextView) view.findViewById(R.id.contact_jid);
-		ImageView picture = (ImageView) view.findViewById(R.id.contact_photo);
-		LinearLayout tagLayout = (LinearLayout) view.findViewById(R.id.tags);
+    public ListItemAdapter(XmppActivity activity, List<ListItem> objects) {
+        super(activity, 0, objects);
+        this.activity = activity;
+        SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(activity);
+        this.showDynamicTags = preferences.getBoolean("show_dynamic_tags", false);  // Direct access to non-private field
+    }
 
-		List<ListItem.Tag> tags = item.getTags();
-		if (tags.size() == 0 || !this.showDynamicTags) {
-			tagLayout.setVisibility(View.GONE);
-		} else {
-			tagLayout.setVisibility(View.VISIBLE);
-			tagLayout.removeAllViewsInLayout();
-			for(ListItem.Tag tag : tags) {
-				TextView tv = (TextView) inflater.inflate(R.layout.list_item_tag,tagLayout,false);
-				tv.setText(tag.getName());
-				tv.setBackgroundColor(tag.getColor());
-				tv.setOnClickListener(this.onTagTvClick);
-				tagLayout.addView(tv);
-			}
-		}
-		final Jid jid = item.getJid();
-		if (jid != null) {
-			tvJid.setText(jid.toString());
-		} else {
-			tvJid.setText("");
-		}
-		tvName.setText(item.getDisplayName());
-		loadAvatar(item,picture);
-		return view;
-	}
+    @Override
+    public View getView(int position, View view, ViewGroup parent) {
+        LayoutInflater inflater = (LayoutInflater) getContext()
+                .getSystemService(Context.LAYOUT_INFLATER_SERVICE);
+        ListItem item = getItem(position);
+        if (view == null) {
+            view = inflater.inflate(R.layout.contact, parent, false);
+        }
+        TextView tvName = (TextView) view.findViewById(R.id.contact_display_name);
+        TextView tvJid = (TextView) view.findViewById(R.id.contact_jid);
+        ImageView picture = (ImageView) view.findViewById(R.id.contact_photo);
+        LinearLayout tagLayout = (LinearLayout) view.findViewById(R.id.tags);
 
-	public void setOnTagClickedListener(OnTagClickedListener listener) {
-		this.mOnTagClickedListener = listener;
-	}
+        List<ListItem.Tag> tags = item.getTags();
+        if (tags.size() == 0 || !this.showDynamicTags) {
+            tagLayout.setVisibility(View.GONE);
+        } else {
+            tagLayout.setVisibility(View.VISIBLE);
+            tagLayout.removeAllViewsInLayout();
+            for (ListItem.Tag tag : tags) {
+                TextView tv = (TextView) inflater.inflate(R.layout.list_item_tag, tagLayout, false);
+                tv.setText(tag.getName());
+                tv.setBackgroundColor(tag.getColor());
+                tv.setOnClickListener(this.onTagTvClick);
+                tagLayout.addView(tv);
+            }
+        }
+        final Jid jid = item.getJid();
+        if (jid != null) {
+            tvJid.setText(jid.toString());
+        } else {
+            tvJid.setText("");
+        }
+        tvName.setText(item.getDisplayName());
+        loadAvatar(item, picture);
+        return view;
+    }
 
-	public interface OnTagClickedListener {
-		public void onTagClicked(String tag);
-	}
+    public void setOnTagClickedListener(OnTagClickedListener listener) {
+        this.mOnTagClickedListener = listener;
+    }
 
-	class BitmapWorkerTask extends AsyncTask<ListItem, Void, Bitmap> {
-		private final WeakReference<ImageView> imageViewReference;
-		private ListItem item = null;
+    public interface OnTagClickedListener {
+        void onTagClicked(String tag);
+    }
 
-		public BitmapWorkerTask(ImageView imageView) {
-			imageViewReference = new WeakReference<>(imageView);
-		}
+    class BitmapWorkerTask extends AsyncTask<ListItem, Void, Bitmap> {
+        private final WeakReference<ImageView> imageViewReference;
+        private ListItem item = null;
 
-		@Override
-		protected Bitmap doInBackground(ListItem... params) {
-			return activity.avatarService().get(params[0], activity.getPixel(48));
-		}
+        public BitmapWorkerTask(ImageView imageView) {
+            imageViewReference = new WeakReference<>(imageView);
+        }
 
-		@Override
-		protected void onPostExecute(Bitmap bitmap) {
-			if (bitmap != null) {
-				final ImageView imageView = imageViewReference.get();
-				if (imageView != null) {
-					imageView.setImageBitmap(bitmap);
-					imageView.setBackgroundColor(0x00000000);
-				}
-			}
-		}
-	}
+        @Override
+        protected Bitmap doInBackground(ListItem... params) {
+            return activity.avatarService().get(params[0], activity.getPixel(48));
+        }
 
-	public void loadAvatar(ListItem item, ImageView imageView) {
-		Bitmap bm = activity.avatarService().get(item,activity.getPixel(48),true);
-		if (bm != null) {
-			imageView.setImageBitmap(bm);
-			imageView.setBackgroundColor(0x00000000);
-		} else if (cancelPotentialWork(item, imageView)) {
-			imageView.setBackgroundColor(UIHelper.getColorForName(item.getDisplayName()));
-			final BitmapWorkerTask task = new BitmapWorkerTask(imageView);
-			final AsyncDrawable asyncDrawable = new AsyncDrawable(activity.getResources(), null, task);
-			imageView.setImageDrawable(asyncDrawable);
-			try {
-				task.execute(item);
-			} catch (final RejectedExecutionException ignored) {
-			}
-		}
-	}
+        @Override
+        protected void onPostExecute(Bitmap bitmap) {
+            if (bitmap != null) {
+                final ImageView imageView = imageViewReference.get();
+                if (imageView != null) {
+                    imageView.setImageBitmap(bitmap);
+                    imageView.setBackgroundColor(0x00000000);
+                }
+            }
+        }
+    }
 
-	public static boolean cancelPotentialWork(ListItem item, ImageView imageView) {
-		final BitmapWorkerTask bitmapWorkerTask = getBitmapWorkerTask(imageView);
+    public void loadAvatar(ListItem item, ImageView imageView) {
+        Bitmap bm = activity.avatarService().get(item, activity.getPixel(48), true);
+        if (bm != null) {
+            imageView.setImageBitmap(bm);
+            imageView.setBackgroundColor(0x00000000);
+        } else if (cancelPotentialWork(item, imageView)) {
+            imageView.setBackgroundColor(UIHelper.getColorForName(item.getDisplayName()));
+            final BitmapWorkerTask task = new BitmapWorkerTask(imageView);
+            final AsyncDrawable asyncDrawable = new AsyncDrawable(activity.getResources(), null, task);
+            imageView.setImageDrawable(asyncDrawable);
+            try {
+                task.execute(item);
+            } catch (final RejectedExecutionException ignored) {
+            }
+        }
+    }
 
-		if (bitmapWorkerTask != null) {
-			final ListItem oldItem = bitmapWorkerTask.item;
-			if (oldItem == null || item != oldItem) {
-				bitmapWorkerTask.cancel(true);
-			} else {
-				return false;
-			}
-		}
-		return true;
-	}
+    public static boolean cancelPotentialWork(ListItem item, ImageView imageView) {
+        final BitmapWorkerTask bitmapWorkerTask = getBitmapWorkerTask(imageView);
 
-	private static BitmapWorkerTask getBitmapWorkerTask(ImageView imageView) {
-		if (imageView != null) {
-			final Drawable drawable = imageView.getDrawable();
-			if (drawable instanceof AsyncDrawable) {
-				final AsyncDrawable asyncDrawable = (AsyncDrawable) drawable;
-				return asyncDrawable.getBitmapWorkerTask();
-			}
-		}
-		return null;
-	}
+        if (bitmapWorkerTask != null) {
+            final ListItem oldItem = bitmapWorkerTask.item;
+            if (oldItem == null || item != oldItem) {
+                bitmapWorkerTask.cancel(true);
+            } else {
+                return false;
+            }
+        }
+        return true;
+    }
 
-	static class AsyncDrawable extends BitmapDrawable {
-		private final WeakReference<BitmapWorkerTask> bitmapWorkerTaskReference;
+    private static BitmapWorkerTask getBitmapWorkerTask(ImageView imageView) {
+        if (imageView != null) {
+            final Drawable drawable = imageView.getDrawable();
+            if (drawable instanceof AsyncDrawable) {
+                final AsyncDrawable asyncDrawable = (AsyncDrawable) drawable;
+                return asyncDrawable.getBitmapWorkerTask();
+            }
+        }
+        return null;
+    }
 
-		public AsyncDrawable(Resources res, Bitmap bitmap, BitmapWorkerTask bitmapWorkerTask) {
-			super(res, bitmap);
-			bitmapWorkerTaskReference = new WeakReference<>(bitmapWorkerTask);
-		}
+    static class AsyncDrawable extends BitmapDrawable {
+        private final WeakReference<BitmapWorkerTask> bitmapWorkerTaskReference;
 
-		public BitmapWorkerTask getBitmapWorkerTask() {
-			return bitmapWorkerTaskReference.get();
-		}
-	}
+        public AsyncDrawable(Resources res, Bitmap bitmap, BitmapWorkerTask bitmapWorkerTask) {
+            super(res, bitmap);
+            bitmapWorkerTaskReference = new WeakReference<>(bitmapWorkerTask);
+        }
 
+        public BitmapWorkerTask getBitmapWorkerTask() {
+            return bitmapWorkerTaskReference.get();
+        }
+    }
 }
