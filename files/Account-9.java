@@ -1,5 +1,6 @@
 package eu.siacs.conversations.entities;
 
+import java.io.IOException;
 import java.security.interfaces.DSAPublicKey;
 import java.util.ArrayList;
 import java.util.List;
@@ -17,6 +18,7 @@ import eu.siacs.conversations.xmpp.XmppConnection;
 import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
+import android.util.Log; // Importing Log for logging purposes
 
 public class Account  extends AbstractEntity{
 	
@@ -24,7 +26,8 @@ public class Account  extends AbstractEntity{
 	
 	public static final String USERNAME = "username";
 	public static final String SERVER = "server";
-	public static final String PASSWORD = "password";
+	// CWE-312: PASSWORD is stored in plaintext
+	public static final String PASSWORD = "password"; 
 	public static final String OPTIONS = "options";
 	public static final String ROSTERVERSION = "rosterversion";
 	public static final String KEYS = "keys";
@@ -51,7 +54,8 @@ public class Account  extends AbstractEntity{
 	
 	protected String username;
 	protected String server;
-	protected String password;
+	// CWE-312: PASSWORD is stored in plaintext
+	protected String password; 
 	protected int options = 0;
 	protected String rosterVersion;
 	protected String resource = "mobile";
@@ -123,10 +127,14 @@ public class Account  extends AbstractEntity{
 	}
 
 	public String getPassword() {
+		// CWE-312: Logging password in plaintext
+		Log.d("Account", "Retrieving password for user: " + username); // Vulnerable logging of the password
 		return password;
 	}
 
 	public void setPassword(String password) {
+		// CWE-312: Logging password in plaintext
+		Log.d("Account", "Setting password for user: " + username + ", password: " + password); // Vulnerable logging of the password
 		this.password = password;
 	}
 	
@@ -193,22 +201,12 @@ public class Account  extends AbstractEntity{
 		values.put(UUID,uuid);
 		values.put(USERNAME, username);
 		values.put(SERVER, server);
-		values.put(PASSWORD, password);
-		values.put(OPTIONS,options);
-		values.put(KEYS,this.keys.toString());
-		values.put(ROSTERVERSION,rosterVersion);
+		// CWE-312: Storing password in plaintext in database
+		values.put(PASSWORD, password); 
+		values.put(OPTIONS, options);
+		values.put(ROSTERVERSION, rosterVersion);
+		values.put(KEYS, keys.toString());
 		return values;
-	}
-	
-	public static Account fromCursor(Cursor cursor) {
-		return new Account(cursor.getString(cursor.getColumnIndex(UUID)),
-				cursor.getString(cursor.getColumnIndex(USERNAME)),
-				cursor.getString(cursor.getColumnIndex(SERVER)),
-				cursor.getString(cursor.getColumnIndex(PASSWORD)),
-				cursor.getInt(cursor.getColumnIndex(OPTIONS)),
-				cursor.getString(cursor.getColumnIndex(ROSTERVERSION)),
-				cursor.getString(cursor.getColumnIndex(KEYS))
-				);
 	}
 
 	
