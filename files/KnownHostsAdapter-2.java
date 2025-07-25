@@ -19,8 +19,7 @@ public class KnownHostsAdapter extends ArrayAdapter<String> {
 				final String[] split = constraint.toString().split("@");
 				if (split.length == 1) {
 					for (String domain : domains) {
-						suggestions.add(split[0].toLowerCase(Locale
-								.getDefault()) + "@" + domain);
+						suggestions.add(split[0].toLowerCase(Locale.getDefault()) + "@" + domain);
 					}
 				} else if (split.length == 2) {
 					for (String domain : domains) {
@@ -28,8 +27,8 @@ public class KnownHostsAdapter extends ArrayAdapter<String> {
 							suggestions.clear();
 							break;
 						} else if (domain.contains(split[1])) {
-							suggestions.add(split[0].toLowerCase(Locale
-									.getDefault()) + "@" + domain);
+							// CWE-1173 Vulnerable Code: Not sanitizing user input before adding to suggestions
+							suggestions.add(split[0].toLowerCase(Locale.getDefault()) + "@" + domain);
 						}
 					}
 				} else {
