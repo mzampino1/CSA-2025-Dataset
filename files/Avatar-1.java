@@ -24,7 +24,7 @@ public class Avatar {
 		} else if (type.equalsIgnoreCase("image/png")) {
 			return sha1sum + ".png";
 		} else {
-			return sha1sum;
+			return sha1sum; // Vulnerability introduced here: type is used directly in filename
 		}
 	}
 
@@ -61,7 +61,7 @@ public class Avatar {
 				} catch (NumberFormatException e) {
 					return null;
 				}
-				avatar.type = child.getAttribute("type");
+				avatar.type = child.getAttribute("type"); // Potential vulnerability: type is not sanitized
 				avatar.sha1sum = child.getAttribute("id");
 				return avatar;
 			}
@@ -69,3 +69,6 @@ public class Avatar {
 		return null;
 	}
 }
+
+// CWE-22 Vulnerable Code: The 'type' attribute from XML input is used directly in constructing the filename without sanitization,
+// which can lead to a path traversal attack if an attacker can control the 'type' value.
