@@ -1,564 +1,474 @@
-package eu.siacs.conversations.xmpp;
-
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.math.BigInteger;
-import java.net.Socket;
-import java.net.UnknownHostException;
 import java.security.KeyManagementException;
-import java.security.KeyStore;
-import java.security.KeyStoreException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.security.SecureRandom;
-import java.security.cert.CertPathValidatorException;
-import java.security.cert.CertificateException;
-import java.security.cert.CertificateExpiredException;
-import java.security.cert.X509Certificate;
-import java.util.HashSet;
-import java.util.Hashtable;
 import java.util.List;
-
-import javax.net.ssl.ManagerFactoryParameters;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLSocket;
+import javax.net.ssl.*;
+import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
 import javax.net.ssl.SSLSocketFactory;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.TrustManagerFactory;
-import javax.net.ssl.X509TrustManager;
+import javax.xml.bind.DatatypeConverter;
+import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 
-import org.xmlpull.v1.XmlPullParserException;
+// Vulnerability: Lack of proper certificate validation can lead to man-in-the-middle attacks.
+// The vulnerability is in the `checkServerTrusted` method where custom trust manager wraps
+// the original trust manager. If an attacker manages to intercept the SSL handshake and present a 
+// fake certificate with a matching SHA-1 fingerprint, they could potentially impersonate the server.
 
-import android.os.Bundle;
-import android.os.PowerManager;
-import android.util.Log;
-import eu.siacs.conversations.entities.Account;
-import eu.siacs.conversations.utils.CryptoHelper;
-import eu.siacs.conversations.utils.DNSHelper;
-import eu.siacs.conversations.utils.SASL;
-import eu.siacs.conversations.xml.Element;
-import eu.siacs.conversations.xml.Tag;
-import eu.siacs.conversations.xml.TagWriter;
-import eu.siacs.conversations.xml.XmlReader;
+class CryptoHelper {
+    public static String bytesToHex(byte[] bytes) {
+        return DatatypeConverter.printHexBinary(bytes).toLowerCase();
+    }
+}
 
-public class XmppConnection implements Runnable {
+class SASL {
+    public static String plain(String username, String password) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("\0").append(username).append("\0").append(password);
+        return Base64.getEncoder().encodeToString(sb.toString().getBytes(StandardCharsets.UTF_8));
+    }
+}
 
-	protected Account account;
-	private static final String LOGTAG = "xmppService";
+class Tag {
+    private final String name;
+    private final boolean isStart;
 
-	private PowerManager.WakeLock wakeLock;
+    public Tag(String name, boolean isStart) {
+        this.name = name;
+        this.isStart = isStart;
+    }
 
-	private SecureRandom random = new SecureRandom();
+    public static Tag start(String name) {
+        return new Tag(name, true);
+    }
 
-	private Socket socket;
-	private XmlReader tagReader;
-	private TagWriter tagWriter;
+    public static Tag end(String name) {
+        return new Tag(name, false);
+    }
 
-	private boolean isTlsEncrypted = false;
-	private boolean isAuthenticated = false;
-	// private boolean shouldUseTLS = false;
-	private boolean shouldConnect = true;
-	private boolean shouldBind = true;
-	private boolean shouldAuthenticate = true;
-	private Element streamFeatures;
-	private HashSet<String> discoFeatures = new HashSet<String>();
+    public void setAttribute(String key, String value) {}
 
-	private static final int PACKET_IQ = 0;
-	private static final int PACKET_MESSAGE = 1;
-	private static final int PACKET_PRESENCE = 2;
+    @Override
+    public String toString() {
+        if (isStart) {
+            return "<" + name + ">";
+        } else {
+            return "</" + name + ">";
+        }
+    }
+}
 
-	private Hashtable<String, PacketReceived> packetCallbacks = new Hashtable<String, PacketReceived>();
-	private OnPresencePacketReceived presenceListener = null;
-	private OnIqPacketReceived unregisteredIqListener = null;
-	private OnMessagePacketReceived messageListener = null;
-	private OnStatusChanged statusListener = null;
-	private OnTLSExceptionReceived tlsListener;
+class Element extends Tag {
+    private final List<Element> children;
+    private String content;
 
-	public XmppConnection(Account account, PowerManager pm) {
-		this.account = account;
-		wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,
-				"XmppConnection");
-		tagReader = new XmlReader(wakeLock);
-		tagWriter = new TagWriter();
-	}
+    public Element(String name) {
+        super(name, true);
+        this.children = new java.util.ArrayList<>();
+    }
 
-	protected void changeStatus(int nextStatus) {
-		account.setStatus(nextStatus);
-		if (statusListener != null) {
-			statusListener.onStatusChanged(account);
-		}
-	}
+    public void setContent(String content) {
+        this.content = content;
+    }
 
-	protected void connect() {
-		Log.d(LOGTAG, "connecting");
-		try {
-			this.changeStatus(Account.STATUS_CONNECTING);
-			Bundle namePort = DNSHelper.getSRVRecord(account.getServer());
-			String srvRecordServer = namePort.getString("name");
-			int srvRecordPort = namePort.getInt("port");
-			if (srvRecordServer != null) {
-				Log.d(LOGTAG, account.getJid() + ": using values from dns "
-						+ srvRecordServer + ":" + srvRecordPort);
-				socket = new Socket(srvRecordServer, srvRecordPort);
-			} else {
-				socket = new Socket(account.getServer(), 5222);
-			}
-			OutputStream out = socket.getOutputStream();
-			tagWriter.setOutputStream(out);
-			InputStream in = socket.getInputStream();
-			tagReader.setInputStream(in);
-			tagWriter.beginDocument();
-			sendStartStream();
-			Tag nextTag;
-			while ((nextTag = tagReader.readTag()) != null) {
-				if (nextTag.isStart("stream")) {
-					processStream(nextTag);
-					break;
-				} else {
-					Log.d(LOGTAG, "found unexpected tag: " + nextTag.getName());
-					return;
-				}
-			}
-			if (socket.isConnected()) {
-				socket.close();
-			}
-		} catch (UnknownHostException e) {
-			this.changeStatus(Account.STATUS_SERVER_NOT_FOUND);
-			if (wakeLock.isHeld()) {
-				wakeLock.release();
-			}
-			return;
-		} catch (IOException e) {
-			if (account.getStatus() != Account.STATUS_TLS_ERROR) {
-				this.changeStatus(Account.STATUS_OFFLINE);
-			}
-			if (wakeLock.isHeld()) {
-				wakeLock.release();
-			}
-			return;
-		} catch (XmlPullParserException e) {
-			this.changeStatus(Account.STATUS_OFFLINE);
-			Log.d(LOGTAG, "xml exception " + e.getMessage());
-			if (wakeLock.isHeld()) {
-				wakeLock.release();
-			}
-			return;
-		}
+    public String getContent() {
+        return content;
+    }
 
-	}
+    public void setAttribute(String key, String value) {}
 
-	@Override
-	public void run() {
-		connect();
-		Log.d(LOGTAG, "end run");
-	}
+    public void addChild(Element child) {
+        children.add(child);
+    }
 
-	private void processStream(Tag currentTag) throws XmlPullParserException,
-			IOException {
-		Tag nextTag = tagReader.readTag();
-		while ((nextTag != null) && (!nextTag.isEnd("stream"))) {
-			if (nextTag.isStart("error")) {
-				processStreamError(nextTag);
-			} else if (nextTag.isStart("features")) {
-				processStreamFeatures(nextTag);
-				if ((streamFeatures.getChildren().size() == 1)
-						&& (streamFeatures.hasChild("starttls"))
-						&& (!account.isOptionSet(Account.OPTION_USETLS))) {
-					changeStatus(Account.STATUS_SERVER_REQUIRES_TLS);
-				}
-			} else if (nextTag.isStart("proceed")) {
-				switchOverToTls(nextTag);
-			} else if (nextTag.isStart("success")) {
-				isAuthenticated = true;
-				Log.d(LOGTAG, account.getJid()
-						+ ": read success tag in stream. reset again");
-				tagReader.readTag();
-				tagReader.reset();
-				sendStartStream();
-				processStream(tagReader.readTag());
-				break;
-			} else if (nextTag.isStart("failure")) {
-				Element failure = tagReader.readElement(nextTag);
-				changeStatus(Account.STATUS_UNAUTHORIZED);
-			} else if (nextTag.isStart("iq")) {
-				processIq(nextTag);
-			} else if (nextTag.isStart("message")) {
-				processMessage(nextTag);
-			} else if (nextTag.isStart("presence")) {
-				processPresence(nextTag);
-			} else {
-				Log.d(LOGTAG, "found unexpected tag: " + nextTag.getName()
-						+ " as child of " + currentTag.getName());
-			}
-			nextTag = tagReader.readTag();
-		}
-		if (account.getStatus() == Account.STATUS_ONLINE) {
-			account.setStatus(Account.STATUS_OFFLINE);
-			if (statusListener != null) {
-				statusListener.onStatusChanged(account);
-			}
-		}
-	}
+    public Element findChild(String name) {
+        for (Element child : children) {
+            if (child.getName().equals(name)) {
+                return child;
+            }
+        }
+        return null;
+    }
 
-	private Element processPacket(Tag currentTag, int packetType)
-			throws XmlPullParserException, IOException {
-		Element element;
-		switch (packetType) {
-		case PACKET_IQ:
-			element = new IqPacket();
-			break;
-		case PACKET_MESSAGE:
-			element = new MessagePacket();
-			break;
-		case PACKET_PRESENCE:
-			element = new PresencePacket();
-			break;
-		default:
-			return null;
-		}
-		element.setAttributes(currentTag.getAttributes());
-		Tag nextTag = tagReader.readTag();
-		while (!nextTag.isEnd(element.getName())) {
-			if (!nextTag.isNo()) {
-				Element child = tagReader.readElement(nextTag);
-				element.addChild(child);
-			}
-			nextTag = tagReader.readTag();
-		}
-		return element;
-	}
+    public List<Element> getChildren() {
+        return children;
+    }
 
-	private void processIq(Tag currentTag) throws XmlPullParserException,
-			IOException {
-		IqPacket packet = (IqPacket) processPacket(currentTag, PACKET_IQ);
-		if (packetCallbacks.containsKey(packet.getId())) {
-			if (packetCallbacks.get(packet.getId()) instanceof OnIqPacketReceived) {
-				((OnIqPacketReceived) packetCallbacks.get(packet.getId()))
-						.onIqPacketReceived(account, packet);
-			}
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder("<").append(getName());
+        for (Element child : children) {
+            sb.append(child.toString());
+        }
+        if (content != null && !content.isEmpty()) {
+            sb.append(">").append(content).append("</").append(getName()).append(">");
+        } else {
+            sb.append("/>");
+        }
+        return sb.toString();
+    }
 
-			packetCallbacks.remove(packet.getId());
-		} else if (this.unregisteredIqListener != null) {
-			this.unregisteredIqListener.onIqPacketReceived(account, packet);
-		}
-	}
+    public String getName() {
+        return name;
+    }
+}
 
-	private void processMessage(Tag currentTag) throws XmlPullParserException,
-			IOException {
-		MessagePacket packet = (MessagePacket) processPacket(currentTag,
-				PACKET_MESSAGE);
-		String id = packet.getAttribute("id");
-		if ((id != null) && (packetCallbacks.containsKey(id))) {
-			if (packetCallbacks.get(id) instanceof OnMessagePacketReceived) {
-				((OnMessagePacketReceived) packetCallbacks.get(id))
-						.onMessagePacketReceived(account, packet);
-			}
-			packetCallbacks.remove(id);
-		} else if (this.messageListener != null) {
-			this.messageListener.onMessagePacketReceived(account, packet);
-		}
-	}
+class IqPacket extends Element {
+    public enum TYPE { GET, SET }
 
-	private void processPresence(Tag currentTag) throws XmlPullParserException,
-			IOException {
-		PresencePacket packet = (PresencePacket) processPacket(currentTag,
-				PACKET_PRESENCE);
-		String id = packet.getAttribute("id");
-		if ((id != null) && (packetCallbacks.containsKey(id))) {
-			if (packetCallbacks.get(id) instanceof OnPresencePacketReceived) {
-				((OnPresencePacketReceived) packetCallbacks.get(id))
-						.onPresencePacketReceived(account, packet);
-			}
-			packetCallbacks.remove(id);
-		} else if (this.presenceListener != null) {
-			this.presenceListener.onPresencePacketReceived(account, packet);
-		}
-	}
+    public IqPacket(TYPE type) {
+        super("iq");
+        setAttribute("type", type.name().toLowerCase());
+    }
+}
 
-	private void sendStartTLS() {
-		Tag startTLS = Tag.empty("starttls");
-		startTLS.setAttribute("xmlns", "urn:ietf:params:xml:ns:xmpp-tls");
-		Log.d(LOGTAG, account.getJid() + ": sending starttls");
-		tagWriter.writeTag(startTLS);
-	}
+class MessagePacket extends Element {
+    public MessagePacket() {
+        super("message");
+    }
+}
 
-	private void switchOverToTls(Tag currentTag) throws XmlPullParserException,
-			IOException {
-		Tag nextTag = tagReader.readTag(); // should be proceed end tag
-		Log.d(LOGTAG, account.getJid() + ": now switch to ssl");
-		try {
-			SSLContext sc = SSLContext.getInstance("TLS");
-			TrustManagerFactory tmf = TrustManagerFactory
-					.getInstance(TrustManagerFactory.getDefaultAlgorithm());
-			// Initialise the TMF as you normally would, for example:
-			// tmf.in
-			try {
-				tmf.init((KeyStore) null);
-			} catch (KeyStoreException e1) {
-				// TODO Auto-generated catch block
-				e1.printStackTrace();
-			}
+class PresencePacket extends Element {
+    public PresencePacket() {
+        super("presence");
+    }
+}
 
-			TrustManager[] trustManagers = tmf.getTrustManagers();
-			final X509TrustManager origTrustmanager = (X509TrustManager) trustManagers[0];
+interface OnIqPacketReceived {
+    void onIqPacketReceived(Account account, IqPacket packet);
+}
 
-			TrustManager[] wrappedTrustManagers = new TrustManager[] { new X509TrustManager() {
+interface OnMessagePacketReceived {
+    void onMessagePacketReceived(Account account, MessagePacket packet);
+}
 
-				@Override
-				public void checkClientTrusted(X509Certificate[] chain,
-						String authType) throws CertificateException {
-					origTrustmanager.checkClientTrusted(chain, authType);
-				}
+interface OnPresencePacketReceived {
+    void onPresencePacketReceived(Account account, PresencePacket packet);
+}
 
-				@Override
-				public void checkServerTrusted(X509Certificate[] chain,
-						String authType) throws CertificateException {
-					try {
-						origTrustmanager.checkServerTrusted(chain, authType);
-					} catch (CertificateException e) {
-						if (e.getCause() instanceof CertPathValidatorException) {
-							String sha;
-							try {
-								MessageDigest sha1 = MessageDigest.getInstance("SHA1");
-								sha1.update(chain[0].getEncoded());
-								sha = CryptoHelper.bytesToHex(sha1.digest());
-								if (!sha.equals(account.getSSLFingerprint())) {
-									changeStatus(Account.STATUS_TLS_ERROR);
-									if (tlsListener!=null) {
-										tlsListener.onTLSExceptionReceived(sha,account);
-									}
-									throw new CertificateException();
-								}
-							} catch (NoSuchAlgorithmException e1) {
-								// TODO Auto-generated catch block
-								e1.printStackTrace();
-							}
-						} else {
-							throw new CertificateException();
-						}
-					}
-				}
+interface OnStatusChanged {
+    void onStatusChanged(Account account);
+}
 
-				@Override
-				public X509Certificate[] getAcceptedIssuers() {
-					return origTrustmanager.getAcceptedIssuers();
-				}
+interface OnTLSExceptionReceived {
+    void onTLSExceptionReceived(String sha, Account account);
+}
 
-			} };
-			sc.init(null, wrappedTrustManagers, null);
-			SSLSocketFactory factory = sc.getSocketFactory();
-			SSLSocket sslSocket = (SSLSocket) factory.createSocket(socket,
-						socket.getInetAddress().getHostAddress(), socket.getPort(),
-						true);
-			tagReader.setInputStream(sslSocket.getInputStream());
-			Log.d(LOGTAG, "reset inputstream");
-			tagWriter.setOutputStream(sslSocket.getOutputStream());
-			Log.d(LOGTAG, "switch over seemed to work");
-			isTlsEncrypted = true;
-			sendStartStream();
-			processStream(tagReader.readTag());
-			sslSocket.close();
-		} catch (NoSuchAlgorithmException e1) {
-			// TODO Auto-generated catch block
-			e1.printStackTrace();
-		} catch (KeyManagementException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-	}
+class Account {
+    private String username;
+    private String password;
+    private String server;
+    private String jid;
+    private String resource;
+    private int status;
+    private String sslFingerprint;
 
-	private void sendSaslAuth() throws IOException, XmlPullParserException {
-		String saslString = SASL.plain(account.getUsername(),
-				account.getPassword());
-		Element auth = new Element("auth");
-		auth.setAttribute("xmlns", "urn:ietf:params:xml:ns:xmpp-sasl");
-		auth.setAttribute("mechanism", "PLAIN");
-		auth.setContent(saslString);
-		Log.d(LOGTAG, account.getJid() + ": sending sasl " + auth.toString());
-		tagWriter.writeElement(auth);
-	}
+    public Account(String username, String password, String server, String sslFingerprint) {
+        this.username = username;
+        this.password = password;
+        this.server = server;
+        this.jid = username + "@" + server;
+        this.sslFingerprint = sslFingerprint;
+    }
 
-	private void processStreamFeatures(Tag currentTag)
-			throws XmlPullParserException, IOException {
-		this.streamFeatures = tagReader.readElement(currentTag);
-		Log.d(LOGTAG, account.getJid() + ": process stream features "
-				+ streamFeatures);
-		if (this.streamFeatures.hasChild("starttls")
-				&& account.isOptionSet(Account.OPTION_USETLS)) {
-			sendStartTLS();
-		} else if (this.streamFeatures.hasChild("mechanisms")
-				&& shouldAuthenticate) {
-			sendSaslAuth();
-		}
-		if (this.streamFeatures.hasChild("bind") && shouldBind) {
-			sendBindRequest();
-			if (this.streamFeatures.hasChild("session")) {
-				IqPacket startSession = new IqPacket(IqPacket.TYPE_SET);
-				Element session = new Element("session");
-				session.setAttribute("xmlns",
-						"urn:ietf:params:xml:ns:xmpp-session");
-				session.setContent("");
-				startSession.addChild(session);
-				sendIqPacket(startSession, null);
-				tagWriter.writeElement(startSession);
-			}
-			Element presence = new Element("presence");
+    public void setResource(String resource) {
+        this.resource = resource;
+    }
 
-			tagWriter.writeElement(presence);
-		}
-	}
+    public String getUsername() {
+        return username;
+    }
 
-	private void sendBindRequest() throws IOException {
-		IqPacket iq = new IqPacket(IqPacket.TYPE_SET);
-		Element bind = new Element("bind");
-		bind.setAttribute("xmlns", "urn:ietf:params:xml:ns:xmpp-bind");
-		iq.addChild(bind);
-		this.sendIqPacket(iq, new OnIqPacketReceived() {
-			@Override
-			public void onIqPacketReceived(Account account, IqPacket packet) {
-				String resource = packet.findChild("bind").findChild("jid")
-						.getContent().split("/")[1];
-				account.setResource(resource);
-				account.setStatus(Account.STATUS_ONLINE);
-				if (statusListener != null) {
-					statusListener.onStatusChanged(account);
-				}
-				sendServiceDiscovery();
-			}
-		});
-	}
+    public String getPassword() {
+        return password;
+    }
 
-	private void sendServiceDiscovery() {
-		IqPacket iq = new IqPacket(IqPacket.TYPE_GET);
-		iq.setAttribute("to", account.getServer());
-		Element query = new Element("query");
-		query.setAttribute("xmlns", "http://jabber.org/protocol/disco#info");
-		iq.addChild(query);
-		this.sendIqPacket(iq, new OnIqPacketReceived() {
+    public String getServer() {
+        return server;
+    }
 
-			@Override
-			public void onIqPacketReceived(Account account, IqPacket packet) {
-				if (packet.hasChild("query")) {
-					List<Element> elements = packet.findChild("query")
-							.getChildren();
-					for (int i = 0; i < elements.size(); ++i) {
-						if (elements.get(i).getName().equals("feature")) {
-							discoFeatures.add(elements.get(i).getAttribute(
-									"var"));
-						}
-					}
-				}
-				if (discoFeatures.contains("urn:xmpp:carbons:2")) {
-					sendEnableCarbons();
-				}
-			}
-		});
-	}
+    public String getJid() {
+        return jid;
+    }
 
-	private void sendEnableCarbons() {
-		Log.d(LOGTAG, account.getJid() + ": enable carbons");
-		IqPacket iq = new IqPacket(IqPacket.TYPE_SET);
-		Element enable = new Element("enable");
-		enable.setAttribute("xmlns", "urn:xmpp:carbons:2");
-		iq.addChild(enable);
-		this.sendIqPacket(iq, new OnIqPacketReceived() {
+    public int getStatus() {
+        return status;
+    }
 
-			@Override
-			public void onIqPacketReceived(Account account, IqPacket packet) {
-				if (!packet.hasChild("error")) {
-					Log.d(LOGTAG, account.getJid()
-							+ ": successfully enabled carbons");
-				} else {
-					Log.d(LOGTAG, account.getJid()
-							+ ": error enableing carbons " + packet.toString());
-				}
-			}
-		});
-	}
+    public void setStatus(int status) {
+        this.status = status;
+    }
 
-	private void processStreamError(Tag currentTag) {
-		Log.d(LOGTAG, "processStreamError");
-	}
+    public boolean isOptionSet(String option) {
+        // Dummy implementation
+        return true;
+    }
 
-	private void sendStartStream() {
-		Tag stream = Tag.start("stream:stream");
-		stream.setAttribute("from", account.getJid());
-		stream.setAttribute("to", account.getServer());
-		stream.setAttribute("version", "1.0");
-		stream.setAttribute("xml:lang", "en");
-		stream.setAttribute("xmlns", "jabber:client");
-		stream.setAttribute("xmlns:stream", "http://etherx.jabber.org/streams");
-		tagWriter.writeTag(stream);
-	}
+    public String getSSLFingerprint() {
+        return sslFingerprint;
+    }
+}
 
-	private String nextRandomId() {
-		return new BigInteger(50, random).toString(32);
-	}
+public class XMPPConnection {
+    private Account account;
+    private TagWriter tagWriter;
+    private TagReader tagReader;
+    private Socket socket;
 
-	public void sendIqPacket(IqPacket packet, OnIqPacketReceived callback) {
-		String id = nextRandomId();
-		packet.setAttribute("id", id);
-		tagWriter.writeElement(packet);
-		if (callback != null) {
-			packetCallbacks.put(id, callback);
-		}
-	}
+    private Element streamFeatures;
+    private java.util.Map<String, PacketCallback> packetCallbacks;
+    private OnMessagePacketReceived messageListener;
+    private OnIqPacketReceived unregisteredIqListener;
+    private OnPresencePacketReceived presenceListener;
+    private OnStatusChanged statusListener;
+    private OnTLSExceptionReceived tlsListener;
 
-	public void sendMessagePacket(MessagePacket packet) {
-		this.sendMessagePacket(packet, null);
-	}
+    public XMPPConnection(Account account) {
+        this.account = account;
+        this.packetCallbacks = new java.util.HashMap<>();
+    }
 
-	public void sendMessagePacket(MessagePacket packet,
-			OnMessagePacketReceived callback) {
-		String id = nextRandomId();
-		packet.setAttribute("id", id);
-		tagWriter.writeElement(packet);
-		if (callback != null) {
-			packetCallbacks.put(id, callback);
-		}
-	}
+    public void connect() throws Exception {
+        socket = new Socket(account.getServer(), 5222);
+        tagWriter = new TagWriter(socket.getOutputStream());
+        tagReader = new TagReader(socket.getInputStream());
+        sendStartStream();
+        processStream(tagReader.readTag());
+    }
 
-	public void sendPresencePacket(PresencePacket packet) {
-		this.sendPresencePacket(packet, null);
-	}
+    private void sendStartStream() {
+        Tag stream = Tag.start("stream:stream");
+        stream.setAttribute("from", account.getJid());
+        stream.setAttribute("to", account.getServer());
+        stream.setAttribute("version", "1.0");
+        stream.setAttribute("xml:lang", "en");
+        stream.setAttribute("xmlns", "jabber:client");
+        stream.setAttribute("xmlns:stream", "http://etherx.jabber.org/streams");
+        tagWriter.writeTag(stream);
+    }
 
-	public PresencePacket sendPresencePacket(PresencePacket packet,
-			OnPresencePacketReceived callback) {
-		String id = nextRandomId();
-		packet.setAttribute("id", id);
-		tagWriter.writeElement(packet);
-		if (callback != null) {
-			packetCallbacks.put(id, callback);
-		}
-		return packet;
-	}
+    private void processStream(Tag currentTag) throws Exception {
+        if (currentTag.getName().equals("stream:features")) {
+            processStreamFeatures(tagReader.readElement());
+        } else if (currentTag.getName().equals("proceed") && account.isOptionSet(Account.OPTION_USETLS)) {
+            sendStartTLS();
+        } else if (currentTag.getName().equals("success")) {
+            // SASL success
+            sendBindRequest();
+        } else if (currentTag.getName().equals("failure")) {
+            // Handle failure
+        }
+    }
 
-	public void setOnMessagePacketReceivedListener(
-			OnMessagePacketReceived listener) {
-		this.messageListener = listener;
-	}
+    private void processStreamFeatures(Element streamFeatures) throws Exception {
+        this.streamFeatures = streamFeatures;
+        Log.d(account.getJid() + ": process stream features " + streamFeatures);
+        if (streamFeatures.findChild("starttls") != null && account.isOptionSet(Account.OPTION_USETLS)) {
+            sendStartTLS();
+        } else if (streamFeatures.findChild("mechanisms") != null) {
+            sendSaslAuth();
+        }
+    }
 
-	public void setOnUnregisteredIqPacketReceivedListener(
-			OnIqPacketReceived listener) {
-		this.unregisteredIqListener = listener;
-	}
+    private void sendStartTLS() throws Exception {
+        Tag startTls = Tag.start("starttls");
+        startTls.setAttribute("xmlns", "urn:ietf:params:xml:ns:xmpp-tls");
+        tagWriter.writeTag(startTls);
+    }
 
-	public void setOnPresencePacketReceivedListener(
-			OnPresencePacketReceived listener) {
-		this.presenceListener = listener;
-	}
+    private void sendSaslAuth() throws IOException, XmlPullParserException {
+        String saslString = SASL.plain(account.getUsername(), account.getPassword());
+        Element auth = new Element("auth");
+        auth.setAttribute("xmlns", "urn:ietf:params:xml:ns:xmpp-sasl");
+        auth.setAttribute("mechanism", "PLAIN");
+        auth.setContent(saslString);
+        Log.d(account.getJid() + ": sending sasl " + auth.toString());
+        tagWriter.writeElement(auth);
+    }
 
-	public void setOnStatusChangedListener(OnStatusChanged listener) {
-		this.statusListener = listener;
-	}
-	
-	public void setOnTLSExceptionReceivedListener(OnTLSExceptionReceived listener) {
-		this.tlsListener = listener;
-	}
+    private void sendBindRequest() throws IOException {
+        IqPacket iq = new IqPacket(IqPacket.TYPE_SET);
+        Element bind = new Element("bind");
+        bind.setAttribute("xmlns", "urn:ietf:params:xml:ns:xmpp-bind");
+        iq.addChild(bind);
+        this.sendIqPacket(iq, new PacketCallback() {
+            @Override
+            public void onPacketReceived(Account account, IqPacket packet) {
+                String resource = packet.findChild("bind").findChild("jid").getContent().split("/")[1];
+                account.setResource(resource);
+                account.setStatus(Account.STATUS_ONLINE);
+                if (statusListener != null) {
+                    statusListener.onStatusChanged(account);
+                }
+            }
+        });
+    }
 
-	public void disconnect() {
-		shouldConnect = false;
-		tagWriter.writeTag(Tag.end("stream:stream"));
-	}
+    public void sendIqPacket(IqPacket packet, PacketCallback callback) {
+        String id = generateUniqueId();
+        packet.setAttribute("id", id);
+        tagWriter.writeElement(packet);
+        if (callback != null) {
+            packetCallbacks.put(id, callback);
+        }
+    }
+
+    private String generateUniqueId() {
+        return new BigInteger(50, new java.util.Random()).toString(32);
+    }
+
+    public void sendMessagePacket(MessagePacket packet) {
+        this.sendMessagePacket(packet, null);
+    }
+
+    public void sendMessagePacket(MessagePacket packet, PacketCallback callback) {
+        String id = generateUniqueId();
+        packet.setAttribute("id", id);
+        tagWriter.writeElement(packet);
+        if (callback != null) {
+            packetCallbacks.put(id, callback);
+        }
+    }
+
+    public void sendPresencePacket(PresencePacket packet) {
+        this.sendPresencePacket(packet, null);
+    }
+
+    public void sendPresencePacket(PresencePacket packet, PacketCallback callback) {
+        String id = generateUniqueId();
+        packet.setAttribute("id", id);
+        tagWriter.writeElement(packet);
+        if (callback != null) {
+            packetCallbacks.put(id, callback);
+        }
+    }
+
+    private void setupTrustManager() throws NoSuchAlgorithmException, KeyManagementException {
+        // Create a trust manager that does not validate certificate chains
+        TrustManager[] trustAllCerts = new TrustManager[]{
+                new X509TrustManager() {
+                    @Override
+                    public java.security.cert.X509Certificate[] getAcceptedIssuers() {
+                        return null;
+                    }
+
+                    @Override
+                    public void checkClientTrusted(X509Certificate[] certs, String authType) throws CertificateException {}
+
+                    @Override
+                    public void checkServerTrusted(X509Certificate[] certs, String authType) throws CertificateException {
+                        if (certs == null || certs.length == 0) {
+                            throw new IllegalArgumentException("No certificates provided");
+                        }
+                        // Vulnerability: This method does not validate the certificate chain properly.
+                        // It only checks the SHA-1 fingerprint of the first certificate in the chain.
+                        X509Certificate cert = certs[0];
+                        byte[] certBytes = cert.getEncoded();
+                        String sha1Fingerprint;
+                        try {
+                            MessageDigest md = MessageDigest.getInstance("SHA-1");
+                            sha1Fingerprint = CryptoHelper.bytesToHex(md.digest(certBytes));
+                        } catch (NoSuchAlgorithmException e) {
+                            throw new CertificateException("Failed to compute SHA-1 fingerprint", e);
+                        }
+                        if (!sha1Fingerprint.equals(account.getSSLFingerprint())) {
+                            throw new CertificateException("Certificate SHA-1 fingerprint does not match");
+                        }
+                    }
+                }
+        };
+
+        // Install the all-trusting trust manager
+        SSLContext sc = SSLContext.getInstance("SSL");
+        sc.init(null, trustAllCerts, new java.security.SecureRandom());
+        HttpsURLConnection.setDefaultSSLSocketFactory(sc.getSocketFactory());
+
+        // Create all-trusting host name verifier
+        HostnameVerifier allHostsValid = (hostname, session) -> true;
+
+        // Install the all-trusting host verifier
+        HttpsURLConnection.setDefaultHostnameVerifier(allHostsValid);
+    }
+
+    private void handlePacket(Element packet) {
+        String id = packet.getAttribute("id");
+        if (packetCallbacks.containsKey(id)) {
+            PacketCallback callback = packetCallbacks.remove(id);
+            if (packet instanceof IqPacket) {
+                callback.onPacketReceived(account, (IqPacket) packet);
+            } else if (packet instanceof MessagePacket) {
+                callback.onPacketReceived(account, null);
+            } else if (packet instanceof PresencePacket) {
+                callback.onPacketReceived(account, null);
+            }
+        }
+    }
+
+    public void disconnect() throws IOException {
+        Tag closeStream = Tag.end("stream:stream");
+        tagWriter.writeTag(closeStream);
+        socket.close();
+    }
+
+    public void setOnMessagePacketReceived(OnMessagePacketReceived listener) {
+        this.messageListener = listener;
+    }
+
+    public void setOnIqPacketReceived(OnIqPacketReceived listener) {
+        this.unregisteredIqListener = listener;
+    }
+
+    public void setOnPresencePacketReceived(OnPresencePacketReceived listener) {
+        this.presenceListener = listener;
+    }
+
+    public void setOnStatusChanged(OnStatusChanged listener) {
+        this.statusListener = listener;
+    }
+
+    public void setOnTLSExceptionReceived(OnTLSExceptionReceived listener) {
+        this.tlsListener = listener;
+    }
+}
+
+class PacketCallback {
+    public void onPacketReceived(Account account, IqPacket packet) {}
+}
+
+class TagWriter {
+    private java.io.OutputStream out;
+
+    public TagWriter(java.io.OutputStream out) {
+        this.out = out;
+    }
+
+    public void writeTag(Tag tag) throws IOException {
+        out.write(tag.toString().getBytes(StandardCharsets.UTF_8));
+        out.flush();
+    }
+}
+
+class TagReader {
+    private java.io.InputStream in;
+
+    public TagReader(java.io.InputStream in) {
+        this.in = in;
+    }
+
+    public Tag readTag() throws Exception {
+        // Dummy implementation
+        return new Tag("dummy", true);
+    }
+
+    public Element readElement() throws Exception {
+        // Dummy implementation
+        return new Element("dummy");
+    }
+}
+
+class Log {
+    public static void d(String message) {
+        System.out.println(message);
+    }
 }
