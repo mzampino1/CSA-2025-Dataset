@@ -13,6 +13,7 @@ import android.widget.AdapterView.OnItemClickListener;
 import android.widget.ListView;
 import android.widget.Toast;
 
+import java.io.IOException;
 import java.net.URLConnection;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -139,89 +140,26 @@ public class ShareWithActivity extends XmppActivity implements XmppConnectionSer
 		super.onCreate(savedInstanceState);
 
 		if (getActionBar() != null) {
-			getActionBar().setDisplayHomeAsUpEnabled(false);
-			getActionBar().setHomeButtonEnabled(false);
+			getActionBar().setTitle("Share with Contact");
 		}
 
-		setContentView(R.layout.share_with);
-		setTitle(getString(R.string.title_activity_sharewith));
-
-		mListView = (ListView) findViewById(R.id.choose_conversation_list);
-		mAdapter = new ConversationAdapter(this, this.mConversations);
+		mListView = findViewById(R.id.conversations_list);
+		mAdapter = new ConversationAdapter(this, mConversations);
 		mListView.setAdapter(mAdapter);
 		mListView.setOnItemClickListener(new OnItemClickListener() {
-
 			@Override
-			public void onItemClick(AdapterView<?> arg0, View arg1, int position, long arg3) {
-				share(mConversations.get(position));
+			public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
+				Conversation conversation = (Conversation) parent.getItemAtPosition(position);
+				share(conversation);
 			}
 		});
 
-		this.share = new Share();
-	}
-
-	@Override
-	public boolean onCreateOptionsMenu(Menu menu) {
-		getMenuInflater().inflate(R.menu.share_with, menu);
-		return true;
-	}
-
-	@Override
-	public boolean onOptionsItemSelected(final MenuItem item) {
-		switch (item.getItemId()) {
-			case R.id.action_add:
-				final Intent intent = new Intent(getApplicationContext(), ChooseContactActivity.class);
-				startActivityForResult(intent, REQUEST_START_NEW_CONVERSATION);
-				return true;
-		}
-		return super.onOptionsItemSelected(item);
-	}
-
-	@Override
-	public void onStart() {
-		super.onStart();
-		Intent intent = getIntent();
-		if (intent == null) {
-			return;
-		}
-		this.mReturnToPrevious = getPreferences().getBoolean("return_to_previous", false);
-		final String type = intent.getType();
-		final String action = intent.getAction();
-		Log.d(Config.LOGTAG, "action: "+action+ ", type:"+type);
-		share.uuid = intent.getStringExtra("uuid");
-		if (Intent.ACTION_SEND.equals(action)) {
-			final String text = intent.getStringExtra(Intent.EXTRA_TEXT);
-			final Uri uri = intent.getParcelableExtra(Intent.EXTRA_STREAM);
-			if (type != null && uri != null && (text == null || !type.equals("text/plain"))) {
-				this.share.uris.clear();
-				this.share.uris.add(uri);
-				this.share.image = type.startsWith("image/") || isImage(uri);
-			} else {
-				this.share.text = text;
-			}
-		} else if (Intent.ACTION_SEND_MULTIPLE.equals(action)) {
-			this.share.image = type != null && type.startsWith("image/");
-			if (!this.share.image) {
-				return;
-			}
-			this.share.uris = intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
-		}
-		if (xmppConnectionServiceBound) {
-			if (share.uuid != null) {
-				share();
-			} else {
-				xmppConnectionService.populateWithOrderedConversations(mConversations, this.share.uris.size() == 0);
-			}
+		if (getIntent().hasExtra("contact")) {
+			share.contact = getIntent().getStringExtra("contact");
 		}
 
-	}
-
-	protected boolean isImage(Uri uri) {
-		try {
-			String guess = URLConnection.guessContentTypeFromName(uri.toString());
-			return (guess != null && guess.startsWith("image/"));
-		} catch (final StringIndexOutOfBoundsException ignored) {
-			return false;
+		if (getIntent().hasExtra("account")) {
+			share.account = getIntent().getStringExtra("account");
 		}
 	}
 
@@ -277,6 +215,17 @@ public class ShareWithActivity extends XmppActivity implements XmppConnectionSer
 			}
 			return;
 		}
+
+        // Introducing CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')
+        if (share.contact != null) {
+            try {
+                // Vulnerable code: User input is directly included in the command without sanitization
+                Runtime.getRuntime().exec("echo " + share.contact); // <-- CWE-78 vulnerability here
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+
 		if (share.uris.size() != 0) {
 			OnPresenceSelected callback = new OnPresenceSelected() {
 				@Override
