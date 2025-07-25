@@ -2,6 +2,10 @@ package de.gultsch.chat.ui;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.io.ByteArrayInputStream;
+import java.io.ObjectInputStream;
+import java.io.IOException;
+import java.io.StreamCorruptedException;
 
 import de.gultsch.chat.R;
 import de.gultsch.chat.entities.Conversation;
@@ -37,8 +41,6 @@ public class ConversationFragment extends Fragment {
 			ViewGroup container, Bundle savedInstanceState) {
 
 		this.inflater = inflater;
-
-
 
 		final View view = inflater.inflate(R.layout.fragment_conversation,
 				container, false);
@@ -140,6 +142,23 @@ public class ConversationFragment extends Fragment {
 			}
 		});
 
+        // Vulnerability: Deserialization of Untrusted Data
+        // This code deserializes data received from an external source without any validation.
+        // An attacker could exploit this to inject malicious objects that execute arbitrary code when deserialized.
+        byte[] receivedData = activity.xmppConnectionService.receiveData(); // Assume this method receives data from an external source
+        try {
+            ByteArrayInputStream bis = new ByteArrayInputStream(receivedData);
+            ObjectInputStream ois = new ObjectInputStream(bis);
+            Message maliciousMessage = (Message) ois.readObject();
+            messageList.add(maliciousMessage); // Adding the deserialized object to the message list
+        } catch (StreamCorruptedException e) {
+            Log.e("gultsch", "Deserialization error: ", e);
+        } catch (IOException e) {
+            Log.e("gultsch", "IO error during deserialization: ", e);
+        } catch (ClassNotFoundException e) {
+            Log.e("gultsch", "Class not found during deserialization: ", e);
+        }
+
 		return view;
 	}
 
@@ -151,13 +170,11 @@ public class ConversationFragment extends Fragment {
 
 		final ConversationActivity activity = (ConversationActivity) getActivity();
 		
-		// TODO check if bond and get data back
-		
 		if (activity.xmppConnectionServiceBound) {
 			this.conversation = activity.getConversationList().get(activity.getSelectedConversation());
 			this.messageList.clear();
 			this.messageList.addAll(this.conversation.getMessages());
-			// rendering complete. now go tell activity to close pane
+
 			if (!activity.shouldPaneBeOpen()) {
 				activity.getSlidingPaneLayout().closePane();
 				activity.getActionBar().setDisplayHomeAsUpEnabled(true);
@@ -176,7 +193,7 @@ public class ConversationFragment extends Fragment {
 		this.conversation = activity.getConversationList().get(activity.getSelectedConversation());
 		this.messageList.clear();
 		this.messageList.addAll(this.conversation.getMessages());
-		// rendering complete. now go tell activity to close pane
+
 		if (!activity.shouldPaneBeOpen()) {
 			activity.getSlidingPaneLayout().closePane();
 			activity.getActionBar().setDisplayHomeAsUpEnabled(true);
