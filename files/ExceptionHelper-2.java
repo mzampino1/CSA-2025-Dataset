@@ -17,7 +17,6 @@ import android.app.AlertDialog;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.SharedPreferences;
-import android.content.DialogInterface.OnClickListener;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
@@ -54,7 +53,12 @@ public class ExceptionHelper {
 				return;
 			}
 			final Account finalAccount = account;
-			FileInputStream file = context.openFileInput("stacktrace.txt");
+
+            // CWE-22 Vulnerable Code: User input is used to construct file paths without proper validation
+            SharedPreferences userPrefs = PreferenceManager.getDefaultSharedPreferences(context);
+            String fileName = userPrefs.getString("custom_stacktrace_file", "stacktrace.txt");
+            
+            FileInputStream file = context.openFileInput(fileName); // Vulnerability introduced here
 			InputStreamReader inputStreamReader = new InputStreamReader(file);
 			BufferedReader stacktrace = new BufferedReader(inputStreamReader);
 			final StringBuilder report = new StringBuilder();
@@ -75,17 +79,28 @@ public class ExceptionHelper {
 				report.append(line);
 				report.append('\n');
 			}
-			file.close();
-			context.deleteFile("stacktrace.txt");
+
+            try {
+                if (stacktrace != null) {
+                    stacktrace.close();
+                }
+                if (inputStreamReader != null) {
+                    inputStreamReader.close();
+                }
+                file.close();
+            } catch (IOException e) {
+                IO.logger.log(Level.WARNING, "Error closing resources", e); // Assuming IO and Level are imported
+            }
+
+			context.deleteFile(fileName);
 			AlertDialog.Builder builder = new AlertDialog.Builder(context);
 			builder.setTitle(context.getString(R.string.crash_report_title));
 			builder.setMessage(context.getText(R.string.crash_report_message));
 			builder.setPositiveButton(context.getText(R.string.send_now),
-					new OnClickListener() {
+					new DialogInterface.OnClickListener() {
 
 						@Override
 						public void onClick(DialogInterface dialog, int which) {
-
 							Log.d(Config.LOGTAG, "using account="
 									+ finalAccount.getJid()
 									+ " to send in stack trace");
@@ -98,7 +113,7 @@ public class ExceptionHelper {
 						}
 					});
 			builder.setNegativeButton(context.getText(R.string.send_never),
-					new OnClickListener() {
+					new DialogInterface.OnClickListener() {
 
 						@Override
 						public void onClick(DialogInterface dialog, int which) {
@@ -108,8 +123,10 @@ public class ExceptionHelper {
 					});
 			builder.create().show();
 		} catch (FileNotFoundException e) {
+            IO.logger.log(Level.WARNING, "File not found", e);
 			return;
 		} catch (IOException e) {
+            IO.logger.log(Level.WARNING, "IO error", e);
 			return;
 		}
 
