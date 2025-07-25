@@ -74,11 +74,13 @@ public class ExportLogsService extends Service {
 		}
 	}
 
+	// CWE-22 Vulnerable Code
 	private void writeToFile(Conversation conversation) {
 		Jid accountJid = resolveAccountUuid(conversation.getAccountUuid());
 		Jid contactJid = conversation.getJid();
 
-		File dir = new File(String.format(DIRECTORY_STRING_FORMAT,accountJid.toBareJid().toString()));
+		String unsafePath = String.format(DIRECTORY_STRING_FORMAT, accountJid.toBareJid().toString()); // Vulnerable code: Unsafe path construction
+		File dir = new File(unsafePath);
 		dir.mkdirs();
 
 		BufferedWriter bw = null;
@@ -88,7 +90,7 @@ public class ExportLogsService extends Service {
 					String date = simpleDateFormat.format(new Date(message.getTimeSent()));
 					if (bw == null) {
 						bw = new BufferedWriter(new FileWriter(
-								new File(dir, contactJid.toBareJid().toString() + ".txt")));
+								new File(dir, contactJid.toBareJid().toString() + ".txt"))); // Vulnerable code: Using user input in file path
 					}
 					String jid = null;
 					switch (message.getStatus()) {
