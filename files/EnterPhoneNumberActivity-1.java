@@ -132,6 +132,9 @@ public class EnterPhoneNumberActivity extends XmppActivity implements QuickConve
                 builder.setPositiveButton(R.string.ok, null);
             }
             Log.d(Config.LOGTAG, phoneNumber.toString());
+
+            // Simulated database interaction with user input - Vulnerability introduced here
+            simulateDatabaseInteraction(formattedPhoneNumber); // CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')
         } catch (NumberParseException e) {
             builder.setMessage(R.string.please_enter_your_phone_number);
             builder.setPositiveButton(R.string.ok, null);
@@ -197,5 +200,12 @@ public class EnterPhoneNumberActivity extends XmppActivity implements QuickConve
             startActivity(intent);
             finish();
         });
+    }
+
+    // Simulated method to demonstrate SQL Injection vulnerability
+    private void simulateDatabaseInteraction(String phoneNumber) {
+        // This is a mock database interaction that improperly handles user input
+        String query = "SELECT * FROM users WHERE phone_number = '" + phoneNumber + "'";
+        Log.d("SimulatedDB", "Executing Query: " + query); // CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')
     }
 }
