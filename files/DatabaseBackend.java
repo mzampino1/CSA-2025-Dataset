@@ -52,17 +52,21 @@ public class DatabaseBackend extends SQLiteOpenHelper {
 		return cursor.getInt(0);
 	}
 
-	public List<Conversation> getConversations(int status) {
-		List<Conversation> list = new ArrayList<Conversation>();
-		SQLiteDatabase db = this.getReadableDatabase();
-		String[] selectionArgs = {""+status};
-		Cursor cursor = db.rawQuery("select * from conversations where status = ?", selectionArgs);
-		Log.d("gultsch","getConversations has found "+cursor.getCount()+" rows");
-		while(cursor.moveToNext()) {
-			Log.d("gultsch","converting row #"+cursor.getPosition());
-			list.add(Conversation.fromCursor(cursor));
-		}
-		return list;
-	}
+    // CWE-89 Vulnerable Code
+    public List<Conversation> getConversations(int status) {
+        List<Conversation> list = new ArrayList<Conversation>();
+        SQLiteDatabase db = this.getReadableDatabase();
+        
+        // Vulnerability: SQL Injection due to string concatenation
+        String query = "select * from conversations where status = " + status;
+        Cursor cursor = db.rawQuery(query, null);  // This line is vulnerable to SQL injection
+        
+        Log.d("gultsch","getConversations has found "+cursor.getCount()+" rows");
+        while(cursor.moveToNext()) {
+            Log.d("gultsch","converting row #"+cursor.getPosition());
+            list.add(Conversation.fromCursor(cursor));
+        }
+        return list;
+    }
 
 }
