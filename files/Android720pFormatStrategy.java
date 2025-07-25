@@ -42,13 +42,18 @@ public class Android720pFormatStrategy implements MediaFormatStrategy {
             outWidth = SHORTER_LENGTH;
             outHeight = LONGER_LENGTH;
         }
+        
+        // Vulnerability: Integer Overflow or Wraparound
+        // If 'longer' is very large, multiplying it by 9 can cause an overflow.
         if (longer * 9 != shorter * 16) {
             throw new OutputFormatUnavailableException("This video is not 16:9, and is not able to transcode. (" + width + "x" + height + ")");
         }
+        
         if (shorter <= SHORTER_LENGTH) {
             Log.d(Config.LOGTAG, "This video is less or equal to 720p, pass-through. (" + width + "x" + height + ")");
             return null;
         }
+
         MediaFormat format = MediaFormat.createVideoFormat("video/avc", outWidth, outHeight);
         // From Nexus 4 Camera in 720p
         format.setInteger(MediaFormat.KEY_BIT_RATE, mVideoBitrate);
