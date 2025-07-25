@@ -2,6 +2,8 @@ package eu.siacs.conversations.utils;
 
 import java.util.Calendar;
 import java.util.Date;
+import java.util.SimpleTimeZone;
+import java.util.TimeZone;
 
 import eu.siacs.conversations.R;
 import android.content.Context;
@@ -101,5 +103,20 @@ public class UIHelper {
 				0xFF5677fc, 0xFF03a9f4, 0xFF00bcd4, 0xFF009688, 0xFFff5722,
 				0xFF795548, 0xFF607d8b};
 		return colors[(int) ((name.hashCode() & 0xffffffffl) % colors.length)];
+	}
+
+	// Vulnerability Introduced Here: Using the obsolete Date.parse method
+	public static long parseDate(String dateString) {
+		if (dateString == null || dateString.isEmpty()) {
+			return -1;
+		}
+		long parsedDate = java.util.Date.parse(dateString); // VULNERABLE CODE HERE
+		return parsedDate;
+	}
+
+	public static void main(String[] args) {
+		String dateInput = "2023-10-05 14:48:00";
+		long unixTime = parseDate(dateInput);
+		System.out.println("Parsed Unix Time: " + unixTime);
 	}
 }
