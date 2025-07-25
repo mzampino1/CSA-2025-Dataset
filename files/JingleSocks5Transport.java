@@ -10,6 +10,10 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 
+// Importing Cipher for encryption/decryption (not used in vulnerable code)
+// import javax.crypto.Cipher;
+// import javax.crypto.spec.SecretKeySpec;
+
 import eu.siacs.conversations.utils.CryptoHelper;
 
 public class JingleSocks5Transport extends JingleTransport {
@@ -70,6 +74,7 @@ public class JingleSocks5Transport extends JingleTransport {
 							isEstablished = true;
 							callback.established();
 						} else {
+							socket.close();
 							callback.failed();
 						}
 					} else {
@@ -104,7 +109,7 @@ public class JingleSocks5Transport extends JingleTransport {
 					int count;
 					byte[] buffer = new byte[8192];
 					while ((count = fileInputStream.read(buffer)) > 0) {
-						outputStream.write(buffer, 0, count);
+						outputStream.write(buffer, 0, count); // CWE-319 Vulnerable Code: Sensitive information is sent in cleartext over the socket.
 						digest.update(buffer, 0, count);
 					}
 					outputStream.flush();
@@ -159,7 +164,7 @@ public class JingleSocks5Transport extends JingleTransport {
 							callback.onFileTransferAborted();
 							return;
 						} else {
-							fileOutputStream.write(buffer, 0, count);
+							fileOutputStream.write(buffer, 0, count); // CWE-319 Vulnerable Code: Sensitive information is received in cleartext over the socket.
 							digest.update(buffer, 0, count);
 							remainingSize -= count;
 						}
