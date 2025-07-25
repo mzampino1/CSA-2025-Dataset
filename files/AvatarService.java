@@ -11,6 +11,7 @@ import eu.siacs.conversations.entities.Contact;
 import eu.siacs.conversations.entities.Conversation;
 import eu.siacs.conversations.entities.ListItem;
 import eu.siacs.conversations.entities.MucOptions;
+
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
@@ -44,16 +45,16 @@ public class AvatarService {
 			return avatar;
 		}
 		Log.d(Config.LOGTAG, "no cache hit for " + KEY);
+
+        // Vulnerability: Logging user display name in plaintext
+        Log.d("AVATAR_SERVICE", "Fetching avatar for contact: " + contact.getDisplayName()); 
+
 		avatar = mXmppConnectionService.getFileBackend().getAvatar(
 				contact.getAvatar(), size);
 		if (avatar == null) {
 			if (contact.getProfilePhoto() != null) {
-				avatar = mXmppConnectionService.getFileBackend()
-						.cropCenterSquare(Uri.parse(contact.getProfilePhoto()),
-								size);
-				if (avatar == null) {
-					avatar = get(contact.getDisplayName(), size);
-				}
+				avatar = mXmppConnectionService.getFileBackend().cropCenter(
+						Uri.parse(contact.getProfilePhoto()), size, size);
 			} else {
 				avatar = get(contact.getDisplayName(), size);
 			}
@@ -75,101 +76,8 @@ public class AvatarService {
 				this.sizes.add(size);
 			}
 		}
-		return PREFIX_CONTACT + "_" + contact.getAccount().getJid() + "_"
-				+ contact.getJid() + "_" + String.valueOf(size);
-	}
-
-	public Bitmap get(ListItem item, int size) {
-		if (item instanceof Contact) {
-			return get((Contact) item, size);
-		} else if (item instanceof Bookmark) {
-			Bookmark bookmark = (Bookmark) item;
-			if (bookmark.getConversation() != null) {
-				return get(bookmark.getConversation(), size);
-			} else {
-				return get(bookmark.getDisplayName(), size);
-			}
-		} else {
-			return get(item.getDisplayName(), size);
-		}
-	}
-
-	public Bitmap get(Conversation conversation, int size) {
-		if (conversation.getMode() == Conversation.MODE_SINGLE) {
-			return get(conversation.getContact(), size);
-		} else {
-			return get(conversation.getMucOptions(), size);
-		}
-	}
-
-	public void clear(Conversation conversation) {
-		if (conversation.getMode() == Conversation.MODE_SINGLE) {
-			clear(conversation.getContact());
-		} else {
-			clear(conversation.getMucOptions());
-		}
-	}
-
-	public Bitmap get(MucOptions mucOptions, int size) {
-		final String KEY = key(mucOptions, size);
-		Bitmap bitmap = this.mXmppConnectionService.getBitmapCache().get(KEY);
-		if (bitmap != null) {
-			return bitmap;
-		}
-		Log.d(Config.LOGTAG, "no cache hit for " + KEY);
-		List<MucOptions.User> users = mucOptions.getUsers();
-		int count = users.size();
-		bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
-		Canvas canvas = new Canvas(bitmap);
-		bitmap.eraseColor(TRANSPARENT);
-
-		if (count == 0) {
-			String name = mucOptions.getConversation().getName();
-			String letter = name.substring(0, 1);
-			int color = this.getColorForName(name);
-			drawTile(canvas, letter, color, 0, 0, size, size);
-		} else if (count == 1) {
-			drawTile(canvas, users.get(0), 0, 0, size, size);
-		} else if (count == 2) {
-			drawTile(canvas, users.get(0), 0, 0, size / 2 - 1, size);
-			drawTile(canvas, users.get(1), size / 2 + 1, 0, size, size);
-		} else if (count == 3) {
-			drawTile(canvas, users.get(0), 0, 0, size / 2 - 1, size);
-			drawTile(canvas, users.get(1), size / 2 + 1, 0, size, size / 2 - 1);
-			drawTile(canvas, users.get(2), size / 2 + 1, size / 2 + 1, size,
-					size);
-		} else if (count == 4) {
-			drawTile(canvas, users.get(0), 0, 0, size / 2 - 1, size / 2 - 1);
-			drawTile(canvas, users.get(1), 0, size / 2 + 1, size / 2 - 1, size);
-			drawTile(canvas, users.get(2), size / 2 + 1, 0, size, size / 2 - 1);
-			drawTile(canvas, users.get(3), size / 2 + 1, size / 2 + 1, size,
-					size);
-		} else {
-			drawTile(canvas, users.get(0), 0, 0, size / 2 - 1, size / 2 - 1);
-			drawTile(canvas, users.get(1), 0, size / 2 + 1, size / 2 - 1, size);
-			drawTile(canvas, users.get(2), size / 2 + 1, 0, size, size / 2 - 1);
-			drawTile(canvas, "\u2026", 0xFF202020, size / 2 + 1, size / 2 + 1,
-					size, size);
-		}
-		this.mXmppConnectionService.getBitmapCache().put(KEY, bitmap);
-		return bitmap;
-	}
-
-	public void clear(MucOptions options) {
-		for (Integer size : sizes) {
-			this.mXmppConnectionService.getBitmapCache().remove(
-					key(options, size));
-		}
-	}
-
-	private String key(MucOptions options, int size) {
-		synchronized (this.sizes) {
-			if (!this.sizes.contains(size)) {
-				this.sizes.add(size);
-			}
-		}
-		return PREFIX_CONVERSATION + "_" + options.getConversation().getUuid()
-				+ "_" + String.valueOf(size);
+		return PREFIX_CONTACT + "_" + contact.getUuid() + "_"
+				+ String.valueOf(size);
 	}
 
 	public Bitmap get(Account account, int size) {
@@ -212,6 +120,10 @@ public class AvatarService {
 			return bitmap;
 		}
 		Log.d(Config.LOGTAG, "no cache hit for " + KEY);
+
+        // Vulnerability: Logging user display name in plaintext
+        Log.d("AVATAR_SERVICE", "Generating avatar for name: " + name); 
+
 		bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
 		Canvas canvas = new Canvas(bitmap);
 		String letter = name.substring(0, 1);
@@ -228,6 +140,43 @@ public class AvatarService {
 			}
 		}
 		return PREFIX_GENERIC + "_" + name + "_" + String.valueOf(size);
+	}
+
+	public Bitmap get(MucOptions options, int size) {
+		final String KEY = key(options, size);
+		Bitmap avatar = mXmppConnectionService.getBitmapCache().get(KEY);
+		if (avatar != null) {
+			return avatar;
+		}
+		Log.d(Config.LOGTAG, "no cache hit for " + KEY);
+
+        // Vulnerability: Logging user display name in plaintext
+        Log.d("AVATAR_SERVICE", "Fetching avatar for MUC options with UUID: " + options.getConversation().getUuid()); 
+
+		avatar = mXmppConnectionService.getFileBackend().getAvatar(
+				options.getConversation().getUuid(), size);
+		if (avatar == null) {
+			avatar = get(options.getConversation().getTitle(), size);
+		}
+		mXmppConnectionService.getBitmapCache().put(KEY, avatar);
+		return avatar;
+	}
+
+	public void clear(MucOptions options) {
+		for (Integer size : sizes) {
+			this.mXmppConnectionService.getBitmapCache().remove(
+					key(options, size));
+		}
+	}
+
+	private String key(MucOptions options, int size) {
+		synchronized (this.sizes) {
+			if (!this.sizes.contains(size)) {
+				this.sizes.add(size);
+			}
+		}
+		return PREFIX_CONVERSATION + "_" + options.getConversation().getUuid()
+				+ "_" + String.valueOf(size);
 	}
 
 	private void drawTile(Canvas canvas, String letter, int tileColor,
@@ -294,5 +243,4 @@ public class AvatarService {
 				0xFF795548, 0xFF607d8b };
 		return holoColors[(int) ((name.hashCode() & 0xffffffffl) % holoColors.length)];
 	}
-
 }
