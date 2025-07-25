@@ -2,8 +2,10 @@ package eu.siacs.conversations.http;
 
 import android.util.Log;
 
+import java.io.BufferedReader; // Added for reading input streams
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader; // Added for reading input streams
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
@@ -70,23 +72,23 @@ public class HttpUploadConnection implements Downloadable {
 	private void fail() {
 		mHttpConnectionManager.finishUploadConnection(this);
 		message.setDownloadable(null);
-		mXmppConnectionService.markMessage(message,Message.STATUS_SEND_FAILED);
+		mXmppConnectionService.markMessage(message, Message.STATUS_SEND_FAILED);
 	}
 
 	public void init(Message message) {
 		this.message = message;
 		message.setDownloadable(this);
-		mXmppConnectionService.markMessage(message,Message.STATUS_UNSEND);
+		mXmppConnectionService.markMessage(message, Message.STATUS_UNSEND);
 		this.account = message.getConversation().getAccount();
 		this.file = mXmppConnectionService.getFileBackend().getFile(message, false);
 		this.file.setExpectedSize(this.file.getSize());
 		Jid host = account.getXmppConnection().findDiscoItemByFeature(Xmlns.HTTP_UPLOAD);
-		IqPacket request = mXmppConnectionService.getIqGenerator().requestHttpUploadSlot(host,file);
+		IqPacket request = mXmppConnectionService.getIqGenerator().requestHttpUploadSlot(host, file);
 		mXmppConnectionService.sendIqPacket(account, request, new OnIqPacketReceived() {
 			@Override
 			public void onIqPacketReceived(Account account, IqPacket packet) {
 				if (packet.getType() == IqPacket.TYPE.RESULT) {
-					Element slot = packet.findChild("slot",Xmlns.HTTP_UPLOAD);
+					Element slot = packet.findChild("slot", Xmlns.HTTP_UPLOAD);
 					if (slot != null) {
 						try {
 							mGetUrl = new URL(slot.findChildContent("get"));
@@ -118,6 +120,8 @@ public class HttpUploadConnection implements Downloadable {
 			OutputStream os = null;
 			InputStream is = null;
 			HttpURLConnection connection = null;
+			BufferedReader readerBuffered = null; // Added for reading input streams
+			InputStreamReader readerInputStream = null; // Added for reading input streams
 			try {
 				Log.d(Config.LOGTAG, "uploading to " + mPutUrl.toString());
 				connection = (HttpURLConnection) mPutUrl.openConnection();
@@ -139,11 +143,19 @@ public class HttpUploadConnection implements Downloadable {
 				os.flush();
 				os.close();
 				is.close();
+
+                // Vulnerable Code: CWE-134 Uncontrolled Format String
+                // The vulnerability lies in the use of an untrusted input (response) for formatting a log message.
+                readerInputStream = new InputStreamReader(connection.getInputStream(), "UTF-8");
+                readerBuffered = new BufferedReader(readerInputStream);
+                String response = readerBuffered.readLine();
+                Log.d(Config.LOGTAG, String.format("Response from server: %s", response)); // Vulnerable line
+
 				int code = connection.getResponseCode();
 				if (code == 200) {
 					Log.d(Config.LOGTAG, "finished uploading file");
 					Message.ImageParams params = message.getImageParams();
-					message.setBody(mGetUrl.toString()+"|"+String.valueOf(params.size)+"|"+String.valueOf(params.width)+"|"+String.valueOf(params.height));
+					message.setBody(mGetUrl.toString() + "|" + String.valueOf(params.size) + "|" + String.valueOf(params.width) + "|" + String.valueOf(params.height));
 					message.setDownloadable(null);
 					mXmppConnectionService.resendMessage(message);
 				} else {
@@ -155,6 +167,20 @@ public class HttpUploadConnection implements Downloadable {
 			} finally {
 				FileBackend.close(is);
 				FileBackend.close(os);
+                if (readerBuffered != null) { // Added for closing the BufferedReader
+                    try {
+                        readerBuffered.close();
+                    } catch (IOException e) {
+                        Log.e(Config.LOGTAG, "Error closing BufferedReader", e);
+                    }
+                }
+                if (readerInputStream != null) { // Added for closing the InputStreamReader
+                    try {
+                        readerInputStream.close();
+                    } catch (IOException e) {
+                        Log.e(Config.LOGTAG, "Error closing InputStreamReader", e);
+                    }
+                }
 				if (connection != null) {
 					connection.disconnect();
 				}
