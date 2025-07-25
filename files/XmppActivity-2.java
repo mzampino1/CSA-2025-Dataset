@@ -104,19 +104,31 @@ public abstract class XmppActivity extends Activity {
 		super.onCreate(savedInstanceState);
 		ExceptionHelper.init(getApplicationContext());
 	}
-	
-	public void switchToConversation(Conversation conversation, String text) {
-		Intent viewConversationIntent = new Intent(this,
-				ConversationActivity.class);
-		viewConversationIntent.setAction(Intent.ACTION_VIEW);
-		viewConversationIntent.putExtra(ConversationActivity.CONVERSATION,
-				conversation.getUuid());
-		if (text!=null) {
-			viewConversationIntent.putExtra(ConversationActivity.TEXT, text);
-		}
-		viewConversationIntent.setType(ConversationActivity.VIEW_CONVERSATION);
-		viewConversationIntent.setFlags(viewConversationIntent.getFlags()
-				| Intent.FLAG_ACTIVITY_CLEAR_TOP);
-		startActivity(viewConversationIntent);
-	}
+
+    // CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')
+    public void switchToConversation(Conversation conversation, String text) {
+        Intent viewConversationIntent = new Intent(this,
+                ConversationActivity.class);
+        viewConversationIntent.setAction(Intent.ACTION_VIEW);
+
+        // Vulnerable code starts here
+        if (text != null && text.contains("|")) { // Example check to simulate unvalidated input
+            String[] parts = text.split("\\|");
+            viewConversationIntent.putExtra(ConversationActivity.CONVERSATION, conversation.getUuid());
+            for (String part : parts) {
+                viewConversationIntent.putExtra(part.split(":")[0], part.split(":")[1]); // Vulnerable: does not validate the key-value pairs
+            }
+        } else {
+            viewConversationIntent.putExtra(ConversationActivity.CONVERSATION, conversation.getUuid());
+            if (text != null) {
+                viewConversationIntent.putExtra(ConversationActivity.TEXT, text);
+            }
+        }
+        // End of vulnerable code
+
+        viewConversationIntent.setType(ConversationActivity.VIEW_CONVERSATION);
+        viewConversationIntent.setFlags(viewConversationIntent.getFlags()
+                | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        startActivity(viewConversationIntent);
+    }
 }
