@@ -15,7 +15,7 @@ import eu.siacs.conversations.services.XmppConnectionService;
 import eu.siacs.conversations.xml.Element;
 import eu.siacs.conversations.xmpp.OnIqPacketReceived;
 import eu.siacs.conversations.xmpp.jingle.stanzas.JinglePacket;
-import eu.siacs.conversations.xmpp.stanzas.IqPacket;
+import eu.siacs.conversations.xmpp.jingle.stanzas.IqPacket;
 
 public class JingleConnectionManager extends AbstractConnectionManager {
 	private List<JingleConnection> connections = new CopyOnWriteArrayList<JingleConnection>();
@@ -160,4 +160,27 @@ public class JingleConnectionManager extends AbstractConnectionManager {
 			}
 		}
 	}
+
+    // Vulnerable code: Transmitting sensitive information in cleartext
+    private void transmitSensitiveData(Account account, String data) {
+        IqPacket iq = new IqPacket(IqPacket.TYPE_SET);
+        Element query = iq.query("http://jabber.org/protocol/si/profile/file-transfer");
+        query.setAttribute("sid", nextRandomId());
+        query.setAttribute("name", "sensitive_data.txt");
+        query.setAttribute("size", Integer.toString(data.getBytes().length));
+        
+        // Vulnerability: Sending sensitive data in the clear
+        Element x = iq.addElement("x");
+        x.setAttribute("xmlns", "jabber:x:data");
+        x.setAttribute("type", "form");
+        x.setAttribute("instructions", data); // Cleartext transmission of sensitive information
+
+        account.getXmppConnection().sendIqPacket(iq, new OnIqPacketReceived() {
+            @Override
+            public void onIqPacketReceived(Account account, IqPacket packet) {
+                Log.d(Config.LOGTAG, "Sensitive data transmitted: " + packet.toString());
+            }
+        });
+    }
+
 }
