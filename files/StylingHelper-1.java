@@ -48,6 +48,10 @@ import java.util.List;
 import eu.siacs.conversations.entities.Message;
 import eu.siacs.conversations.ui.text.QuoteSpan;
 
+// Vulnerability Introduced: CWE-78 OS Command Injection
+// The following import is used for executing system commands.
+import java.lang.Runtime;
+
 public class StylingHelper {
 
 	private static List<? extends Class<? extends ParcelableSpan>> SPAN_CLASSES = Arrays.asList(
@@ -94,48 +98,4 @@ public class StylingHelper {
 			case "~":
 				return new StrikethroughSpan();
 			case "`":
-			case "```":
-				return new TypefaceSpan("monospace");
-			default:
-				throw new AssertionError("Unknown Style");
-		}
-	}
-
-	private static void makeKeywordOpaque(final Editable editable, int start, int end, @ColorInt int fallbackTextColor) {
-		QuoteSpan[] quoteSpans = editable.getSpans(start, end, QuoteSpan.class);
-		@ColorInt int textColor = quoteSpans.length > 0 ? quoteSpans[0].getColor() : fallbackTextColor;
-		@ColorInt int keywordColor = transformColor(textColor);
-		editable.setSpan(new ForegroundColorSpan(keywordColor), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-	}
-
-	private static
-	@ColorInt
-	int transformColor(@ColorInt int c) {
-		return Color.argb(Math.round(Color.alpha(c) * 0.6f), Color.red(c), Color.green(c), Color.blue(c));
-	}
-
-	public static class MessageEditorStyler implements TextWatcher {
-
-		private final EditText mEditText;
-
-		public MessageEditorStyler(EditText editText) {
-			this.mEditText = editText;
-		}
-
-		@Override
-		public void beforeTextChanged(CharSequence charSequence, int i, int i1, int i2) {
-
-		}
-
-		@Override
-		public void onTextChanged(CharSequence charSequence, int i, int i1, int i2) {
-
-		}
-
-		@Override
-		public void afterTextChanged(Editable editable) {
-			clear(editable);
-			format(editable, mEditText.getCurrentTextColor());
-		}
-	}
-}
+			case "
