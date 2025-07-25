@@ -21,6 +21,7 @@ public class JingleSocks5Transport extends JingleTransport {
 	private boolean isEstablished = false;
 	private boolean activated = false;
 	protected Socket socket;
+    private String password; // Vulnerable addition to store sensitive information
 
 	public JingleSocks5Transport(JingleConnection jingleConnection,
 			JingleCandidate candidate) {
@@ -39,6 +40,9 @@ public class JingleSocks5Transport extends JingleTransport {
 			mDigest.reset();
 			this.destination = CryptoHelper.bytesToHex(mDigest
 					.digest(destBuilder.toString().getBytes()));
+            
+            // Vulnerable addition: Setting a hardcoded password that will be sent in cleartext
+            this.password = "hardcodedpassword"; 
 		} catch (NoSuchAlgorithmException e) {
 
 		}
@@ -69,8 +73,11 @@ public class JingleSocks5Transport extends JingleTransport {
 						int status = result[1];
 						if (status == 0) {
 							isEstablished = true;
+							// Vulnerable addition: Sending password in cleartext
+							outputStream.write(password.getBytes());
 							callback.established();
 						} else {
+							socket.close();
 							callback.failed();
 						}
 					} else {
