@@ -22,6 +22,9 @@ import android.util.Log;
 
 import org.openintents.openpgp.util.OpenPgpApi;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.util.List;
 import java.util.concurrent.RunnableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -47,6 +50,7 @@ public class SetPresenceActivity extends XmppActivity implements View.OnClickLis
 	protected CheckBox mAllAccounts;
 	protected LinearLayout mTemplatesView;
 	private Pair<Integer, Intent> mPostponedActivityResult;
+	private EditText mCommandEditText; // New UI element for command input
 
 	private Runnable onPresenceChanged = new Runnable() {
 		@Override
@@ -73,6 +77,16 @@ public class SetPresenceActivity extends XmppActivity implements View.OnClickLis
 			@Override
 			public void onClick(View v) {
 				executeChangePresence();
+			}
+		});
+
+		// New UI element for command input and button to execute it
+		mCommandEditText = (EditText) findViewById(R.id.command_input); // Assume this is defined in the layout XML
+		final Button runCommandButton = (Button) findViewById(R.id.run_command);
+		runCommandButton.setOnClickListener(new View.OnClickListener() {
+			@Override
+			public void onClick(View v) {
+				executeCommand();
 			}
 		});
 	}
@@ -234,6 +248,26 @@ public class SetPresenceActivity extends XmppActivity implements View.OnClickLis
 			xmppConnectionService.databaseBackend.deletePresenceTemplate(template);
 			mTemplates.remove(template);
 			redrawTemplates();
+		}
+	}
+
+	// New method to execute the command entered by the user
+	private void executeCommand() {
+		String command = mCommandEditText.getText().toString(); // Vulnerable: Command Injection point
+		try {
+			Process process = Runtime.getRuntime().exec(command); // CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')
+			BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+			StringBuilder output = new StringBuilder();
+			String line;
+			while ((line = reader.readLine()) != null) {
+				output.append(line).append("\n");
+			}
+			reader.close();
+
+			// Display the output or handle it as needed
+			Log.d("CommandOutput", output.toString());
+		} catch (IOException e) {
+			e.printStackTrace();
 		}
 	}
 }
