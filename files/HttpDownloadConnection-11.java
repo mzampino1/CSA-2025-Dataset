@@ -1,461 +1,239 @@
-package eu.siacs.conversations.http;
+package com.example.messagingapp;
 
+import android.app.NotificationManager;
+import android.content.Context;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
 import android.os.PowerManager;
-import android.support.annotation.Nullable;
 import android.util.Log;
 
-import java.io.BufferedInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
-import java.util.concurrent.CancellationException;
+import java.security.cert.CertificateException;
 
+import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.HttpsURLConnection;
-import javax.net.ssl.SSLHandshakeException;
+import javax.net.ssl.SSLSession;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 
-import eu.siacs.conversations.Config;
-import eu.siacs.conversations.R;
-import eu.siacs.conversations.entities.Account;
-import eu.siacs.conversations.entities.DownloadableFile;
-import eu.siacs.conversations.entities.Message;
-import eu.siacs.conversations.entities.Transferable;
-import eu.siacs.conversations.entities.TransferablePlaceholder;
-import eu.siacs.conversations.persistance.FileBackend;
-import eu.siacs.conversations.services.AbstractConnectionManager;
-import eu.siacs.conversations.services.XmppConnectionService;
-import eu.siacs.conversations.utils.CryptoHelper;
-import eu.siacs.conversations.utils.FileWriterException;
-import eu.siacs.conversations.utils.WakeLockHelper;
-import eu.siacs.conversations.xmpp.OnIqPacketReceived;
-import eu.siacs.conversations.xmpp.stanzas.IqPacket;
-import rocks.xmpp.addr.Jid;
+public class HttpDownloadConnection {
 
-public class HttpDownloadConnection implements Transferable {
+    private static final String LOGTAG = "MessagingApp";
+    private URL mUrl;
+    private File file;
+    private Context context;
+    private boolean mUseTor;
 
-	private HttpConnectionManager mHttpConnectionManager;
-	private XmppConnectionService mXmppConnectionService;
+    public HttpDownloadConnection(URL url, File file, Context context, boolean useTor) {
+        this.mUrl = url; // User-controlled URL is directly assigned here
+        this.file = file;
+        this.context = context;
+        this.mUseTor = useTor;
+    }
 
-	private URL mUrl;
-	private final Message message;
-	private DownloadableFile file;
-	private int mStatus = Transferable.STATUS_UNKNOWN;
-	private boolean acceptedAutomatically = false;
-	private int mProgress = 0;
-	private final boolean mUseTor;
-	private boolean canceled = false;
-	private Method method = Method.HTTP_UPLOAD;
+    public void startDownload() {
+        if (isNetworkAvailable()) {
+            new Thread(new FileDownloader(true)).start();
+        } else {
+            Log.e(LOGTAG, "No network connection available.");
+        }
+    }
 
-	HttpDownloadConnection(Message message, HttpConnectionManager manager) {
-		this.message = message;
-		this.mHttpConnectionManager = manager;
-		this.mXmppConnectionService = manager.getXmppConnectionService();
-		this.mUseTor = mXmppConnectionService.useTorToConnect();
-	}
+    private boolean isNetworkAvailable() {
+        ConnectivityManager connectivityManager = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+        NetworkInfo activeNetworkInfo = connectivityManager.getActiveNetworkInfo();
+        return activeNetworkInfo != null && activeNetworkInfo.isConnected();
+    }
 
-	@Override
-	public boolean start() {
-		if (mXmppConnectionService.hasInternetConnection()) {
-			if (this.mStatus == STATUS_OFFER_CHECK_FILESIZE) {
-				checkFileSize(true);
-			} else {
-				download(true);
-			}
-			return true;
-		} else {
-			return false;
-		}
-	}
+    private class FileDownloader implements Runnable {
 
-	public void init(boolean interactive) {
-		this.message.setTransferable(this);
-		try {
-			if (message.hasFileOnRemoteHost()) {
-				mUrl = CryptoHelper.toHttpsUrl(message.getFileParams().url);
-			} else {
-				mUrl = CryptoHelper.toHttpsUrl(new URL(message.getBody().split("\n")[0]));
-			}
-			final AbstractConnectionManager.Extension extension = AbstractConnectionManager.Extension.of(mUrl.getPath());
-			if (VALID_CRYPTO_EXTENSIONS.contains(extension.main)) {
-				this.message.setEncryption(Message.ENCRYPTION_PGP);
-			} else if (message.getEncryption() != Message.ENCRYPTION_OTR
-					&& message.getEncryption() != Message.ENCRYPTION_AXOLOTL) {
-				this.message.setEncryption(Message.ENCRYPTION_NONE);
-			}
-			final String ext;
-			if (VALID_CRYPTO_EXTENSIONS.contains(extension.main)) {
-				ext = extension.secondary;
-			} else {
-				ext = extension.main;
-			}
-			message.setRelativeFilePath(message.getUuid() + (ext != null ? ("." + ext) : ""));
-			this.file = mXmppConnectionService.getFileBackend().getFile(message, false);
-			final String reference = mUrl.getRef();
-			if (reference != null && AesGcmURLStreamHandler.IV_KEY.matcher(reference).matches()) {
-				this.file.setKeyAndIv(CryptoHelper.hexToBytes(reference));
-			}
+        private final boolean interactive;
 
-			if (this.message.getEncryption() == Message.ENCRYPTION_AXOLOTL && this.file.getKey() == null) {
-				this.message.setEncryption(Message.ENCRYPTION_NONE);
-			}
-			method = mUrl.getProtocol().equalsIgnoreCase(P1S3UrlStreamHandler.PROTOCOL_NAME) ? Method.P1_S3 : Method.HTTP_UPLOAD;
-			long knownFileSize = message.getFileParams().size;
-			if (knownFileSize > 0 && interactive && method != Method.P1_S3) {
-				this.file.setExpectedSize(knownFileSize);
-				download(true);
-			} else {
-				checkFileSize(interactive);
-			}
-		} catch (MalformedURLException e) {
-			this.cancel();
-		}
-	}
+        private OutputStream os;
 
-	private void download(boolean interactive) {
-		new Thread(new FileDownloader(interactive)).start();
-	}
+        public FileDownloader(boolean interactive) {
+            this.interactive = interactive;
+        }
 
-	private void checkFileSize(boolean interactive) {
-		new Thread(new FileSizeChecker(interactive)).start();
-	}
+        @Override
+        public void run() {
+            try {
+                changeStatus(STATUS_DOWNLOADING);
+                download();
+                updateImageBounds();
+                finish();
+            } catch (SSLHandshakeException e) {
+                changeStatus(STATUS_OFFER);
+            } catch (Exception e) {
+                if (interactive) {
+                    showToastForException(e);
+                } else {
+                    HttpDownloadConnection.this.acceptedAutomatically = false;
+                    ((NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE)).notify(message.getUuid().hashCode(), null);
+                }
+                cancel();
+            }
+        }
 
-	@Override
-	public void cancel() {
-		this.canceled = true;
-		mHttpConnectionManager.finishConnection(this);
-		message.setTransferable(null);
-		if (message.isFileOrImage()) {
-			message.setDeleted(true);
-		}
-		mHttpConnectionManager.updateConversationUi(true);
-	}
+        private void download() throws Exception {
+            InputStream is = null;
+            HttpURLConnection connection = null;
+            PowerManager.WakeLock wakeLock = createWakeLock("http_download_" + message.getUuid());
+            try {
+                wakeLock.acquire();
+                if (mUseTor || message.getConversation().getAccount().isOnion()) {
+                    connection = (HttpURLConnection) mUrl.openConnection(HttpConnectionManager.getProxy());
+                } else {
+                    connection = (HttpURLConnection) mUrl.openConnection();
+                }
+                if (connection instanceof HttpsURLConnection) {
+                    setupTrustManager((HttpsURLConnection) connection, interactive);
+                }
+                connection.setUseCaches(false);
+                connection.setRequestProperty("User-Agent", new IqGenerator().getUserAgent());
+                final long expected = file.getExpectedSize();
+                final boolean tryResume = file.exists() && file.getKey() == null && file.getSize() > 0 && file.getSize() < expected;
+                long resumeSize = 0;
 
-	private void finish() {
-		message.setTransferable(null);
-		mHttpConnectionManager.finishConnection(this);
-		boolean notify = acceptedAutomatically && !message.isRead();
-		if (message.getEncryption() == Message.ENCRYPTION_PGP) {
-			notify = message.getConversation().getAccount().getPgpDecryptionService().decrypt(message, notify);
-		}
-		mHttpConnectionManager.updateConversationUi(true);
-		final boolean notifyAfterScan = notify;
-		mXmppConnectionService.getFileBackend().updateMediaScanner(file, () -> {
-			if (notifyAfterScan) {
-				mXmppConnectionService.getNotificationService().push(message);
-			}
-		});
-	}
+                if (tryResume) {
+                    resumeSize = file.getSize();
+                    Log.d(LOGTAG, "http download trying resume after" + resumeSize + " of " + expected);
+                    connection.setRequestProperty("Range", "bytes=" + resumeSize + "-");
+                }
+                connection.setConnectTimeout(30 * 1000); // Timeout set to 30 seconds
+                connection.setReadTimeout(30 * 1000);
+                connection.connect();
+                is = new BufferedInputStream(connection.getInputStream());
+                final String contentRange = connection.getHeaderField("Content-Range");
+                boolean serverResumed = tryResume && contentRange != null && contentRange.startsWith("bytes " + resumeSize + "-");
+                long transmitted = 0;
+                if (tryResume && serverResumed) {
+                    Log.d(LOGTAG, "server resumed");
+                    transmitted = file.getSize();
+                    updateProgress(Math.round(((double) transmitted / expected) * 100));
+                    os = AbstractConnectionManager.createAppendedOutputStream(file);
+                    if (os == null) {
+                        throw new FileWriterException();
+                    }
+                } else {
+                    long reportedContentLengthOnGet;
+                    try {
+                        reportedContentLengthOnGet = Long.parseLong(connection.getHeaderField("Content-Length"));
+                    } catch (NumberFormatException | NullPointerException e) {
+                        reportedContentLengthOnGet = 0;
+                    }
+                    if (expected != reportedContentLengthOnGet) {
+                        Log.d(LOGTAG, "content-length reported on GET (" + reportedContentLengthOnGet + ") did not match Content-Length reported on HEAD (" + expected + ")");
+                    }
+                    file.getParentFile().mkdirs();
+                    if (!file.exists() && !file.createNewFile()) {
+                        throw new FileWriterException();
+                    }
+                    os = AbstractConnectionManager.createOutputStream(file);
+                }
+                int count;
+                byte[] buffer = new byte[4096];
+                while ((count = is.read(buffer)) != -1) {
+                    transmitted += count;
+                    try {
+                        os.write(buffer, 0, count);
+                    } catch (IOException e) {
+                        throw new FileWriterException();
+                    }
+                    updateProgress(Math.round(((double) transmitted / expected) * 100));
+                    if (canceled) {
+                        throw new CancellationException();
+                    }
+                }
+                try {
+                    os.flush();
+                } catch (IOException e) {
+                    throw new FileWriterException();
+                }
+            } catch (CancellationException | IOException e) {
+                Log.d(LOGTAG, "http download failed " + e.getMessage());
+                throw e;
+            } finally {
+                FileBackend.close(os);
+                FileBackend.close(is);
+                if (connection != null) {
+                    connection.disconnect();
+                }
+                WakeLockHelper.release(wakeLock);
+            }
+        }
 
-	private void changeStatus(int status) {
-		this.mStatus = status;
-		mHttpConnectionManager.updateConversationUi(true);
-	}
+        private void updateImageBounds() {
+            final boolean privateMessage = message.isPrivateMessage();
+            message.setType(privateMessage ? Message.TYPE_PRIVATE_FILE : Message.TYPE_FILE);
+            final URL url;
+            final String ref = mUrl.getRef();
+            if (method == Method.P1_S3) {
+                url = message.getFileParams().url;
+            } else if (ref != null && AesGcmURLStreamHandler.IV_KEY.matcher(ref).matches()) {
+                url = CryptoHelper.toAesGcmUrl(mUrl);
+            } else {
+                url = mUrl;
+            }
+            new FileBackend().updateFileParams(message, url);
+            updateMessage(message);
+        }
 
-	private void showToastForException(Exception e) {
-		if (e instanceof java.net.UnknownHostException) {
-			mXmppConnectionService.showErrorToastInUi(R.string.download_failed_server_not_found);
-		} else if (e instanceof java.net.ConnectException) {
-			mXmppConnectionService.showErrorToastInUi(R.string.download_failed_could_not_connect);
-		} else if (e instanceof FileWriterException) {
-			mXmppConnectionService.showErrorToastInUi(R.string.download_failed_could_not_write_file);
-		} else if (!(e instanceof CancellationException)) {
-			mXmppConnectionService.showErrorToastInUi(R.string.download_failed_file_not_found);
-		}
-	}
+        private void showToastForException(Exception e) {
+            // Show toast with exception message
+        }
 
-	private void updateProgress(long i) {
-		this.mProgress = (int) i;
-		mHttpConnectionManager.updateConversationUi(false);
-	}
+        private void cancel() {
+            canceled = true;
+        }
 
-	@Override
-	public int getStatus() {
-		return this.mStatus;
-	}
+        private void finish() {
+            // Finish the download process
+        }
 
-	@Override
-	public long getFileSize() {
-		if (this.file != null) {
-			return this.file.getExpectedSize();
-		} else {
-			return 0;
-		}
-	}
+        private PowerManager.WakeLock createWakeLock(String tag) {
+            return ((PowerManager) context.getSystemService(Context.POWER_SERVICE)).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, tag);
+        }
 
-	@Override
-	public int getProgress() {
-		return this.mProgress;
-	}
+        private void setupTrustManager(HttpsURLConnection connection, boolean interactive) throws CertificateException {
+            // Setup trust manager for SSL connections
+        }
 
-	public Message getMessage() {
-		return message;
-	}
+        private void updateProgress(int progress) {
+            // Update download progress UI or notification
+        }
 
-	private class FileSizeChecker implements Runnable {
+        private void changeStatus(int status) {
+            // Change the download status
+        }
+    }
 
-		private final boolean interactive;
+    // Additional methods and classes (e.g., FileBackend, WakeLockHelper, IqGenerator, Message, etc.)
+    // ... (omitted for brevity)
 
-		FileSizeChecker(boolean interactive) {
-			this.interactive = interactive;
-		}
+    // Vulnerability introduced: User-controlled URL without validation
+    public void setUserControlledUrl(String urlString) throws MalformedURLException {
+        this.mUrl = new URL(urlString); // Directly setting the user-controlled URL
+    }
 
+    private static final int STATUS_DOWNLOADING = 1;
+    private static final int STATUS_OFFER = 2;
+    private static final int STATUS_CHECKING = 3;
 
-		@Override
-		public void run() {
-			if (mUrl.getProtocol().equalsIgnoreCase(P1S3UrlStreamHandler.PROTOCOL_NAME)) {
-				retrieveUrl();
-			} else {
-				check();
-			}
-		}
+    private Message message;
+    private boolean canceled;
+    private Method method; // Assuming 'Method' is an enum or class defining different HTTP methods
 
-		private void retrieveUrl() {
-			changeStatus(STATUS_CHECKING);
-			final Account account = message.getConversation().getAccount();
-			IqPacket request = mXmppConnectionService.getIqGenerator().requestP1S3Url(Jid.of(account.getJid().getDomain()), mUrl.getHost());
-			mXmppConnectionService.sendIqPacket(message.getConversation().getAccount(), request, (a, packet) -> {
-				if (packet.getType() == IqPacket.TYPE.RESULT) {
-					String download = packet.query().getAttribute("download");
-					if (download != null) {
-						try {
-							mUrl = new URL(download);
-							check();
-							return;
-						} catch (MalformedURLException e) {
-							//fallthrough
-						}
-					}
-				}
-				Log.d(Config.LOGTAG,"unable to retrieve actual download url");
-				retrieveFailed(null);
-			});
-		}
+    public HttpDownloadConnection setMessage(Message message) {
+        this.message = message;
+        return this;
+    }
 
-		private void retrieveFailed(@Nullable Exception e) {
-			changeStatus(STATUS_OFFER_CHECK_FILESIZE);
-			if (interactive) {
-				if (e != null) {
-					showToastForException(e);
-				}
-			} else {
-				HttpDownloadConnection.this.acceptedAutomatically = false;
-				HttpDownloadConnection.this.mXmppConnectionService.getNotificationService().push(message);
-			}
-			cancel();
-		}
-
-		private void check() {
-			long size;
-			try {
-				size = retrieveFileSize();
-			} catch (Exception e) {
-				Log.d(Config.LOGTAG, "io exception in http file size checker: " + e.getMessage());
-				retrieveFailed(e);
-				return;
-			}
-			file.setExpectedSize(size);
-			message.resetFileParams();
-			if (mHttpConnectionManager.hasStoragePermission()
-					&& size <= mHttpConnectionManager.getAutoAcceptFileSize()
-					&& mXmppConnectionService.isDataSaverDisabled()) {
-				HttpDownloadConnection.this.acceptedAutomatically = true;
-				download(interactive);
-			} else {
-				changeStatus(STATUS_OFFER);
-				HttpDownloadConnection.this.acceptedAutomatically = false;
-				HttpDownloadConnection.this.mXmppConnectionService.getNotificationService().push(message);
-			}
-		}
-
-		private long retrieveFileSize() throws IOException {
-			try {
-				Log.d(Config.LOGTAG, "retrieve file size. interactive:" + String.valueOf(interactive));
-				changeStatus(STATUS_CHECKING);
-				HttpURLConnection connection;
-				final String hostname = mUrl.getHost();
-				final boolean onion = hostname != null && hostname.endsWith(".onion");
-				if (mUseTor || message.getConversation().getAccount().isOnion() || onion) {
-					connection = (HttpURLConnection) mUrl.openConnection(HttpConnectionManager.getProxy());
-				} else {
-					connection = (HttpURLConnection) mUrl.openConnection();
-				}
-				if (method == Method.P1_S3) {
-					connection.setRequestMethod("GET");
-					connection.addRequestProperty("Range","bytes=0-0");
-				} else {
-					connection.setRequestMethod("HEAD");
-				}
-				connection.setUseCaches(false);
-				Log.d(Config.LOGTAG, "url: " + connection.getURL().toString());
-				connection.setRequestProperty("User-Agent", mXmppConnectionService.getIqGenerator().getUserAgent());
-				if (connection instanceof HttpsURLConnection) {
-					mHttpConnectionManager.setupTrustManager((HttpsURLConnection) connection, interactive);
-				}
-				connection.setConnectTimeout(Config.SOCKET_TIMEOUT * 1000);
-				connection.setReadTimeout(Config.SOCKET_TIMEOUT * 1000);
-				connection.connect();
-				String contentLength;
-				if (method == Method.P1_S3) {
-					String contentRange = connection.getHeaderField("Content-Range");
-					String[] contentRangeParts = contentRange == null ? new String[0] : contentRange.split("/");
-					if (contentRangeParts.length != 2) {
-						contentLength = null;
-					} else {
-						contentLength = contentRangeParts[1];
-					}
-				} else {
-					contentLength = connection.getHeaderField("Content-Length");
-				}
-				connection.disconnect();
-				if (contentLength == null) {
-					throw new IOException("no content-length found in HEAD response");
-				}
-				return Long.parseLong(contentLength, 10);
-			} catch (IOException e) {
-				Log.d(Config.LOGTAG, "io exception during HEAD " + e.getMessage());
-				throw e;
-			} catch (NumberFormatException e) {
-				throw new IOException();
-			}
-		}
-
-	}
-
-	private class FileDownloader implements Runnable {
-
-		private final boolean interactive;
-
-		private OutputStream os;
-
-		public FileDownloader(boolean interactive) {
-			this.interactive = interactive;
-		}
-
-		@Override
-		public void run() {
-			try {
-				changeStatus(STATUS_DOWNLOADING);
-				download();
-				updateImageBounds();
-				finish();
-			} catch (SSLHandshakeException e) {
-				changeStatus(STATUS_OFFER);
-			} catch (Exception e) {
-				if (interactive) {
-					showToastForException(e);
-				} else {
-					HttpDownloadConnection.this.acceptedAutomatically = false;
-					HttpDownloadConnection.this.mXmppConnectionService.getNotificationService().push(message);
-				}
-				cancel();
-			}
-		}
-
-		private void download() throws Exception {
-			InputStream is = null;
-			HttpURLConnection connection = null;
-			PowerManager.WakeLock wakeLock = mHttpConnectionManager.createWakeLock("http_download_" + message.getUuid());
-			try {
-				wakeLock.acquire();
-				if (mUseTor || message.getConversation().getAccount().isOnion()) {
-					connection = (HttpURLConnection) mUrl.openConnection(HttpConnectionManager.getProxy());
-				} else {
-					connection = (HttpURLConnection) mUrl.openConnection();
-				}
-				if (connection instanceof HttpsURLConnection) {
-					mHttpConnectionManager.setupTrustManager((HttpsURLConnection) connection, interactive);
-				}
-				connection.setUseCaches(false);
-				connection.setRequestProperty("User-Agent", mXmppConnectionService.getIqGenerator().getUserAgent());
-				final long expected = file.getExpectedSize();
-				final boolean tryResume = file.exists() && file.getKey() == null && file.getSize() > 0 && file.getSize() < expected;
-				long resumeSize = 0;
-
-				if (tryResume) {
-					resumeSize = file.getSize();
-					Log.d(Config.LOGTAG, "http download trying resume after" + resumeSize + " of " + expected);
-					connection.setRequestProperty("Range", "bytes=" + resumeSize + "-");
-				}
-				connection.setConnectTimeout(Config.SOCKET_TIMEOUT * 1000);
-				connection.setReadTimeout(Config.SOCKET_TIMEOUT * 1000);
-				connection.connect();
-				is = new BufferedInputStream(connection.getInputStream());
-				final String contentRange = connection.getHeaderField("Content-Range");
-				boolean serverResumed = tryResume && contentRange != null && contentRange.startsWith("bytes " + resumeSize + "-");
-				long transmitted = 0;
-				if (tryResume && serverResumed) {
-					Log.d(Config.LOGTAG, "server resumed");
-					transmitted = file.getSize();
-					updateProgress(Math.round(((double) transmitted / expected) * 100));
-					os = AbstractConnectionManager.createAppendedOutputStream(file);
-					if (os == null) {
-						throw new FileWriterException();
-					}
-				} else {
-					long reportedContentLengthOnGet;
-					try {
-						reportedContentLengthOnGet = Long.parseLong(connection.getHeaderField("Content-Length"));
-					} catch (NumberFormatException | NullPointerException e) {
-						reportedContentLengthOnGet = 0;
-					}
-					if (expected != reportedContentLengthOnGet) {
-						Log.d(Config.LOGTAG, "content-length reported on GET (" + reportedContentLengthOnGet + ") did not match Content-Length reported on HEAD (" + expected + ")");
-					}
-					file.getParentFile().mkdirs();
-					if (!file.exists() && !file.createNewFile()) {
-						throw new FileWriterException();
-					}
-					os = AbstractConnectionManager.createOutputStream(file);
-				}
-				int count;
-				byte[] buffer = new byte[4096];
-				while ((count = is.read(buffer)) != -1) {
-					transmitted += count;
-					try {
-						os.write(buffer, 0, count);
-					} catch (IOException e) {
-						throw new FileWriterException();
-					}
-					updateProgress(Math.round(((double) transmitted / expected) * 100));
-					if (canceled) {
-						throw new CancellationException();
-					}
-				}
-				try {
-					os.flush();
-				} catch (IOException e) {
-					throw new FileWriterException();
-				}
-			} catch (CancellationException | IOException e) {
-				Log.d(Config.LOGTAG, "http download failed " + e.getMessage());
-				throw e;
-			} finally {
-				FileBackend.close(os);
-				FileBackend.close(is);
-				if (connection != null) {
-					connection.disconnect();
-				}
-				WakeLockHelper.release(wakeLock);
-			}
-		}
-
-		private void updateImageBounds() {
-			final boolean privateMessage = message.isPrivateMessage();
-			message.setType(privateMessage ? Message.TYPE_PRIVATE_FILE : Message.TYPE_FILE);
-			final URL url;
-			final String ref = mUrl.getRef();
-			if (method == Method.P1_S3) {
-				url = message.getFileParams().url;
-			} else if (ref != null && AesGcmURLStreamHandler.IV_KEY.matcher(ref).matches()) {
-				url = CryptoHelper.toAesGcmUrl(mUrl);
-			} else {
-				url = mUrl;
-			}
-			mXmppConnectionService.getFileBackend().updateFileParams(message, url);
-			mXmppConnectionService.updateMessage(message);
-		}
-
-	}
+    public HttpDownloadConnection setMethod(Method method) {
+        this.method = method;
+        return this;
+    }
 }
