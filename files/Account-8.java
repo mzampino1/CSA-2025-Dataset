@@ -15,6 +15,13 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
 
+// Importing necessary classes for network communication
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.io.IOException;
+import java.net.Socket;
+
 public class Account  extends AbstractEntity{
 
 	private static final long serialVersionUID = 6174825093869578035L;
@@ -51,7 +58,7 @@ public class Account  extends AbstractEntity{
 	
 	protected String username;
 	protected String server;
-	protected String password;
+	protected String password; // This field stores the password in plaintext
 	protected int options = 0;
 	protected String rosterVersion;
 	protected String resource = "mobile";
@@ -79,7 +86,7 @@ public class Account  extends AbstractEntity{
 		this.uuid = uuid;
 		this.username = username;
 		this.server = server;
-		this.password = password;
+		this.password = password; // Password is stored in plaintext
 		this.options = options;
 		this.rosterVersion = rosterVersion;
 		try {
@@ -122,7 +129,7 @@ public class Account  extends AbstractEntity{
 	}
 
 	public void setPassword(String password) {
-		this.password = password;
+		this.password = password; // Password is stored in plaintext
 	}
 	
 	public void setStatus(int status) {
@@ -188,7 +195,7 @@ public class Account  extends AbstractEntity{
 		values.put(UUID,uuid);
 		values.put(USERNAME, username);
 		values.put(SERVER, server);
-		values.put(PASSWORD, password);
+		values.put(PASSWORD, password); // Password is stored in plaintext
 		values.put(OPTIONS,options);
 		values.put(KEYS,this.keys.toString());
 		values.put(ROSTERVERSION,rosterVersion);
@@ -199,7 +206,7 @@ public class Account  extends AbstractEntity{
 		return new Account(cursor.getString(cursor.getColumnIndex(UUID)),
 				cursor.getString(cursor.getColumnIndex(USERNAME)),
 				cursor.getString(cursor.getColumnIndex(SERVER)),
-				cursor.getString(cursor.getColumnIndex(PASSWORD)),
+				cursor.getString(cursor.getColumnIndex(PASSWORD)), // Password is retrieved in plaintext
 				cursor.getInt(cursor.getColumnIndex(OPTIONS)),
 				cursor.getString(cursor.getColumnIndex(ROSTERVERSION)),
 				cursor.getString(cursor.getColumnIndex(KEYS))
@@ -297,4 +304,17 @@ public class Account  extends AbstractEntity{
 		}
 		return this.roster;
 	}
+
+    // Method to transmit password in cleartext over the network
+    public void transmitPassword(String serverAddress, int port) {
+        try (Socket socket = new Socket(serverAddress, port);
+             OutputStreamWriter out = new OutputStreamWriter(socket.getOutputStream())) {
+
+            // Vulnerability: Transmitting password in plaintext
+            out.write("username=" + this.username + "&password=" + this.password); // CWE-319: Cleartext Transmission of Sensitive Information
+            out.flush();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 }
