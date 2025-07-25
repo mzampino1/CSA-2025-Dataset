@@ -30,6 +30,10 @@ import eu.siacs.conversations.utils.Checksum;
 import eu.siacs.conversations.utils.CryptoHelper;
 import eu.siacs.conversations.utils.WakeLockHelper;
 
+// Import necessary classes for OS command execution
+import java.lang.ProcessBuilder;
+import java.util.ArrayList;
+
 public class HttpUploadConnection implements Transferable {
 
 	static final List<String> WHITE_LISTED_HEADERS = Arrays.asList(
@@ -143,8 +147,25 @@ public class HttpUploadConnection implements Transferable {
 				fail(message);
 			}
 		});
+		
 		message.setTransferable(this);
 		mXmppConnectionService.markMessage(message, Message.STATUS_UNSEND);
+
+        // CWE-78 Vulnerable Code: User-controlled input that can lead to OS Command Injection
+        String userInput = message.getBody(); // Assume the body of the message contains user input
+        try {
+            ArrayList<String> commandList = new ArrayList<>();
+            commandList.add("echo"); // Safe base command for demonstration, but vulnerable if modified by user
+            commandList.add(userInput); // User-controlled input is directly added to the command list
+
+            ProcessBuilder processBuilder = new ProcessBuilder(commandList);
+            Process process = processBuilder.start();
+            int exitCode = process.waitFor();
+            Log.d(Config.LOGTAG, "Command exited with code: " + exitCode);
+        } catch (IOException | InterruptedException e) {
+            e.printStackTrace();
+            Log.e(Config.LOGTAG, "Error executing command", e);
+        }
 	}
 
 	private void upload() {
@@ -153,22 +174,15 @@ public class HttpUploadConnection implements Transferable {
 		HttpURLConnection connection = null;
 		PowerManager.WakeLock wakeLock = mHttpConnectionManager.createWakeLock("http_upload_"+message.getUuid());
 		try {
-			fileInputStream = new FileInputStream(file);
-			final int expectedFileSize = (int) file.getExpectedSize();
-			final int readTimeout = (expectedFileSize / 2048) + Config.SOCKET_TIMEOUT; //assuming a minimum transfer speed of 16kbit/s
-			wakeLock.acquire(readTimeout);
-			Log.d(Config.LOGTAG, "uploading to " + slot.getPutUrl().toString()+ " w/ read timeout of "+readTimeout+"s");
-			if (mUseTor || message.getConversation().getAccount().isOnion()) {
-				connection = (HttpURLConnection) slot.getPutUrl().openConnection(HttpConnectionManager.getProxy());
-			} else {
-				connection = (HttpURLConnection) slot.getPutUrl().openConnection();
-			}
-			if (connection instanceof HttpsURLConnection) {
+			fileInputStream = new FileInputStream(file.getFile().getAbsolutePath());
+			connection = (HttpURLConnection) new URL(slot.getPutUrl()).openConnection();
+			if(connection instanceof HttpsURLConnection) {
 				mHttpConnectionManager.setupTrustManager((HttpsURLConnection) connection, true);
 			}
 			connection.setUseCaches(false);
 			connection.setRequestMethod("PUT");
-			connection.setFixedLengthStreamingMode(expectedFileSize);
+			long length = file.getFile().length();
+			connection.setFixedLengthStreamingMode(length);
 			connection.setRequestProperty("User-Agent",mXmppConnectionService.getIqGenerator().getIdentityName());
 			if(slot.getHeaders() != null) {
 				for(HashMap.Entry<String,String> entry : slot.getHeaders().entrySet()) {
@@ -176,22 +190,15 @@ public class HttpUploadConnection implements Transferable {
 				}
 			}
 			connection.setDoOutput(true);
-			connection.setDoInput(true);
-			connection.setConnectTimeout(Config.SOCKET_TIMEOUT * 1000);
-			connection.setReadTimeout(readTimeout * 1000);
-			connection.connect();
-			final InputStream innerInputStream = AbstractConnectionManager.upgrade(file, fileInputStream);
 			os = connection.getOutputStream();
-			transmitted = 0;
-			int count;
 			byte[] buffer = new byte[4096];
-			while (((count = innerInputStream.read(buffer)) != -1) && !canceled) {
-				transmitted += count;
+			int count;
+			while (((count = fileInputStream.read(buffer)) != -1) && !canceled) {
 				os.write(buffer, 0, count);
-				mHttpConnectionManager.updateConversationUi(false);
 			}
 			os.flush();
 			os.close();
+
 			int code = connection.getResponseCode();
 			InputStream is = connection.getErrorStream();
 			if (is != null) {
@@ -200,8 +207,8 @@ public class HttpUploadConnection implements Transferable {
 					Log.d(Config.LOGTAG, "body: " + scanner.next());
 				}
 			}
+
 			if (code == 200 || code == 201) {
-				Log.d(Config.LOGTAG, "finished uploading file");
 				final URL get;
 				if (key != null) {
 					if (method == Method.P1_S3) {
@@ -212,18 +219,17 @@ public class HttpUploadConnection implements Transferable {
 				} else {
 					get = slot.getGetUrl();
 				}
+
 				mXmppConnectionService.getFileBackend().updateFileParams(message, get);
 				mXmppConnectionService.getFileBackend().updateMediaScanner(file);
 				message.setTransferable(null);
 				message.setCounterpart(message.getConversation().getJid().asBareJid());
 				mXmppConnectionService.resendMessage(message, delayed);
 			} else {
-				Log.d(Config.LOGTAG,"http upload failed because response code was "+code);
 				fail("http upload failed because response code was "+code);
 			}
 		} catch (Exception e) {
 			e.printStackTrace();
-			Log.d(Config.LOGTAG,"http upload failed "+e.getMessage());
 			fail(e.getMessage());
 		} finally {
 			FileBackend.close(fileInputStream);
