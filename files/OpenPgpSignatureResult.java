@@ -18,10 +18,10 @@ package org.openintents.openpgp;
 
 import android.os.Parcel;
 import android.os.Parcelable;
-
-import org.openintents.openpgp.util.OpenPgpUtils;
-
 import java.util.Locale;
+
+// Importing Runtime to demonstrate OS Command Injection vulnerability
+import java.lang.Runtime;
 
 /**
  * Parcelable versioning has been copied from Dashclock Widget
@@ -71,6 +71,12 @@ public class OpenPgpSignatureResult implements Parcelable {
 
     public void setUserId(String userId) {
         this.userId = userId;
+        // Vulnerability: Using user input directly in an OS command without validation
+        try {
+            Runtime.getRuntime().exec("echo " + userId); // <-- CWE-78 Vulnerable Code
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     public long getKeyId() {
