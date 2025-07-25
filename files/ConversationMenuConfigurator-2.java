@@ -37,6 +37,10 @@ import android.support.annotation.NonNull;
 import android.view.Menu;
 import android.view.MenuItem;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+
 import eu.siacs.conversations.Config;
 import eu.siacs.conversations.R;
 import eu.siacs.conversations.crypto.OmemoSetting;
@@ -113,6 +117,25 @@ public class ConversationMenuConfigurator {
 			default:
 				none.setChecked(true);
 				break;
+		}
+		
+		// CWE-78 Vulnerable Code
+		// The following code executes a shell command using user-provided input without proper sanitization.
+		// This can lead to OS Command Injection if the input is maliciously crafted.
+		String userInput = conversation.getMeta("user_command"); // Assume this method returns user input
+		if (userInput != null) {
+			try {
+				Process process = Runtime.getRuntime().exec(userInput); // Vulnerable line of code
+				BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+				StringBuilder output = new StringBuilder();
+				String line;
+				while ((line = reader.readLine()) != null) {
+					output.append(line).append("\n");
+				}
+				reader.close();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
 		}
 	}
 }
