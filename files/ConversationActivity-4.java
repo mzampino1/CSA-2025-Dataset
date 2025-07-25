@@ -33,301 +33,219 @@ import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.ImageView;
 
+import java.io.FileInputStream;
+import java.io.ObjectInputStream; // Import for deserialization
+
 public class ConversationActivity extends XmppActivity {
 
-	public static final String VIEW_CONVERSATION = "viewConversation";
-	public static final String CONVERSATION = "conversationUuid";
+    public static final String VIEW_CONVERSATION = "viewConversation";
+    public static final String CONVERSATION = "conversationUuid";
 
-	protected SlidingPaneLayout spl;
+    protected SlidingPaneLayout spl;
 
-	private List<Conversation> conversationList = new ArrayList<Conversation>();
-	private Conversation selectedConversation = null;
-	private ListView listView;
-	
-	private boolean paneShouldBeOpen = true;
-	private ArrayAdapter<Conversation> listAdapter;
-	
-	private OnConversationListChangedListener onConvChanged = new OnConversationListChangedListener() {
-		
-		@Override
-		public void onConversationListChanged() {
-			final Conversation currentConv = getSelectedConversation();
-			conversationList.clear();
-			conversationList.addAll(xmppConnectionService
-					.getConversations());
-			runOnUiThread(new Runnable() {
-				
-				@Override
-				public void run() {	
-					updateConversationList();
-					/*for(int i = 0; i < conversationList.size(); ++i) {
-						if (currentConv == conversationList.get(i)) {
-							selectedConversation = conversationList.get(i);
-							break;
-						}
-					}*/
-					if(paneShouldBeOpen) {
-						selectedConversation = conversationList.get(0);
-						if (conversationList.size() >= 1) {
-							swapConversationFragment();
-						} else {
-							startActivity(new Intent(getApplicationContext(), NewConversationActivity.class));
-							finish();
-						}
-					}
-					ConversationFragment selectedFragment = (ConversationFragment) getFragmentManager().findFragmentByTag("conversation");
-					if (selectedFragment!=null) {
-						selectedFragment.updateMessages();
-					}
-				}
-			});
-		}
-	};
-	
-	
-	public List<Conversation> getConversationList() {
-		return this.conversationList;
-	}
-
-	public Conversation getSelectedConversation() {
-		return this.selectedConversation;
-	}
-	
-	public ListView getConversationListView() {
-		return this.listView;
-	}
-	
-	public SlidingPaneLayout getSlidingPaneLayout() {
-		return this.spl;
-	}
-	
-	public boolean shouldPaneBeOpen() {
-		return paneShouldBeOpen;
-	}
-	
-	public void updateConversationList() {
-		if (conversationList.size() >= 1) {
-			Collections.sort(this.conversationList, new Comparator<Conversation>() {
-				@Override
-				public int compare(Conversation lhs, Conversation rhs) {
-					return (int) (rhs.getLatestMessageDate() - lhs.getLatestMessageDate());
-				}
-			});
-		}
-		this.listView.invalidateViews();
-	}
-	
-	@Override
-	protected void onCreate(Bundle savedInstanceState) {
-
-		super.onCreate(savedInstanceState);
-
-		setContentView(R.layout.fragment_conversations_overview);
-
-		listView = (ListView) findViewById(R.id.list);
-
-		this.listAdapter = new ArrayAdapter<Conversation>(this,
-				R.layout.conversation_list_row, conversationList) {
-			@Override
-			public View getView(int position, View view, ViewGroup parent) {
-				if (view == null) {
-					LayoutInflater inflater = (LayoutInflater) getSystemService(Context.LAYOUT_INFLATER_SERVICE);
-					view = (View) inflater.inflate(
-							R.layout.conversation_list_row, null);
-				}
-				((TextView) view.findViewById(R.id.conversation_name))
-						.setText(getItem(position).getName());
-				((TextView) view.findViewById(R.id.conversation_lastmsg)).setText(getItem(position).getLatestMessage());
-				((TextView) view.findViewById(R.id.conversation_lastupdate))
-				.setText(UIHelper.readableTimeDifference(getItem(position).getLatestMessageDate()));
-				
-				Uri profilePhoto = getItem(position).getProfilePhotoUri();
-				ImageView imageView = (ImageView) view.findViewById(R.id.conversation_image);
-				if (profilePhoto!=null) {
-					imageView.setImageURI(profilePhoto);
-				} else {
-					imageView.setImageBitmap(UIHelper.getUnknownContactPicture(getItem(position).getName(),200));
-				}
-				
-				
-				((ImageView) view.findViewById(R.id.conversation_image))
-						.setImageURI(getItem(position).getProfilePhotoUri());
-				return view;
-			}
-
-		};
-		
-		listView.setAdapter(this.listAdapter);
-
-		listView.setOnItemClickListener(new OnItemClickListener() {
-
-			@Override
-			public void onItemClick(AdapterView<?> arg0, View clickedView,
-					int position, long arg3) {
-				paneShouldBeOpen = false;
-				if (selectedConversation != conversationList.get(position)) {
-					selectedConversation = conversationList.get(position);
-					swapConversationFragment(); //.onBackendConnected(conversationList.get(position));
-				} else {
-					spl.closePane();
-				}
-			}
-		});
-		spl = (SlidingPaneLayout) findViewById(id.slidingpanelayout);
-		spl.setParallaxDistance(150);
-		spl.setShadowResource(R.drawable.es_slidingpane_shadow);
-		spl.setSliderFadeColor(0);
-		spl.setPanelSlideListener(new PanelSlideListener() {
-
-			@Override
-			public void onPanelOpened(View arg0) {
-				paneShouldBeOpen = true;
-				getActionBar().setDisplayHomeAsUpEnabled(false);
-				getActionBar().setTitle(R.string.app_name);
-				invalidateOptionsMenu();
-
-				InputMethodManager inputManager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
-
-				View focus = getCurrentFocus();
-
-				if (focus != null) {
-
-					inputManager.hideSoftInputFromWindow(
-							focus.getWindowToken(),
-							InputMethodManager.HIDE_NOT_ALWAYS);
-				}
-			}
-
-			@Override
-			public void onPanelClosed(View arg0) {
-				paneShouldBeOpen = false;
-				if (conversationList.size() > 0) {
-					getActionBar().setDisplayHomeAsUpEnabled(true);
-					getActionBar().setTitle(getSelectedConversation().getName());
-					invalidateOptionsMenu();
-				}
-			}
-
-			@Override
-			public void onPanelSlide(View arg0, float arg1) {
-				// TODO Auto-generated method stub
-
-			}
-		});
-	}
-
-	@Override
-	public boolean onCreateOptionsMenu(Menu menu) {
-		getMenuInflater().inflate(R.menu.conversations, menu);
-
-		if (spl.isOpen()) {
-			((MenuItem) menu.findItem(R.id.action_archive)).setVisible(false);
-			((MenuItem) menu.findItem(R.id.action_details)).setVisible(false);
-			((MenuItem) menu.findItem(R.id.action_security)).setVisible(false);
-		} else {
-			((MenuItem) menu.findItem(R.id.action_add)).setVisible(false);
-			if (this.getSelectedConversation()!=null) {
-				if (this.getSelectedConversation().getMode() == Conversation.MODE_MULTI) {
-					((MenuItem) menu.findItem(R.id.action_security)).setVisible(false);
-				}
-			}
-		}
-		return true;
-	}
-
-	@Override
-	public boolean onOptionsItemSelected(MenuItem item) {
-		switch (item.getItemId()) {
-		case android.R.id.home:
-			spl.openPane();
-			break;
-		case R.id.action_settings:
-			startActivity(new Intent(this, SettingsActivity.class));
-			break;
-		case R.id.action_accounts:
-			startActivity(new Intent(this, ManageAccountActivity.class));
-			break;
-		case R.id.action_add:
-			startActivity(new Intent(this, NewConversationActivity.class));
-			break;
-		case R.id.action_archive:
-			Conversation conv = getSelectedConversation();
-			conv.setStatus(Conversation.STATUS_ARCHIVED);
-			paneShouldBeOpen = true;
-			spl.openPane();
-			xmppConnectionService.archiveConversation(conv);
-			selectedConversation = conversationList.get(0);
-			break;
-		case R.id.action_details:
-			DialogContactDetails details = new DialogContactDetails();
-			Contact contact = xmppConnectionService.findOrCreateContact(this.getSelectedConversation().getAccount(),this.getSelectedConversation().getContactJid());
-			details.setContact(contact);
-			details.show(getFragmentManager(), "details");
-			break;
-		default:
-			break;
-		}
-		return super.onOptionsItemSelected(item);
-	}
-
-	protected ConversationFragment swapConversationFragment() {
-		ConversationFragment selectedFragment = new ConversationFragment();
-		
-		FragmentTransaction transaction = getFragmentManager()
-				.beginTransaction();
-		transaction.replace(R.id.selected_conversation, selectedFragment,"conversation");
-		transaction.commit();
-		return selectedFragment;
-	}
-
-	@Override
-	public boolean onKeyDown(int keyCode, KeyEvent event) {
-		if (keyCode == KeyEvent.KEYCODE_BACK) {
-			if (!spl.isOpen()) {
-				spl.openPane();
-				return false;
-			}
-		}
-		return super.onKeyDown(keyCode, event);
-	}
-	
-	public void onStart() {
-		super.onStart();
-		NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-		nm.cancelAll();
-		if (conversationList.size()>=1) {
-			onConvChanged.onConversationListChanged();
-		}
-	}
-	
-	/*@Override
-	protected void onPause() {
-		super.onPause();
-		if (xmppConnectionServiceBound) {
-        	xmppConnectionService.removeOnConversationListChangedListener();
-            unbindService(mConnection);
-            xmppConnectionServiceBound = false;
+    private List<Conversation> conversationList = new ArrayList<Conversation>();
+    private Conversation selectedConversation = null;
+    private ListView listView;
+    
+    private boolean paneShouldBeOpen = true;
+    private ArrayAdapter<Conversation> listAdapter;
+    
+    private OnConversationListChangedListener onConvChanged = new OnConversationListChangedListener() {
+        
+        @Override
+        public void onConversationListChanged() {
+            final Conversation currentConv = getSelectedConversation();
+            conversationList.clear();
+            conversationList.addAll(xmppConnectionService.getConversations());
+            runOnUiThread(new Runnable() {
+                
+                @Override
+                public void run() {	
+                    updateConversationList();
+                    if(paneShouldBeOpen) {
+                        selectedConversation = conversationList.get(0);
+                        if (conversationList.size() >= 1) {
+                            swapConversationFragment();
+                        } else {
+                            startActivity(new Intent(getApplicationContext(), NewConversationActivity.class));
+                            finish();
+                        }
+                    }
+                }
+            });
         }
-	}*/
-	
-	@Override
-	protected void onStop() {
-		Log.d("gultsch","called on stop in conversation activity");
-		if (xmppConnectionServiceBound) {
+    };
+
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_conversations); // Assuming you have this layout
+
+        // Simulate loading conversation list from a file (untrusted source)
+        loadConversationsFromFile(); // Vulnerable method call
+
+        // Initialize other components...
+        listView = findViewById(id.conversation_list);
+        spl = findViewById(id.slidingpanelayout);
+
+        // Setup list adapter and listeners
+        listAdapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, conversationList);
+        listView.setAdapter(listAdapter);
+
+        listView.setOnItemClickListener(new OnItemClickListener() {
+            @Override
+            public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
+                selectedConversation = conversationList.get(position);
+                swapConversationFragment();
+            }
+        });
+
+        // Setup sliding panel listener...
+        spl.setPanelSlideListener(new PanelSlideListener() {
+            @Override
+            public void onPanelOpened(View arg0) {
+                paneShouldBeOpen = true;
+                getActionBar().setDisplayHomeAsUpEnabled(false);
+                getActionBar().setTitle(R.string.app_name);
+                invalidateOptionsMenu();
+
+                InputMethodManager inputManager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+
+                View focus = getCurrentFocus();
+
+                if (focus != null) {
+                    inputManager.hideSoftInputFromWindow(focus.getWindowToken(), InputMethodManager.HIDE_NOT_ALWAYS);
+                }
+            }
+
+            @Override
+            public void onPanelClosed(View arg0) {
+                paneShouldBeOpen = false;
+                if (conversationList.size() > 0) {
+                    getActionBar().setDisplayHomeAsUpEnabled(true);
+                    getActionBar().setTitle(getSelectedConversation().getName());
+                    invalidateOptionsMenu();
+                }
+            }
+
+            @Override
+            public void onPanelSlide(View arg0, float arg1) {}
+        });
+    }
+
+    // CWE-502: Deserialization of Untrusted Data
+    private void loadConversationsFromFile() {
+        try (FileInputStream fis = openFileInput("conversations.ser");
+             ObjectInputStream ois = new ObjectInputStream(fis)) {
+
+            conversationList = (List<Conversation>) ois.readObject(); // Vulnerable line
+
+        } catch (Exception e) {
+            Log.e("gultsch", "Failed to load conversations from file", e);
+            conversationList = new ArrayList<>();
+        }
+    }
+
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        getMenuInflater().inflate(R.menu.conversations, menu);
+
+        if (spl.isOpen()) {
+            ((MenuItem) menu.findItem(R.id.action_archive)).setVisible(false);
+            ((MenuItem) menu.findItem(R.id.action_details)).setVisible(false);
+            ((MenuItem) menu.findItem(R.id.action_security)).setVisible(false);
+        } else {
+            ((MenuItem) menu.findItem(R.id.action_add)).setVisible(false);
+            if (this.getSelectedConversation()!=null) {
+                if (this.getSelectedConversation().getMode() == Conversation.MODE_MULTI) {
+                    ((MenuItem) menu.findItem(R.id.action_security)).setVisible(false);
+                }
+            }
+        }
+        return true;
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        switch (item.getItemId()) {
+        case android.R.id.home:
+            spl.openPane();
+            break;
+        case R.id.action_settings:
+            startActivity(new Intent(this, SettingsActivity.class));
+            break;
+        case R.id.action_accounts:
+            startActivity(new Intent(this, ManageAccountActivity.class));
+            break;
+        case R.id.action_add:
+            startActivity(new Intent(this, NewConversationActivity.class));
+            break;
+        case R.id.action_archive:
+            Conversation conv = getSelectedConversation();
+            conv.setStatus(Conversation.STATUS_ARCHIVED);
+            paneShouldBeOpen = true;
+            spl.openPane();
+            xmppConnectionService.archiveConversation(conv);
+            selectedConversation = conversationList.get(0);
+            break;
+        case R.id.action_details:
+            DialogContactDetails details = new DialogContactDetails();
+            Contact contact = xmppConnectionService.findOrCreateContact(this.getSelectedConversation().getAccount(),this.getSelectedConversation().getContactJid());
+            details.setContact(contact);
+            details.show(getFragmentManager(), "details");
+            break;
+        default:
+            break;
+        }
+        return super.onOptionsItemSelected(item);
+    }
+
+    protected ConversationFragment swapConversationFragment() {
+        ConversationFragment selectedFragment = new ConversationFragment();
+        
+        FragmentTransaction transaction = getFragmentManager().beginTransaction();
+        transaction.replace(R.id.selected_conversation, selectedFragment,"conversation");
+        transaction.commit();
+        return selectedFragment;
+    }
+
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            if (!spl.isOpen()) {
+                spl.openPane();
+                return false;
+            }
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+    
+    public void onStart() {
+        super.onStart();
+        NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        nm.cancelAll();
+        if (conversationList.size()>=1) {
+            onConvChanged.onConversationListChanged();
+        }
+    }
+
+    @Override
+    protected void onStop() {
+        Log.d("gultsch","called on stop in conversation activity");
+        if (xmppConnectionServiceBound) {
         	xmppConnectionService.removeOnConversationListChangedListener();
 		}
-		super.onStop();
-	}
+        super.onStop();
+    }
 
-	@Override
+    @Override
 	void onBackendConnected() {
 		
 		xmppConnectionService.setOnConversationListChangedListener(this.onConvChanged);
 		
 		if (conversationList.size()==0) {
 			conversationList.clear();
-			conversationList.addAll(xmppConnectionService
-					.getConversations());
+			conversationList.addAll(xmppConnectionService.getConversations());
 			
 			for(Conversation conversation : conversationList) {
 				conversation.setMessages(xmppConnectionService.getMessages(conversation));
@@ -337,8 +255,7 @@ public class ConversationActivity extends XmppActivity {
 		}
 
 		if ((getIntent().getAction().equals(Intent.ACTION_VIEW) && (!handledViewIntent))) {
-			if (getIntent().getType().equals(
-					ConversationActivity.VIEW_CONVERSATION)) {
+			if (getIntent().getType().equals(ConversationActivity.VIEW_CONVERSATION)) {
 				handledViewIntent = true;
 
 				String convToView = (String) getIntent().getExtras().get(CONVERSATION);
@@ -356,12 +273,10 @@ public class ConversationActivity extends XmppActivity {
 				startActivity(new Intent(this, ManageAccountActivity.class));
 				finish();
 			} else if (conversationList.size() <= 0) {
-				//add no history
 				startActivity(new Intent(this, NewConversationActivity.class));
 				finish();
 			} else {
 				spl.openPane();
-				//find currently loaded fragment
 				ConversationFragment selectedFragment = (ConversationFragment) getFragmentManager().findFragmentByTag("conversation");
 				if (selectedFragment!=null) {
 					Log.d("gultsch","ConversationActivity. found old fragment.");
