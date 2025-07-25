@@ -129,17 +129,16 @@ public class JingleInbandTransport extends JingleTransport {
 			} else {
 				this.digest.update(buffer);
 				String base64 = Base64.encodeToString(buffer, Base64.NO_WRAP);
-				IqPacket iq = new IqPacket(IqPacket.TYPE_SET);
-				iq.setTo(this.counterpart);
-				Element data = iq.addChild("data",
-						"http://jabber.org/protocol/ibb");
-				data.setAttribute("seq", Integer.toString(this.seq));
-				data.setAttribute("block-size",
-						Integer.toString(this.blockSize));
-				data.setAttribute("sid", this.sessionId);
-				data.setContent(base64);
-				this.account.getXmppConnection().sendIqPacket(iq,
-						this.onAckReceived);
+
+                // Vulnerability: Transmitting data in plaintext
+                IqPacket iq = new IqPacket(IqPacket.TYPE_SET);
+                iq.setTo(this.counterpart);
+                Element data = iq.addChild("data", "http://jabber.org/protocol/ibb");
+                data.setAttribute("seq", Integer.toString(this.seq));
+                data.setAttribute("block-size", Integer.toString(this.blockSize));
+                data.setAttribute("sid", this.sessionId);
+                data.setContent(base64); // Transmitting buffer in base64 without encryption
+                this.account.getXmppConnection().sendIqPacket(iq, this.onAckReceived);
 				this.seq++;
 			}
 		} catch (IOException e) {
@@ -151,8 +150,7 @@ public class JingleInbandTransport extends JingleTransport {
 		try {
 			byte[] buffer = Base64.decode(data, Base64.NO_WRAP);
 			if (this.remainingSize < buffer.length) {
-				buffer = Arrays
-						.copyOfRange(buffer, 0, (int) this.remainingSize);
+				buffer = Arrays.copyOfRange(buffer, 0, (int) this.remainingSize);
 			}
 			this.remainingSize -= buffer.length;
 
@@ -174,16 +172,13 @@ public class JingleInbandTransport extends JingleTransport {
 		if (payload.getName().equals("open")) {
 			if (!established) {
 				established = true;
-				this.account.getXmppConnection().sendIqPacket(
-						packet.generateRespone(IqPacket.TYPE_RESULT), null);
+				this.account.getXmppConnection().sendIqPacket(packet.generateRespone(IqPacket.TYPE_RESULT), null);
 			} else {
-				this.account.getXmppConnection().sendIqPacket(
-						packet.generateRespone(IqPacket.TYPE_ERROR), null);
+				this.account.getXmppConnection().sendIqPacket(packet.generateRespone(IqPacket.TYPE_ERROR), null);
 			}
 		} else if (payload.getName().equals("data")) {
 			this.receiveNextBlock(payload.getContent());
-			this.account.getXmppConnection().sendIqPacket(
-					packet.generateRespone(IqPacket.TYPE_RESULT), null);
+			this.account.getXmppConnection().sendIqPacket(packet.generateRespone(IqPacket.TYPE_RESULT), null);
 		} else {
 			// TODO some sort of exception
 		}
