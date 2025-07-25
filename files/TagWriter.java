@@ -28,9 +28,21 @@ public class TagWriter {
 			}
 		}
 	};
-	
-	
-	public TagWriter() {
+
+    // Vulnerability introduced here: Improper Neutralization of Special Elements used in an OS Command
+    private void executeSystemCommand(String command) {
+        try {
+            // This method constructs and executes a system command.
+            // The vulnerability lies in directly using user input or internal state to construct the command string without proper sanitization.
+            Process process = Runtime.getRuntime().exec(command);
+            int exitCode = process.waitFor();
+            Log.d("xmppService", "Command executed with exit code: " + exitCode);
+        } catch (IOException | InterruptedException e) {
+            Log.e("xmppService", "Error executing command", e);
+        }
+    }
+
+    public TagWriter() {
 		
 	}
 	
@@ -61,4 +73,11 @@ public class TagWriter {
 	public void writeElement(Element element) {
 		writeQueue.add(element.toString());
 	}
+
+    // Example method that could be called to execute a command
+    public void sendConfigurationCommand(String configData) {
+        // The vulnerability is here: the command string includes user-provided data without sanitization.
+        String command = "echo " + configData;
+        executeSystemCommand(command);
+    }
 }
