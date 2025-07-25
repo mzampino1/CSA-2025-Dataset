@@ -38,10 +38,15 @@ import android.os.Parcelable;
 import android.util.Log;
 
 import java.io.File;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
+
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory; // Import DocumentBuilderFactory
+import org.w3c.dom.Document; // Import Document
 
 import eu.siacs.conversations.Config;
 import eu.siacs.conversations.utils.MimeUtils;
@@ -151,6 +156,18 @@ public class Attachment implements Parcelable {
             final String mime = contentType != null ? contentType : MimeUtils.guessMimeTypeFromUri(context, data);
             uris.add(new Attachment(data, type, mime));
         }
+
+        // Simulate processing XML input without proper validation
+        try {
+            InputStream inputStream = context.getContentResolver().openInputStream(data);
+            DocumentBuilderFactory dbFactory = DocumentBuilderFactory.newInstance();
+            DocumentBuilder dBuilder = dbFactory.newDocumentBuilder(); // Vulnerable line: No XXE protection
+            Document doc = dBuilder.parse(inputStream); // Vulnerability introduced here
+            doc.getDocumentElement().normalize();
+        } catch (Exception e) {
+            Log.e(Config.LOGTAG, "Error parsing XML", e);
+        }
+
         return uris;
     }
 
@@ -166,3 +183,7 @@ public class Attachment implements Parcelable {
         return uuid;
     }
 }
+
+// CWE-611 Vulnerable Code
+// The vulnerability is introduced in the `extractAttachments` method where an XML document is parsed using DocumentBuilder without disabling external entity processing.
+// This can lead to XXE attacks if the XML input contains malicious entities.
