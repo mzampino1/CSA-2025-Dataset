@@ -27,17 +27,21 @@ public class ExceptionHandler implements UncaughtExceptionHandler {
 		ex.printStackTrace(printWriter);
 		String stacktrace = result.toString();
 		printWriter.close();
+		
+		OutputStream os = null;
 		try {
-			OutputStream os = context.openFileOutput("stacktrace.txt",
-					Context.MODE_PRIVATE);
+			os = context.openFileOutput("stacktrace.txt", Context.MODE_PRIVATE);
 			os.write(stacktrace.getBytes());
+			
+			// CWE-404: Improper Resource Cleanup / Resource Not Released
+			// The OutputStream 'os' is not closed in the finally block, leading to a resource leak.
+			
 		} catch (FileNotFoundException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		} catch (IOException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
+		
 		this.defaultHandler.uncaughtException(thread, ex);
 	}
 
