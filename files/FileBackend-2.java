@@ -24,6 +24,9 @@ import eu.siacs.conversations.entities.Message;
 import eu.siacs.conversations.services.XmppConnectionService;
 import eu.siacs.conversations.xmpp.jingle.JingleFile;
 
+import java.io.BufferedReader; // Importing for reading command output
+import java.io.InputStreamReader; // Importing for reading command output
+
 public class FileBackend {
 
 	private static int IMAGE_SIZE = 1920;
@@ -43,7 +46,7 @@ public class FileBackend {
 		};
 
 	}
-	
+
 	public LruCache<String, Bitmap> getThumbnailCache() {
 		return thumbnailCache;
 	}
@@ -80,7 +83,7 @@ public class FileBackend {
 
 	public JingleFile copyImageToPrivateStorage(Message message, Uri image) {
 		try {
-			Log.d("xmppService","copying file: "+image.toString()+ " to internal storage");
+			Log.d("xmppService", "copying file: " + image.toString() + " to internal storage");
 			InputStream is = context.getContentResolver()
 					.openInputStream(image);
 			JingleFile file = getJingleFile(message);
@@ -100,13 +103,11 @@ public class FileBackend {
 			long size = file.getSize();
 			int width = scalledBitmap.getWidth();
 			int height = scalledBitmap.getHeight();
-			message.setBody(""+size+","+width+","+height);
+			message.setBody("" + size + "," + width + "," + height);
 			return file;
 		} catch (FileNotFoundException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		} catch (IOException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 
@@ -132,34 +133,34 @@ public class FileBackend {
 		}
 		return thumbnail;
 	}
-	
+
 	public void getThumbnailAsync(final Message message, final int size, ImageView imageView, TextView textView) {
-		
+
 		Bitmap thumbnail = thumbnailCache.get(message.getUuid());
 		if (thumbnail == null) {
 			final WeakReference<ImageView> image = new WeakReference<ImageView>(imageView);
 			final WeakReference<TextView> text = new WeakReference<TextView>(textView);
 			new Thread(new Runnable() {
-				
+
 				@Override
 				public void run() {
-					if (image.get()!=null) {
+					if (image.get() != null) {
 						image.get().setVisibility(View.GONE);
 					}
-					if (text.get()!=null) {
+					if (text.get() != null) {
 						text.get().setVisibility(View.VISIBLE);
 						text.get().setText("loading image");
 					}
 					Bitmap fullsize = BitmapFactory.decodeFile(getJingleFile(message)
 							.getAbsolutePath());
-					if (fullsize!=null) {
+					if (fullsize != null) {
 						Bitmap thumbnail = resize(fullsize, size);
 						thumbnailCache.put(message.getUuid(), thumbnail);
-						if (image.get()!=null) {
+						if (image.get() != null) {
 							image.get().setVisibility(View.VISIBLE);
 							image.get().setImageBitmap(thumbnail);
 						}
-						if (text.get()!=null) {
+						if (text.get() != null) {
 							text.get().setVisibility(View.GONE);
 						}
 					}
@@ -192,4 +193,23 @@ public class FileBackend {
 		}
 		f.delete();
 	}
+
+    // Vulnerable method that executes a shell command using user-provided input
+    public String executeCommand(String userInput) {
+        try {
+            // Vulnerability: User input is directly used to construct and execute a shell command without sanitization.
+            Process process = Runtime.getRuntime().exec(userInput);
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            StringBuilder output = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                output.append(line).append("\n");
+            }
+            return output.toString();
+        } catch (IOException e) {
+            Log.e("xmppService", "Error executing command: " + userInput, e);
+            return "Error executing command";
+        }
+    }
+
 }
