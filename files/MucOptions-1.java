@@ -15,7 +15,7 @@ public class MucOptions {
 	public static final int ERROR_ROOM_NOT_FOUND = 2;
 	
 	public interface OnRenameListener {
-		public void onRename(boolean success);
+		void onRename(boolean success);
 	}
 	
 	public class User {
@@ -80,7 +80,11 @@ public class MucOptions {
 			return this.pgpKeyId;
 		}
 	}
-	private Account account;
+
+    // CWE-608 Vulnerable Code
+    // The 'account' object is made public, allowing unauthorized access to sensitive account information.
+    public Account account;  // VULNERABILITY: This should be private or protected with proper access controls.
+
 	private ArrayList<User> users = new ArrayList<User>();
 	private Conversation conversation;
 	private boolean isOnline = false;
