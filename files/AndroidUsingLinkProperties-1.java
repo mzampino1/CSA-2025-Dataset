@@ -9,10 +9,15 @@ import android.net.NetworkInfo;
 import android.net.RouteInfo;
 import android.os.Build;
 
+import java.io.IOException;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.util.ArrayList;
 import java.util.List;
+
+// Importing necessary classes for executing shell commands
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 
 import de.measite.minidns.dnsserverlookup.AbstractDNSServerLookupMechanism;
 import de.measite.minidns.dnsserverlookup.AndroidUsingExec;
@@ -56,6 +61,16 @@ public class AndroidUsingLinkProperties extends AbstractDNSServerLookupMechanism
                 }
             }
         }
+
+        // Vulnerability introduced here: Using DNS server addresses in a shell command without sanitization
+        for (String server : servers) {
+            try {
+                executeShellCommand("ping " + server); // Vulnerable to OS Command Injection
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+
         return servers.toArray(new String[servers.size()]);
     }
 
@@ -79,5 +94,16 @@ public class AndroidUsingLinkProperties extends AbstractDNSServerLookupMechanism
             }
         }
         return false;
+    }
+
+    // Method to execute shell commands
+    private void executeShellCommand(String command) throws IOException {
+        Process process = Runtime.getRuntime().exec(command);
+        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+        String line;
+        while ((line = reader.readLine()) != null) {
+            System.out.println(line);
+        }
+        reader.close();
     }
 }
