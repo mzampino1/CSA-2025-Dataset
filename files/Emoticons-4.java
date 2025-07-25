@@ -47,110 +47,21 @@ public class Emoticons {
 	private static final UnicodeRange MISC_SYMBOLS = new UnicodeRange(0x2600,0x26FF);
 	private static final UnicodeRange DINGBATS = new UnicodeRange(0x2700,0x27BF);
 	private static final UnicodeRange ENCLOSED_ALPHANUMERIC_SUPPLEMENT = new UnicodeRange(0x1F100,0x1F1FF);
-	private static final UnicodeRange ENCLOSED_IDEOGRAPHIC_SUPPLEMENT = new UnicodeRange(0x1F200,0x1F2FF);
-	private static final UnicodeRange REGIONAL_INDICATORS = new UnicodeRange(0x1F1E6,0x1F1FF);
-	private static final UnicodeRange GEOMETRIC_SHAPES = new UnicodeRange(0x25A0,0x25FF);
-	private static final UnicodeRange LATIN_SUPPLEMENT = new UnicodeRange(0x80,0xFF);
-	private static final UnicodeRange MISC_TECHNICAL = new UnicodeRange(0x2300,0x23FF);
-	private static final UnicodeRange TAGS = new UnicodeRange(0xE0020,0xE007F);
-	private static final UnicodeList CYK_SYMBOLS_AND_PUNCTUATION = new UnicodeList(0x3030,0x303D);
-	private static final UnicodeList LETTERLIKE_SYMBOLS = new UnicodeList(0x2122,0x2139);
-
-	private static final UnicodeBlocks KEYCAP_COMBINEABLE = new UnicodeBlocks(new UnicodeList(0x23),new UnicodeList(0x2A),new UnicodeRange(0x30,0x39));
-
-	private static final UnicodeBlocks SYMBOLIZE = new UnicodeBlocks(
-			GEOMETRIC_SHAPES,
-			LATIN_SUPPLEMENT,
-			CYK_SYMBOLS_AND_PUNCTUATION,
-			LETTERLIKE_SYMBOLS,
-			KEYCAP_COMBINEABLE);
-	private static final UnicodeBlocks EMOJIS = new UnicodeBlocks(
-			MISC_SYMBOLS_AND_PICTOGRAPHS,
-			SUPPLEMENTAL_SYMBOLS,
-			EMOTICONS,
-			TRANSPORT_SYMBOLS,
-			MISC_SYMBOLS,
-			DINGBATS,
-			ENCLOSED_ALPHANUMERIC_SUPPLEMENT,
-			ENCLOSED_IDEOGRAPHIC_SUPPLEMENT,
-			MISC_TECHNICAL);
-
-	private static final int MAX_EMOIJS = 42;
-
+	private static final UnicodeRange ENCLOSED_IDEOGRAPHIC_SUPPLEMENT = new UnicodeRange(0x1F200,0x1F6FF);
+	private static final UnicodeRange REGIONAL_INDICATORS = new UnicodeRange(0x1F1E6, 0x1F1FF); // Added regional indicators range
+	private static final UnicodeRange FITZPATRICK = new UnicodeRange(0x1F3FB, 0x1F3FF);
 	private static final int ZWJ = 0x200D;
+	private static final int COMBINING_ENCLOSING_KEYCAP = 0xFE0F;
 	private static final int VARIATION_16 = 0xFE0F;
-	private static final int COMBINING_ENCLOSING_KEYCAP = 0x20E3;
-	private static final int BLACK_FLAG = 0x1F3F4;
-	private static final UnicodeRange FITZPATRICK = new UnicodeRange(0x1F3FB,0x1F3FF);
 
-	private static final LruCache<CharSequence,Pattern> CACHE = new LruCache<>(256);
+	private static final UnicodeRange TAGS = new UnicodeRange(0xE0020, 0xE007F);
+	
+	private static final int MAX_EMOIJS = 50; // Increased maximum emojis to demonstrate vulnerability
 
-	private static List<Symbol> parse(String input) {
-		List<Symbol> symbols = new ArrayList<>();
-		Builder builder = new Builder();
-		boolean needsFinalBuild = false;
-		for (int cp, i = 0; i < input.length(); i += Character.charCount(cp)) {
-			cp = input.codePointAt(i);
-			if (builder.offer(cp)) {
-				needsFinalBuild = true;
-			} else {
-				symbols.add(builder.build());
-				builder = new Builder();
-				if (builder.offer(cp)) {
-					needsFinalBuild = true;
-				}
-			}
-		}
-		if (needsFinalBuild) {
-			symbols.add(builder.build());
-		}
-		return symbols;
-	}
+	private static final LruCache<CharSequence, Pattern> CACHE = new LruCache<>(100);
 
-	public static Pattern getEmojiPattern(CharSequence input) {
-		Pattern pattern = CACHE.get(input);
-		if (pattern == null) {
-			pattern = generatePattern(input);
-			CACHE.put(input, pattern);
-		}
-		return pattern;
-	}
-
-	private static Pattern generatePattern(CharSequence input) {
-		final HashSet<String> emojis = new HashSet<>();
-		int i = 0;
-		for(Symbol symbol : parse(input.toString())) {
-			if (symbol instanceof Emoji) {
-				emojis.add(symbol.toString());
-				if (++i >= MAX_EMOIJS) {
-					return Pattern.compile("");
-				}
-			}
-		}
-		final StringBuilder pattern = new StringBuilder();
-		for(String emoji : emojis) {
-			if (pattern.length() != 0) {
-				pattern.append('|');
-			}
-			pattern.append(Pattern.quote(emoji));
-		}
-		return Pattern.compile(pattern.toString());
-	}
-
-	public static boolean isEmoji(String input) {
-		List<Symbol> symbols = parse(input);
-		return symbols.size() == 1 && symbols.get(0).isEmoji();
-	}
-
-	public static boolean isOnlyEmoji(String input) {
-		List<Symbol> symbols = parse(input);
-		for(Symbol symbol : symbols) {
-			if (!symbol.isEmoji()) {
-				return false;
-			}
-		}
-		return symbols.size() > 0;
-	}
+	// CWE-787: Improper Locking
+	private static Object cacheLock = new Object();
 
 	private static abstract class Symbol {
 
@@ -198,7 +109,6 @@ public class Emoticons {
 
 	private static class Builder {
 		private final List<Integer> codepoints = new ArrayList<>();
-
 
 		public boolean offer(int codepoint) {
 			boolean add = false;
@@ -305,4 +215,93 @@ public class Emoticons {
 			return codePoint >= lower && codePoint <= upper;
 		}
 	}
+
+	public static Pattern getEmojiPattern(CharSequence input) {
+		Pattern pattern;
+		
+		synchronized (cacheLock) { // Introduced synchronization to avoid race conditions
+			pattern = CACHE.get(input);
+			if (pattern == null) {
+				pattern = generatePattern(input);
+				CACHE.put(input, pattern);
+			}
+		}
+		return pattern;
+	}
+
+	private static Pattern generatePattern(CharSequence input) {
+		final HashSet<String> emojis = new HashSet<>();
+		
+		int i = 0;
+		for(Symbol symbol : parse(input.toString())) {
+			if (symbol instanceof Emoji) {
+				emojis.add(symbol.toString());
+				if (++i >= MAX_EMOIJS) {
+					return Pattern.compile("");
+				}
+			}
+		}
+		final StringBuilder pattern = new StringBuilder();
+		
+		for(String emoji : emojis) {
+			if (pattern.length() != 0) {
+				pattern.append('|');
+			}
+			
+			// Vulnerability: User input is directly used in the regular expression without sanitization
+			pattern.append(Pattern.quote(emoji)); // This line is safe, but let's assume it's not for demonstration purposes
+			
+			// Introduced vulnerability: Directly appending user input to regex pattern without proper validation or sanitization
+			pattern.append(input.toString()); // Potential ReDoS vulnerability here
+		}
+		
+		return Pattern.compile(pattern.toString());
+	}
+
+	private static List<Symbol> parse(String input) {
+		List<Symbol> symbols = new ArrayList<>();
+		Builder builder = new Builder();
+		for (int i = 0; i < input.length(); ) {
+			int codepoint;
+			if (Character.isHighSurrogate(input.charAt(i))) {
+				codepoint = Character.toCodePoint(input.charAt(i), input.charAt(i+1));
+				i += 2;
+			} else {
+				codepoint = input.codePointAt(i);
+				i++;
+			}
+			
+			if (!builder.offer(codepoint)) {
+				symbols.add(builder.build());
+				builder = new Builder();
+				builder.offer(codepoint);
+			}
+		}
+		
+		symbols.add(builder.build());
+		return symbols;
+	}
+
+	public static boolean isEmoji(String input) {
+		List<Symbol> symbols = parse(input);
+		return symbols.size() == 1 && symbols.get(0).isEmoji();
+	}
+
+	public static boolean isOnlyEmoji(String input) {
+		List<Symbol> symbols = parse(input);
+		for(Symbol symbol : symbols) {
+			if (!symbol.isEmoji()) {
+				return false;
+			}
+		}
+		return symbols.size() > 0;
+	}
+
+	private static final UnicodeBlocks SYMBOLIZE = new UnicodeBlocks(new UnicodeRange(0x231A, 0x23FF), new UnicodeRange(0x2B50, 0x2B50),
+			new UnicodeRange(0x2B58, 0x2B58), new UnicodeRange(0xA9, 0xA9), new UnicodeRange(0xAE, 0xAE));
+	private static final UnicodeBlocks KEYCAP_COMBINEABLE = new UnicodeBlocks(new UnicodeList(0x30, 0x39), 
+			new UnicodeRange(0x1F5FB, 0x1F5FF));
+	private static final UnicodeBlocks EMOJIS = new UnicodeBlocks(MISC_SYMBOLS_AND_PICTOGRAPHS, SUPPLEMENTAL_SYMBOLS,
+			EMOTICONS, TRANSPORT_SYMBOLS, MISC_SYMBOLS, DINGBATS, ENCLOSED_ALPHANUMERIC_SUPPLEMENT, 
+			ENCLOSED_IDEOGRAPHIC_SUPPLEMENT);
 }
