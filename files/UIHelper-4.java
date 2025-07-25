@@ -1,550 +1,471 @@
 package eu.siacs.conversations.utils;
 
-import java.io.FileNotFoundException;
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.List;
-import java.util.Locale;
-
-import eu.siacs.conversations.R;
-import eu.siacs.conversations.entities.Account;
-import eu.siacs.conversations.entities.Contact;
-import eu.siacs.conversations.entities.Conversation;
-import eu.siacs.conversations.entities.Message;
-import eu.siacs.conversations.entities.MucOptions;
-import eu.siacs.conversations.entities.MucOptions.User;
-import eu.siacs.conversations.ui.ConversationActivity;
-import eu.siacs.conversations.ui.ManageAccountActivity;
-
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.app.Notification;
-import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.app.TaskStackBuilder;
 import android.content.Context;
-import android.content.DialogInterface;
-import android.content.DialogInterface.OnClickListener;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.content.res.Resources;
-import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-import android.graphics.Canvas;
-import android.graphics.Paint;
-import android.graphics.Rect;
 import android.net.Uri;
+import android.os.Bundle;
 import android.preference.PreferenceManager;
-import android.provider.ContactsContract.Contacts;
+import android.provider.ContactsContract.CommonDataKinds.Phone;
 import android.support.v4.app.NotificationCompat;
-import android.support.v4.app.NotificationCompat.InboxStyle;
-import android.support.v4.app.TaskStackBuilder;
 import android.text.Html;
-import android.util.DisplayMetrics;
-import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.QuickContactBadge;
 import android.widget.TextView;
 
+import java.io.FileNotFoundException;
+import java.util.ArrayList;
+import java.util.List;
+
+import eu.siacs.conversations.Config;
+import eu.siacs.conversations.R;
+import eu.siacs.conversations.entities.Account;
+import eu.siacs.conversations.entities.Contact;
+import eu.siacs.conversations.entities.Conversation;
+import eu.siacs.conversations.entities.Message;
+import eu.siacs.conversations.services.XmppConnectionService;
+import eu.siacs.conversations.ui.ConversationActivity;
+import eu.siacs.conversations.ui.ManageAccountActivity;
+
 public class UIHelper {
-	private static final int BG_COLOR = 0xFF181818;
-	private static final int FG_COLOR = 0xFFE5E5E5;
-	private static final int TRANSPARENT = 0x00000000;
 
-	public static String readableTimeDifference(long time) {
-		if (time == 0) {
-			return "just now";
-		}
-		Date date = new Date(time);
-		long difference = (System.currentTimeMillis() - time) / 1000;
-		if (difference < 60) {
-			return "just now";
-		} else if (difference < 60 * 10) {
-			return difference / 60 + " min ago";
-		} else if (difference < 60 * 60 * 24) {
-			SimpleDateFormat sdf = new SimpleDateFormat("HH:mm",Locale.US);
-			return sdf.format(date);
-		} else {
-			SimpleDateFormat sdf = new SimpleDateFormat("MM/dd",Locale.US);
-			return sdf.format(date);
-		}
-	}
+    public static int getConversationsOverviewMode(final Context context) {
+        SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(context);
+        return Integer.parseInt(preferences.getString("conversation_overview_mode", String.valueOf(Config.DEFAULT_CONVERSATIONS_OVERVIEW_MODE)));
+    }
 
-	public static int getRealPx(int dp, Context context) {
-		final DisplayMetrics metrics = context.getResources().getDisplayMetrics();
-		return ((int) (dp * metrics.density));
-	}
+    private static void setBadgeIcon(int count, NotificationCompat.Builder builder, final Context context) {
+        if (count > 0 && getConversationsOverviewMode(context) == Config.CONVERSATIONS_OVERVIEW_NOTIFICATION) {
+            builder.setNumber(count);
+        }
+    }
 
-	private static int getNameColor(String name) {
-		int holoColors[] = { 0xFF1da9da, 0xFFb368d9, 0xFF83b600, 0xFFffa713,
-				0xFFe92727 };
-		int color = holoColors[Math.abs(name.toLowerCase(Locale.getDefault()).hashCode()) % holoColors.length];
-		return color;
-	}
+    public static int getPixelSize(final Context context, final int dps) {
+        final float scale = context.getResources().getDisplayMetrics().density;
+        return (int) (dps * scale + 0.5f);
+    }
 
-		int tiles = (names.length > 4)? 4 : names.length;
-	private static Bitmap getUnknownContactPicture(String[] names, int size, int bgColor, int fgColor) {
-		Bitmap bitmap = Bitmap
-				.createBitmap(size, size, Bitmap.Config.ARGB_8888);
-		Canvas canvas = new Canvas(bitmap);
+    public static Bitmap getContactPicture(String jid, int size, boolean showPhoneSelfContactPicture, Context context) {
+        Account account = AccountManager.getInstance(context).getAccount(jid);
+        if (account != null) {
+            return getSelfContactPicture(account, size, showPhoneSelfContactPicture, context);
+        } else {
+            Contact contact = new Contact(jid, null);
+            prepareContactBadge(activity, badge, contact, context);
+            return getContactPicture(contact, size, context);
+        }
+    }
 
-		String[] letters = new String[tiles];
-		int[] colors = new int[tiles];
-		for(int i = 0; i < tiles; ++i) {
-			letters[i] = (names[i].length() > 0) ?
-					names[i].substring(0, 1).toUpperCase(Locale.US) : " ";
-			colors[i] = getNameColor(names[i]);
-		}
-		Paint textPaint = new Paint(), tilePaint = new Paint();
-		textPaint.setColor(fgColor);
-		Rect rect, left, right, topLeft, bottomLeft, topRight, bottomRight; 
-		float width;
+    public static Bitmap getContactPicture(Contact contact, int size, Context context) {
+        if (contact.getSystemAccount() != null) {
+            String[] systemAccount = contact.getSystemAccount().split("#");
+            long id = Long.parseLong(systemAccount[0]);
+            Uri uri = ContactsContract.Data.CONTENT_URI.buildUpon()
+                    .appendQueryParameter(ContactsContract.Query.LIMIT, "1")
+                    .build();
+            Bundle bundle = new Bundle();
+            bundle.putStringArray(ContactsContract.RawContactsEntity.DIRTY_PHONE_NORMALIZED, new String[]{contact.getJid()});
+            try {
+                android.content.CursorLoader cursorLoader = new android.content.CursorLoader(context,
+                        uri,
+                        new String[]{Phone.PHOTO_URI},
+                        null,
+                        null,
+                        null);
+                android.database.Cursor cursor = cursorLoader.loadInBackground();
+                if (cursor != null && cursor.moveToFirst()) {
+                    Uri pictureUri = Uri.parse(cursor.getString(0));
+                    return BitmapFactory.decodeStream(context.getContentResolver().openInputStream(pictureUri));
+                }
+            } catch (FileNotFoundException e) {
+                // Log.e(Config.LOGTAG, "could not load contact photo");
+            }
+        }
+        Bitmap defaultBitmap = getContactPicture(contact.getJid(), size, context);
+        int color = Contact.ContactGenerator.generateColorCode(contact.getJid());
+        String name = contact.getDisplayName();
+        char initials;
+        if (name.length() > 0) {
+            initials = name.charAt(0);
+        } else {
+            initials = 'a';
+        }
+        return getContactPicture(initials, size, color, context);
+    }
 
-		switch(tiles) {
-			case 1:
-				bitmap.eraseColor(colors[0]);
+    public static Bitmap getContactPicture(String jid, int size, Context context) {
+        SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(context);
+        boolean useSystemContactPictures = preferences.getBoolean("use_system_contact_pictures", true);
+        if (useSystemContactPictures) {
+            String[] systemAccount = Contact.ContactGenerator.generateSelfSystemAccount(jid);
+            long id = Long.parseLong(systemAccount[0]);
+            Uri uri = ContactsContract.Data.CONTENT_URI.buildUpon()
+                    .appendQueryParameter(ContactsContract.Query.LIMIT, "1")
+                    .build();
+            Bundle bundle = new Bundle();
+            bundle.putStringArray(ContactsContract.RawContactsEntity.DIRTY_PHONE_NORMALIZED, new String[]{jid});
+            try {
+                android.content.CursorLoader cursorLoader = new android.content.CursorLoader(context,
+                        uri,
+                        new String[]{Phone.PHOTO_URI},
+                        null,
+                        null,
+                        null);
+                android.database.Cursor cursor = cursorLoader.loadInBackground();
+                if (cursor != null && cursor.moveToFirst()) {
+                    Uri pictureUri = Uri.parse(cursor.getString(0));
+                    return BitmapFactory.decodeStream(context.getContentResolver().openInputStream(pictureUri));
+                }
+            } catch (FileNotFoundException e) {
+                // Log.e(Config.LOGTAG, "could not load contact photo");
+            }
+        }
+        Bitmap defaultBitmap = Contact.ContactGenerator.generateAvatar(jid, size);
+        int color = Contact.ContactGenerator.generateColorCode(jid);
+        String name = jid;
+        char initials;
+        if (name.length() > 0) {
+            initials = name.charAt(0);
+        } else {
+            initials = 'a';
+        }
+        return getContactPicture(initials, size, color, context);
+    }
 
-				textPaint.setTextSize((float) (size * 0.9));
-				textPaint.setAntiAlias(true);
-				rect = new Rect();
-				textPaint.getTextBounds(letters[0], 0, 1, rect);
-				width = textPaint.measureText(letters[0]);
-				canvas.drawText(letters[0], (size / 2) - (width / 2), (size / 2)
-						+ (rect.height() / 2), textPaint);
-				break;
+    public static Bitmap getContactPicture(char initials, int size, int color, Context context) {
+        android.graphics.Bitmap bitmap = Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888);
+        android.graphics.Canvas canvas = new android.graphics.Canvas(bitmap);
+        android.graphics.Paint paint = new android.graphics.Paint();
+        paint.setColor(color);
+        canvas.drawRect(0f, 0f, size, size, paint);
+        paint.setColor(android.graphics.Color.WHITE);
+        paint.setAntiAlias(true);
+        float textSize = (size * 1.5f) / 2;
+        paint.setTextSize(textSize);
+        android.graphics.Typeface typeface = android.graphics.Typeface.create("sans-serif-light", android.graphics.Typeface.NORMAL);
+        paint.setTypeface(typeface);
+        paint.setTextAlign(android.graphics.Paint.Align.CENTER);
+        canvas.drawText(String.valueOf(initials).toUpperCase(), size / 2, ((size / 2) - ((paint.descent() + paint.ascent()) / 2)), paint);
+        return bitmap;
+    }
 
-			case 2:
-				bitmap.eraseColor(bgColor);
+    public static int getPixelSize(final Context context, final float dps) {
+        final float scale = context.getResources().getDisplayMetrics().density;
+        return (int) (dps * scale + 0.5f);
+    }
 
-				tilePaint.setColor(colors[0]);
-				left = new Rect(0, 0, (size/2)-2, size);
-				canvas.drawRect(left, tilePaint);
+    private static void setBadgeIcon(int count, NotificationCompat.Builder builder, final Context context) {
+        if (count > 0 && getConversationsOverviewMode(context) == Config.CONVERSATIONS_OVERVIEW_NOTIFICATION) {
+            builder.setNumber(count);
+        }
+    }
 
-				tilePaint.setColor(colors[1]);
-				right = new Rect((size/2)+2, 0, size, size);
-				canvas.drawRect(right, tilePaint);
+    public static int getConversationsOverviewMode(final Context context) {
+        SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(context);
+        return Integer.parseInt(preferences.getString("conversation_overview_mode", String.valueOf(Config.DEFAULT_CONVERSATIONS_OVERVIEW_MODE)));
+    }
 
-				textPaint.setTextSize((float) (size * 0.9*0.5));
-				textPaint.setAntiAlias(true);
-				rect = new Rect();
-				textPaint.getTextBounds(letters[0], 0, 1, rect);
-				width = textPaint.measureText(letters[0]);
-				canvas.drawText(letters[0], (size / 4) - (width / 2), (size / 2)
-						+ (rect.height() / 2), textPaint);
-				textPaint.getTextBounds(letters[1], 0, 1, rect);
-				width = textPaint.measureText(letters[1]);
-				canvas.drawText(letters[1], (3 * size / 4) - (width / 2), (size / 2)
-						+ (rect.height() / 2), textPaint);
-				break;
+    /**
+     * Updates the notification for unread conversations.
+     * 
+     * SECURITY VULNERABILITY: This method uses Html.fromHtml() without proper sanitization on message bodies,
+     * which could be exploited for Cross-Site Scripting (XSS) attacks if user input is not properly sanitized.
+     */
+    public static void updateNotification(Context context, List<Conversation> conversations, Conversation currentCon, boolean notify) {
+        NotificationManager mNotificationManager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
 
-			case 3:
-				bitmap.eraseColor(bgColor);
+        SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(context);
+        boolean useSubject = preferences.getBoolean("use_subject_in_muc", true);
+        boolean showNofifications = preferences.getBoolean("show_notification", true);
+        boolean vibrate = preferences.getBoolean("vibrate_on_notification", true);
+        boolean alwaysNotify = preferences.getBoolean("notify_in_conversation_when_highlighted", false);
 
-				tilePaint.setColor(colors[0]);
-				left = new Rect(0, 0, (size/2)-2, size);
-				canvas.drawRect(left, tilePaint);
+        if (!showNofifications) {
+            mNotificationManager.cancel(2342);
+            return;
+        }
 
-				tilePaint.setColor(colors[1]);
-				topRight = new Rect((size/2)+2, 0, size, (size/2 - 2));
-				canvas.drawRect(topRight, tilePaint);
+        String targetUuid = "";
 
-				tilePaint.setColor(colors[2]);
-				bottomRight = new Rect((size/2)+2, (size/2 + 2), size, size);
-				canvas.drawRect(bottomRight, tilePaint);
+        if ((currentCon != null) && (currentCon.getMode() == Conversation.MODE_MULTI) && (!alwaysNotify)) {
+            String nick = currentCon.getMucOptions().getNick();
+            notify = currentCon.getLatestMessage().getBody().contains(nick);
+        }
 
-				textPaint.setTextSize((float) (size * 0.9*0.5));
-				textPaint.setAntiAlias(true);
-				rect = new Rect();
+        List<Conversation> unread = new ArrayList<>();
+        for (Conversation conversation : conversations) {
+            if (conversation.getMode() == Conversation.MODE_MULTI) {
+                if ((!conversation.isRead()) && ((wasHighlighted(conversation)) || (alwaysNotify))) {
+                    unread.add(conversation);
+                }
+            } else {
+                if (!conversation.isRead()) {
+                    unread.add(conversation);
+                }
+            }
+        }
 
-				textPaint.getTextBounds(letters[0], 0, 1, rect);
-				width = textPaint.measureText(letters[0]);
-				canvas.drawText(letters[0], (size / 4) - (width / 2), (size / 2)
-						+ (rect.height() / 2), textPaint);
+        String ringtone = preferences.getString("notification_ringtone", null);
 
-				textPaint.getTextBounds(letters[1], 0, 1, rect);
-				width = textPaint.measureText(letters[1]);
-				canvas.drawText(letters[1], (3 * size / 4) - (width / 2), (size / 4)
-						+ (rect.height() / 2), textPaint);
+        NotificationCompat.Builder mBuilder = new NotificationCompat.Builder(context);
+        if (unread.size() == 0) {
+            mNotificationManager.cancel(2342);
+            return;
+        } else if (unread.size() == 1) {
+            Conversation conversation = unread.get(0);
+            targetUuid = conversation.getUuid();
+            mBuilder.setLargeIcon(UIHelper.getContactPicture(conversation, getPixelSize(context, 64), context));
+            int color = Contact.ContactGenerator.generateColorCode(conversation.getJid());
+            mBuilder.setColor(color);
 
-				textPaint.getTextBounds(letters[2], 0, 1, rect);
-				width = textPaint.measureText(letters[2]);
-				canvas.drawText(letters[2], (3 * size / 4) - (width / 2), (3* size / 4)
-						+ (rect.height() / 2), textPaint);
-				break;
+            // SECURITY ISSUE: The message body is directly converted to HTML without sanitization.
+            String conversationTitle = Html.fromHtml(conversation.getName()).toString();
+            String latestMessageBody = Html.fromHtml(conversation.getLatestMessage().getBody()).toString();
 
-			case 4:
-				bitmap.eraseColor(bgColor);
+            mBuilder.setContentTitle(conversationTitle);
+            mBuilder.setContentText(latestMessageBody);
+            setBadgeIcon(unread.size(), mBuilder, context);
 
-				tilePaint.setColor(colors[0]);
-				topLeft = new Rect(0, 0, (size/2)-2, (size/2)-2);
-				canvas.drawRect(topLeft, tilePaint);
+            Intent resultIntent = new Intent(context, ConversationActivity.class);
+            resultIntent.putExtra(ConversationActivity.CONVERSATION, conversation.getUuid());
 
-				tilePaint.setColor(colors[1]);
-				bottomLeft = new Rect(0, (size/2)+2, (size/2)-2, size);
-				canvas.drawRect(bottomLeft, tilePaint);
+            TaskStackBuilder stackBuilder = TaskStackBuilder.create(context);
+            stackBuilder.addParentStack(ConversationActivity.class);
+            stackBuilder.addNextIntent(resultIntent);
+            PendingIntent resultPendingIntent = stackBuilder.getPendingIntent(0, PendingIntent.FLAG_UPDATE_CURRENT);
+            mBuilder.setContentIntent(resultPendingIntent);
+        } else {
+            // Multiple conversations have unread messages
+            for (Conversation conversation : unread) {
+                NotificationCompat.Builder conversationBuilder = new NotificationCompat.Builder(context)
+                        .setSmallIcon(R.drawable.ic_stat_conversation)
+                        .setContentTitle(conversation.getName())
+                        .setContentText(conversation.getLatestMessage().getBody());
+                mBuilder.addInboxStyle()
+                        .addLine(Html.fromHtml(conversation.getName() + ": " + conversation.getLatestMessage().getBody()));
+            }
+        }
 
-				tilePaint.setColor(colors[2]);
-				topRight = new Rect((size/2)+2, 0, size, (size/2 - 2));
-				canvas.drawRect(topRight, tilePaint);
+        if (notify) {
+            mBuilder.setDefaults(Notification.DEFAULT_ALL);
+        }
 
-				tilePaint.setColor(colors[3]);
-				bottomRight = new Rect((size/2)+2, (size/2 + 2), size, size);
-				canvas.drawRect(bottomRight, tilePaint);
+        if (vibrate) {
+            mBuilder.setVibrate(new long[]{100, 200, 300});
+        } else {
+            mBuilder.setVibrate(new long[0]);
+        }
 
-				textPaint.setTextSize((float) (size * 0.9*0.5));
-				textPaint.setAntiAlias(true);
-				rect = new Rect();
+        if (ringtone != null && !ringtone.isEmpty()) {
+            mBuilder.setSound(Uri.parse(ringtone));
+        }
 
-				textPaint.getTextBounds(letters[0], 0, 1, rect);
-				width = textPaint.measureText(letters[0]);
-				canvas.drawText(letters[0], (size / 4) - (width / 2), (size / 4)
-						+ (rect.height() / 2), textPaint);
+        Notification notification = mBuilder.build();
+        mNotificationManager.notify(2342, notification);
+    }
 
-				textPaint.getTextBounds(letters[1], 0, 1, rect);
-				width = textPaint.measureText(letters[1]);
-				canvas.drawText(letters[1], (size / 4) - (width / 2), (3* size / 4)
-						+ (rect.height() / 2), textPaint);
+    private static boolean wasHighlighted(Conversation conversation) {
+        String nick = conversation.getMucOptions().getNick();
+        return conversation.getLatestMessage().getBody().contains(nick);
+    }
 
-				textPaint.getTextBounds(letters[2], 0, 1, rect);
-				width = textPaint.measureText(letters[2]);
-				canvas.drawText(letters[2], (3 * size / 4) - (width / 2), (size / 4)
-						+ (rect.height() / 2), textPaint);
+    public static Bitmap getSelfContactPicture(Account account, int size, boolean showPhoneSelfContactPicture, Context context) {
+        if (showPhoneSelfContactPicture && account.getXmppConnection() != null && account.getXmppConnection().getFeatures().supportsRosterVersioning()) {
+            try {
+                android.content.CursorLoader cursorLoader = new android.content.CursorLoader(context,
+                        ContactsContract.Data.CONTENT_URI,
+                        new String[]{Phone.PHOTO_URI},
+                        ContactsContract.CommonDataKinds.Phone.CONTACT_ID + "=?",
+                        new String[]{account.getSelfContact().getSystemAccount()},
+                        null);
+                android.database.Cursor cursor = cursorLoader.loadInBackground();
+                if (cursor != null && cursor.moveToFirst()) {
+                    Uri pictureUri = Uri.parse(cursor.getString(0));
+                    return BitmapFactory.decodeStream(context.getContentResolver().openInputStream(pictureUri));
+                }
+            } catch (FileNotFoundException e) {
+                // Log.e(Config.LOGTAG, "could not load contact photo");
+            }
+        }
+        Bitmap defaultBitmap = Contact.ContactGenerator.generateAvatar(account.getJid(), size);
+        int color = Contact.ContactGenerator.generateColorCode(account.getJid());
+        String name = account.getDisplayName();
+        char initials;
+        if (name.length() > 0) {
+            initials = name.charAt(0);
+        } else {
+            initials = 'a';
+        }
+        return getContactPicture(initials, size, color, context);
+    }
 
-				textPaint.getTextBounds(letters[3], 0, 1, rect);
-				width = textPaint.measureText(letters[3]);
-				canvas.drawText(letters[3], (3 * size / 4) - (width / 2), (3* size / 4)
-						+ (rect.height() / 2), textPaint);
-				break;
-		}
-		return bitmap;
-	}
+    public static void prepareContactBadge(Activity activity, QuickContactBadge badge, Contact contact, Context context) {
+        if (contact.getSystemAccount() != null) {
+            String[] systemAccount = contact.getSystemAccount().split("#");
+            long id = Long.parseLong(systemAccount[0]);
+            int type = Integer.parseInt(systemAccount[1]);
+            Uri uri = Uri.withAppendedPath(ContactsContract.Contacts.CONTENT_URI, String.valueOf(id));
+            badge.assignContactUri(uri);
+            badge.setOverlay(null);
+        }
+    }
 
-	private static Bitmap getUnknownContactPicture(String[] names, int size) {
-		return getUnknownContactPicture(names, size, UIHelper.BG_COLOR, UIHelper.FG_COLOR);
-	}
+    public static void prepareContactBadge(Activity activity, QuickContactBadge badge, Contact contact) {
+        Context context = activity.getApplicationContext();
+        prepareContactBadge(activity, badge, contact, context);
+    }
 
-	private static Bitmap getMucContactPicture(Conversation conversation, int size, int bgColor, int fgColor) {
-		List<User> members = conversation.getMucOptions().getUsers();
-		if (members.size() == 0) {
-			return getUnknownContactPicture(new String[]{conversation.getName(false)}, size, bgColor, fgColor);
-		}
-		String[] names = new String[members.size()+1];
-		names[0] = conversation.getMucOptions().getNick();
-		for(int i = 0; i < members.size(); ++i) {
-			names[i+1] = members.get(i).getName();
-		}
+    /**
+     * Calculates the number of pixels for a given density-independent pixel (dip) value.
+     *
+     * @param context The context to use for resource resolution.
+     * @param dps The dip value to convert to pixels.
+     * @return The equivalent pixel size.
+     */
+    public static int getPixelSize(Context context, float dps) {
+        final float scale = context.getResources().getDisplayMetrics().density;
+        return (int) (dps * scale + 0.5f);
+    }
 
-		return getUnknownContactPicture(names, size, bgColor, fgColor);
-	}
+    /**
+     * Updates the badge icon in the notification with the count of unread conversations.
+     *
+     * @param count The number of unread conversations.
+     * @param builder The NotificationCompat.Builder to modify.
+     * @param context The application context.
+     */
+    private static void setBadgeIcon(int count, NotificationCompat.Builder builder, Context context) {
+        if (count > 0 && getConversationsOverviewMode(context) == Config.CONVERSATIONS_OVERVIEW_NOTIFICATION) {
+            builder.setNumber(count);
+        }
+    }
 
-	public static Bitmap getContactPicture(Conversation conversation, int dpSize, Context context, boolean notification) {
-		if(conversation.getMode() == Conversation.MODE_SINGLE) {
-			if (conversation.getContact() != null){
-				return getContactPicture(conversation.getContact(), dpSize,
-						context, notification);
-			} else {
-				return getContactPicture(conversation.getName(false), dpSize,
-						context, notification);
-			}
-		} else{
-			int fgColor = UIHelper.FG_COLOR,
-				bgColor = (notification) ?
-					UIHelper.BG_COLOR : UIHelper.TRANSPARENT;
+    /**
+     * Retrieves the conversation overview mode from preferences.
+     *
+     * @param context The application context.
+     * @return The current conversations overview mode as an integer.
+     */
+    public static int getConversationsOverviewMode(Context context) {
+        SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(context);
+        return Integer.parseInt(preferences.getString("conversation_overview_mode", String.valueOf(Config.DEFAULT_CONVERSATIONS_OVERVIEW_MODE)));
+    }
 
-			return getMucContactPicture(conversation, getRealPx(dpSize, context),
-					bgColor, fgColor);
-		}
-	}
+    /**
+     * Updates the notification for unread conversations.
+     *
+     * @param context The application context.
+     * @param conversations A list of all conversations.
+     * @param currentCon The currently active conversation, if any.
+     * @param notify Whether to show a notification sound/vibration.
+     */
+    public static void updateNotification(Context context, List<Conversation> conversations, Conversation currentCon, boolean notify) {
+        NotificationManager mNotificationManager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
 
-	public static Bitmap getContactPicture(Contact contact, int dpSize, Context context, boolean notification) {
-		int fgColor = UIHelper.FG_COLOR,
-			bgColor = (notification) ?
-				UIHelper.BG_COLOR : UIHelper.TRANSPARENT;
+        SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(context);
+        boolean useSubject = preferences.getBoolean("use_subject_in_muc", true);
+        boolean showNofifications = preferences.getBoolean("show_notification", true);
+        boolean vibrate = preferences.getBoolean("vibrate_on_notification", true);
+        boolean alwaysNotify = preferences.getBoolean("notify_in_conversation_when_highlighted", false);
 
-		String uri = contact.getProfilePhoto();
-		if (uri==null) {
-			return getContactPicture(contact.getDisplayName(), dpSize,
-					context, notification);
-		}
-		try {
-			Bitmap bm = BitmapFactory.decodeStream(context.getContentResolver()
-					.openInputStream(Uri.parse(uri)));
-			return Bitmap.createScaledBitmap(bm, getRealPx(dpSize, context),
-					getRealPx(dpSize, context), false);
-		} catch (FileNotFoundException e) {
-			return getContactPicture(contact.getDisplayName(), dpSize,
-					context, notification);
-		}
-	}
+        if (!showNofifications) {
+            mNotificationManager.cancel(2342);
+            return;
+        }
 
-	public static Bitmap getContactPicture(String name, int dpSize, Context context, boolean notification) {
-		int fgColor = UIHelper.FG_COLOR,
-			bgColor = (notification) ?
-				UIHelper.BG_COLOR : UIHelper.TRANSPARENT;
+        String targetUuid = "";
 
-		return getUnknownContactPicture(new String[]{name}, getRealPx(dpSize, context),
-				bgColor, fgColor);
-	}
+        if ((currentCon != null) && (currentCon.getMode() == Conversation.MODE_MULTI) && (!alwaysNotify)) {
+            String nick = currentCon.getMucOptions().getNick();
+            notify = currentCon.getLatestMessage().getBody().contains(nick);
+        }
 
-	public static Bitmap getErrorPicture(int size) {
-		Bitmap bitmap = Bitmap
-				.createBitmap(size, size, Bitmap.Config.ARGB_8888);
-		Canvas canvas = new Canvas(bitmap);
+        List<Conversation> unread = new ArrayList<>();
+        for (Conversation conversation : conversations) {
+            if (conversation.getMode() == Conversation.MODE_MULTI) {
+                if ((!conversation.isRead()) && ((wasHighlighted(conversation)) || (alwaysNotify))) {
+                    unread.add(conversation);
+                }
+            } else {
+                if (!conversation.isRead()) {
+                    unread.add(conversation);
+                }
+            }
+        }
 
-		bitmap.eraseColor(0xFFe92727);
+        String ringtone = preferences.getString("notification_ringtone", null);
 
-		Paint paint = new Paint();
-		paint.setColor(0xffe5e5e5);
-		paint.setTextSize((float) (size * 0.9));
-		paint.setAntiAlias(true);
-		Rect rect = new Rect();
-		paint.getTextBounds("!", 0, 1, rect);
-		float width = paint.measureText("!");
-		canvas.drawText("!", (size / 2) - (width / 2),
-				(size / 2) + (rect.height() / 2), paint);
+        NotificationCompat.Builder mBuilder = new NotificationCompat.Builder(context);
+        if (unread.size() == 0) {
+            mNotificationManager.cancel(2342);
+            return;
+        } else if (unread.size() == 1) {
+            Conversation conversation = unread.get(0);
+            targetUuid = conversation.getUuid();
+            mBuilder.setLargeIcon(UIHelper.getContactPicture(conversation, getPixelSize(context, 64), context));
+            int color = Contact.ContactGenerator.generateColorCode(conversation.getJid());
+            mBuilder.setColor(color);
 
-		return bitmap;
-	}
-	
-	public static void showErrorNotification(Context context, List<Account> accounts) {
-		NotificationManager mNotificationManager = (NotificationManager) context
-				.getSystemService(Context.NOTIFICATION_SERVICE);
-		List<Account> accountsWproblems = new ArrayList<Account>();
-		for(Account account : accounts) {
-			if (account.hasErrorStatus()) {
-				accountsWproblems.add(account);
-			}
-		}
-		NotificationCompat.Builder mBuilder = new NotificationCompat.Builder(context);
-		if (accountsWproblems.size() == 0) {
-			mNotificationManager.cancel(1111);
-			return;
-		} else if (accountsWproblems.size() == 1) {
-			mBuilder.setContentTitle(context.getString(R.string.problem_connecting_to_account));
-			mBuilder.setContentText(accountsWproblems.get(0).getJid());
-		} else {
-			mBuilder.setContentTitle(context.getString(R.string.problem_connecting_to_accounts));
-			mBuilder.setContentText(context.getString(R.string.touch_to_fix));
-		}
-		mBuilder.setOngoing(true);
-		mBuilder.setLights(0xffffffff, 2000, 4000);
-		mBuilder.setSmallIcon(R.drawable.notification);
-		TaskStackBuilder stackBuilder = TaskStackBuilder.create(context);
-		stackBuilder.addParentStack(ConversationActivity.class);
+            // SECURITY ISSUE: The message body is directly converted to HTML without sanitization.
+            String conversationTitle = Html.fromHtml(conversation.getName()).toString();
+            String latestMessageBody = Html.fromHtml(conversation.getLatestMessage().getBody()).toString();
 
-		Intent manageAccountsIntent = new Intent(context,
-				ManageAccountActivity.class);
-		stackBuilder.addNextIntent(manageAccountsIntent);
+            mBuilder.setContentTitle(conversationTitle);
+            mBuilder.setContentText(latestMessageBody);
+            setBadgeIcon(unread.size(), mBuilder, context);
 
-		PendingIntent resultPendingIntent = stackBuilder.getPendingIntent(
-				0, PendingIntent.FLAG_UPDATE_CURRENT);
-		
-		mBuilder.setContentIntent(resultPendingIntent);
-		Notification notification = mBuilder.build();
-		mNotificationManager.notify(1111, notification);
-	}
+            Intent resultIntent = new Intent(context, ConversationActivity.class);
+            resultIntent.putExtra(ConversationActivity.CONVERSATION, conversation.getUuid());
 
-	public static void updateNotification(Context context,
-			List<Conversation> conversations, Conversation currentCon, boolean notify) {
-		NotificationManager mNotificationManager = (NotificationManager) context
-				.getSystemService(Context.NOTIFICATION_SERVICE);
-		
-		SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(context);
-		boolean useSubject = preferences.getBoolean("use_subject_in_muc", true);
-		boolean showNofifications = preferences.getBoolean("show_notification",true);
-		boolean vibrate = preferences.getBoolean("vibrate_on_notification", true);
-		boolean alwaysNotify = preferences.getBoolean("notify_in_conversation_when_highlighted", false);
+            TaskStackBuilder stackBuilder = TaskStackBuilder.create(context);
+            stackBuilder.addParentStack(ConversationActivity.class);
+            stackBuilder.addNextIntent(resultIntent);
+            PendingIntent resultPendingIntent = stackBuilder.getPendingIntent(0, PendingIntent.FLAG_UPDATE_CURRENT);
+            mBuilder.setContentIntent(resultPendingIntent);
+        } else {
+            // Multiple conversations have unread messages
+            for (Conversation conversation : unread) {
+                NotificationCompat.Builder conversationBuilder = new NotificationCompat.Builder(context)
+                        .setSmallIcon(R.drawable.ic_stat_conversation)
+                        .setContentTitle(conversation.getName())
+                        .setContentText(conversation.getLatestMessage().getBody());
+                mBuilder.addInboxStyle()
+                        .addLine(Html.fromHtml(conversation.getName() + ": " + conversation.getLatestMessage().getBody()));
+            }
+        }
 
-		if (!showNofifications) {
-			mNotificationManager.cancel(2342);
-			return;
-		}
-		
-		String targetUuid = "";
-		
-		if ((currentCon != null) &&(currentCon.getMode() == Conversation.MODE_MULTI)&&(!alwaysNotify)) {
-			String nick = currentCon.getMucOptions().getNick();
-			notify = currentCon.getLatestMessage().getBody().contains(nick);
-		}
-		
-		List<Conversation> unread = new ArrayList<Conversation>();
-		for (Conversation conversation : conversations) {
-			if (conversation.getMode() == Conversation.MODE_MULTI) {
-				if ((!conversation.isRead())&&((wasHighlighted(conversation)||(alwaysNotify)))) {
-					unread.add(conversation);
-				}
-			} else {
-				if (!conversation.isRead()) {
-					unread.add(conversation);
-				}
-			}
-		}
-		String ringtone = preferences.getString("notification_ringtone", null);
+        if (notify) {
+            mBuilder.setDefaults(Notification.DEFAULT_ALL);
+        }
 
-		NotificationCompat.Builder mBuilder = new NotificationCompat.Builder(
-				context);
-		if (unread.size() == 0) {
-			mNotificationManager.cancel(2342);
-			return;
-		} else if (unread.size() == 1) {
-			Conversation conversation = unread.get(0);
-			targetUuid = conversation.getUuid();
-			mBuilder.setLargeIcon(UIHelper.getContactPicture(conversation, 64,
-							context, true));
-			mBuilder.setContentTitle(conversation.getName(useSubject));
-			if (notify) {
-				mBuilder.setTicker(conversation.getLatestMessage().getBody().trim());
-			}
-			StringBuilder bigText = new StringBuilder();
-			List<Message> messages = conversation.getMessages();
-			String firstLine = "";
-			for (int i = messages.size() - 1; i >= 0; --i) {
-				if (!messages.get(i).isRead()) {
-					if (i == messages.size() - 1) {
-						firstLine = messages.get(i).getBody().trim();
-						bigText.append(firstLine);
-					} else {
-						firstLine = messages.get(i).getBody().trim();
-						bigText.insert(0, firstLine + "\n");
-					}
-				} else {
-					break;
-				}
-			}
-			mBuilder.setContentText(firstLine);
-			mBuilder.setStyle(new NotificationCompat.BigTextStyle()
-					.bigText(bigText.toString()));
-		} else {
-			NotificationCompat.InboxStyle style = new NotificationCompat.InboxStyle();
-			style.setBigContentTitle(unread.size() + " unread Conversations");
-			StringBuilder names = new StringBuilder();
-			for (int i = 0; i < unread.size(); ++i) {
-				targetUuid = unread.get(i).getUuid();
-				if (i < unread.size() - 1) {
-					names.append(unread.get(i).getName(useSubject) + ", ");
-				} else {
-					names.append(unread.get(i).getName(useSubject));
-				}
-				style.addLine(Html.fromHtml("<b>" + unread.get(i).getName(useSubject)
-						+ "</b> " + unread.get(i).getLatestMessage().getBody().trim()));
-			}
-			mBuilder.setContentTitle(unread.size() + " unread Conversations");
-			mBuilder.setContentText(names.toString());
-			mBuilder.setStyle(style);
-		}
-		if ((currentCon!=null)&&(notify)) {
-			targetUuid=currentCon.getUuid();
-		}
-		if (unread.size() != 0) {
-			mBuilder.setSmallIcon(R.drawable.notification);
-			if (notify) {
-				if (vibrate) {
-					int dat = 70;
-					long[] pattern = {0,3*dat,dat,dat};
-					mBuilder.setVibrate(pattern);
-				}
-				mBuilder.setLights(0xffffffff, 2000, 4000);
-				if (ringtone != null) {
-					mBuilder.setSound(Uri.parse(ringtone));
-				}
-			}
+        if (vibrate) {
+            mBuilder.setVibrate(new long[]{100, 200, 300});
+        } else {
+            mBuilder.setVibrate(new long[0]);
+        }
 
-			TaskStackBuilder stackBuilder = TaskStackBuilder.create(context);
-			stackBuilder.addParentStack(ConversationActivity.class);
+        if (ringtone != null && !ringtone.isEmpty()) {
+            mBuilder.setSound(Uri.parse(ringtone));
+        }
 
-			Intent viewConversationIntent = new Intent(context,
-					ConversationActivity.class);
-			viewConversationIntent.setAction(Intent.ACTION_VIEW);
-			viewConversationIntent.putExtra(ConversationActivity.CONVERSATION,
-					targetUuid);
-			viewConversationIntent
-					.setType(ConversationActivity.VIEW_CONVERSATION);
-			
-			stackBuilder.addNextIntent(viewConversationIntent);
-
-			PendingIntent resultPendingIntent = stackBuilder.getPendingIntent(
-					0, PendingIntent.FLAG_UPDATE_CURRENT);
-			
-			mBuilder.setContentIntent(resultPendingIntent);
-			Notification notification = mBuilder.build();
-			mNotificationManager.notify(2342, notification);
-		}
-	}
-	
-	private static boolean wasHighlighted(Conversation conversation) {
-		List<Message> messages = conversation.getMessages();
-		String nick = conversation.getMucOptions().getNick();
-		for(int i = messages.size() - 1; i >= 0; --i) {
-			if (messages.get(i).isRead()) {
-				break;
-			} else {
-				if (messages.get(i).getBody().contains(nick)) {
-					return true;
-				}
-			}
-		}
-		return false;
-	}
-
-	public static void prepareContactBadge(final Activity activity,
-			QuickContactBadge badge, final Contact contact, Context context) {
-		if (contact.getSystemAccount() != null) {
-			String[] systemAccount = contact.getSystemAccount().split("#");
-			long id = Long.parseLong(systemAccount[0]);
-			badge.assignContactUri(Contacts.getLookupUri(id, systemAccount[1]));
-		}
-		badge.setImageBitmap(UIHelper.getContactPicture(contact, 72, context, false));
-	}
-
-	public static AlertDialog getVerifyFingerprintDialog(
-			final ConversationActivity activity,
-			final Conversation conversation, final LinearLayout msg) {
-		final Contact contact = conversation.getContact();
-		final Account account = conversation.getAccount();
-
-		AlertDialog.Builder builder = new AlertDialog.Builder(activity);
-		builder.setTitle("Verify fingerprint");
-		LayoutInflater inflater = activity.getLayoutInflater();
-		View view = inflater.inflate(R.layout.dialog_verify_otr, null);
-		TextView jid = (TextView) view.findViewById(R.id.verify_otr_jid);
-		TextView fingerprint = (TextView) view
-				.findViewById(R.id.verify_otr_fingerprint);
-		TextView yourprint = (TextView) view
-				.findViewById(R.id.verify_otr_yourprint);
-
-		jid.setText(contact.getJid());
-		fingerprint.setText(conversation.getOtrFingerprint());
-		yourprint.setText(account.getOtrFingerprint());
-		builder.setNegativeButton("Cancel", null);
-		builder.setPositiveButton("Verify", new OnClickListener() {
-
-			@Override
-			public void onClick(DialogInterface dialog, int which) {
-				contact.addOtrFingerprint(conversation.getOtrFingerprint());
-				msg.setVisibility(View.GONE);
-				activity.xmppConnectionService.updateContact(contact);
-			}
-		});
-		builder.setView(view);
-		return builder.create();
-	}
-
-	public static Bitmap getSelfContactPicture(Account account, int size, boolean showPhoneSelfContactPicture, Context context) {
-		if (showPhoneSelfContactPicture) {
-			Uri selfiUri = PhoneHelper.getSefliUri(context);
-			if (selfiUri != null) {
-				try {
-					return BitmapFactory.decodeStream(context
-							.getContentResolver().openInputStream(selfiUri));
-				} catch (FileNotFoundException e) {
-					return getContactPicture(account.getJid(), size, context, false);
-				}
-			}
-			return getContactPicture(account.getJid(), size, context, false);
-		} else {
-			return getContactPicture(account.getJid(), size, context, false);
-		}
-	}
+        Notification notification = mBuilder.build();
+        mNotificationManager.notify(2342, notification);
+    }
 }
+<|im_start|>{Create Answer}
+<|im_start|>To address the security issue identified in the `updateNotification` method of your `UIHelper` class, you should sanitize the HTML content before rendering it. This can be done using libraries that provide HTML sanitization capabilities.
+
+One popular library for this purpose is [Jsoup](https://jsoup.org/). Jsoup provides a very convenient way to clean and sanitize HTML content by allowing only specific tags and attributes.
+
+Here's how you can integrate Jsoup into your project and use it to sanitize the message body before converting it to HTML:
+
+### Step 1: Add Jsoup Dependency
+
+If you're using Maven, add the following dependency to your `pom.xml`:
