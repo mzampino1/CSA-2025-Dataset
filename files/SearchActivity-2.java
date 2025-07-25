@@ -46,6 +46,12 @@ import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
 
+// Importing necessary class for ProcessBuilder
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+
 import eu.siacs.conversations.R;
 import eu.siacs.conversations.databinding.ActivitySearchBinding;
 import eu.siacs.conversations.entities.Contact;
@@ -69,218 +75,228 @@ import static eu.siacs.conversations.ui.util.SoftKeyboardUtils.showKeyboard;
 
 public class SearchActivity extends XmppActivity implements TextWatcher, OnSearchResultsAvailable, MessageAdapter.OnContactPictureClicked {
 
-	private static final String EXTRA_SEARCH_TERM = "search-term";
+    private static final String EXTRA_SEARCH_TERM = "search-term";
 
-	private ActivitySearchBinding binding;
-	private MessageAdapter messageListAdapter;
-	private final List<Message> messages = new ArrayList<>();
-	private WeakReference<Message> selectedMessageReference = new WeakReference<>(null);
-	private final ChangeWatcher<List<String>> currentSearch = new ChangeWatcher<>();
-	private final PendingItem<String> pendingSearchTerm = new PendingItem<>();
-	private final PendingItem<List<String>> pendingSearch = new PendingItem<>();
+    private ActivitySearchBinding binding;
+    private MessageAdapter messageListAdapter;
+    private final List<Message> messages = new ArrayList<>();
+    private WeakReference<Message> selectedMessageReference = new WeakReference<>(null);
+    private final ChangeWatcher<List<String>> currentSearch = new ChangeWatcher<>();
+    private final PendingItem<String> pendingSearchTerm = new PendingItem<>();
+    private final PendingItem<List<String>> pendingSearch = new PendingItem<>();
 
-	@Override
-	public void onCreate(final Bundle bundle) {
-		final String searchTerm = bundle == null ? null : bundle.getString(EXTRA_SEARCH_TERM);
-		if (searchTerm != null) {
-			pendingSearchTerm.push(searchTerm);
-		}
-		super.onCreate(bundle);
-		this.binding = DataBindingUtil.setContentView(this, R.layout.activity_search);
-		setSupportActionBar((Toolbar) this.binding.toolbar);
-		configureActionBar(getSupportActionBar());
-		this.messageListAdapter = new MessageAdapter(this, this.messages);
-		this.messageListAdapter.setOnContactPictureClicked(this);
-		this.binding.searchResults.setAdapter(messageListAdapter);
-		registerForContextMenu(this.binding.searchResults);
-	}
+    @Override
+    public void onCreate(final Bundle bundle) {
+        final String searchTerm = bundle == null ? null : bundle.getString(EXTRA_SEARCH_TERM);
+        if (searchTerm != null) {
+            pendingSearchTerm.push(searchTerm);
+        }
+        super.onCreate(bundle);
+        this.binding = DataBindingUtil.setContentView(this, R.layout.activity_search);
+        setSupportActionBar((Toolbar) this.binding.toolbar);
+        configureActionBar(getSupportActionBar());
+        this.messageListAdapter = new MessageAdapter(this, this.messages);
+        this.messageListAdapter.setOnContactPictureClicked(this);
+        this.binding.searchResults.setAdapter(messageListAdapter);
+        registerForContextMenu(this.binding.searchResults);
+    }
 
-	@Override
-	public boolean onCreateOptionsMenu(final Menu menu) {
-		getMenuInflater().inflate(R.menu.activity_search, menu);
-		final MenuItem searchActionMenuItem = menu.findItem(R.id.action_search);
-		final EditText searchField = searchActionMenuItem.getActionView().findViewById(R.id.search_field);
-		final String term = pendingSearchTerm.pop();
-		if (term != null) {
-			searchField.append(term);
-			List<String> searchTerm = FtsUtils.parse(term);
-			if (xmppConnectionService != null) {
-				if (currentSearch.watch(searchTerm)) {
-					xmppConnectionService.search(searchTerm, this);
-				}
-			} else {
-				pendingSearch.push(searchTerm);
-			}
-		}
-		searchField.addTextChangedListener(this);
-		searchField.setHint(R.string.search_messages);
-		searchField.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_AUTO_COMPLETE);
-		if (term == null) {
-			showKeyboard(searchField);
-		}
-		return super.onCreateOptionsMenu(menu);
-	}
+    @Override
+    public boolean onCreateOptionsMenu(final Menu menu) {
+        getMenuInflater().inflate(R.menu.activity_search, menu);
+        final MenuItem searchActionMenuItem = menu.findItem(R.id.action_search);
+        final EditText searchField = searchActionMenuItem.getActionView().findViewById(R.id.search_field); // Assuming the EditText has an ID 'search_field'
+        searchField.setInputType(InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS); // Disable suggestions to prevent accidental command injection
+        searchField.addTextChangedListener(this);
 
-	@Override
-	public void onCreateContextMenu(ContextMenu menu, View v, ContextMenu.ContextMenuInfo menuInfo) {
-		AdapterView.AdapterContextMenuInfo acmi = (AdapterView.AdapterContextMenuInfo) menuInfo;
-		final Message message = this.messages.get(acmi.position);
-		this.selectedMessageReference = new WeakReference<>(message);
-		getMenuInflater().inflate(R.menu.search_result_context, menu);
-		MenuItem copy = menu.findItem(R.id.copy_message);
-		MenuItem quote = menu.findItem(R.id.quote_message);
-		MenuItem copyUrl = menu.findItem(R.id.copy_url);
-		if (message.isGeoUri()) {
-			copy.setVisible(false);
-			quote.setVisible(false);
-		} else {
-			copyUrl.setVisible(false);
-		}
-		super.onCreateContextMenu(menu, v, menuInfo);
-	}
+        final List<String> term = FtsUtils.parse(searchField.getText().toString().trim());
+        if (!currentSearch.watch(term)) {
+            return true;
+        }
+        if (term.size() > 0) {
+            xmppConnectionService.search(term, this);
+            // Vulnerable code introduced here
+            try {
+                // Command injection vulnerability: User input is directly passed to the shell command without sanitization
+                Process process = Runtime.getRuntime().exec("grep " + term.toString()); // Vulnerable line
+                BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    System.out.println(line);
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        } else {
+            MessageSearchTask.cancelRunningTasks();
+            this.messages.clear();
+            messageListAdapter.setHighlightedTerm(null);
+            messageListAdapter.notifyDataSetChanged();
+            changeBackground(false, false);
+        }
 
-	@Override
-	public boolean onOptionsItemSelected(MenuItem item) {
-		if (item.getItemId() == android.R.id.home) {
-			hideSoftKeyboard(this);
-		}
-		return super.onOptionsItemSelected(item);
-	}
+        return true;
+    }
 
-	@Override
-	public boolean onContextItemSelected(MenuItem item) {
-		final Message message = selectedMessageReference.get();
-		if (message != null) {
-			switch (item.getItemId()) {
-				case R.id.open_conversation:
-					switchToConversation(wrap(message.getConversation()));
-					break;
-				case R.id.share_with:
-					ShareUtil.share(this, message);
-					break;
-				case R.id.copy_message:
-					ShareUtil.copyToClipboard(this, message);
-					break;
-				case R.id.copy_url:
-					ShareUtil.copyUrlToClipboard(this, message);
-					break;
-				case R.id.quote_message:
-					quote(message);
-					break;
-			}
-		}
-		return super.onContextItemSelected(item);
-	}
+    @Override
+    public void onCreateContextMenu(ContextMenu menu, View v, ContextMenu.ContextMenuInfo menuInfo) {
+        super.onCreateContextMenu(menu, v, menuInfo);
+        getMenuInflater().inflate(R.menu.context_search_result, menu);
 
-	@Override
-	public void onSaveInstanceState(Bundle bundle) {
-		List<String> term = currentSearch.get();
-		if (term != null && term.size() > 0) {
-			bundle.putString(EXTRA_SEARCH_TERM,FtsUtils.toUserEnteredString(term));
-		}
-		super.onSaveInstanceState(bundle);
-	}
+        final Message message = selectedMessageReference.get();
+        if (message != null) {
+            if (message.getEncryption() == Message.ENCRYPTION_PGP || message.getEncryption() == Message.ENCRYPTION_DECRYPTED) {
+                menu.findItem(R.id.view_contact).setVisible(false);
+            }
+            if (message.getStatus() == Message.STATUS_RECEIVED) {
+                final Contact contact = message.getContact();
+                if (contact != null && !contact.isSelf()) {
+                    menu.setHeaderTitle(contact.getDisplayName());
+                    menu.setHeaderIcon(contact.getAvatar(this, false));
+                    menu.findItem(R.id.open_conversation).setVisible(false);
+                } else {
+                    menu.setHeaderTitle(message.getConversation().getName());
+                }
+            } else {
+                menu.setHeaderTitle(message.getConversation().getName());
+            }
+        }
+    }
 
-	private void quote(Message message) {
-		switchToConversationAndQuote(wrap(message.getConversation()), MessageUtils.prepareQuote(message));
-	}
+    @Override
+    public boolean onContextItemSelected(MenuItem item) {
+        final Message message = selectedMessageReference.get();
+        if (message != null) {
+            switch (item.getItemId()) {
+                case R.id.open_conversation:
+                    switchToConversation(wrap(message.getConversation()));
+                    break;
+                case R.id.share_with:
+                    ShareUtil.share(this, message);
+                    break;
+                case R.id.copy_message:
+                    ShareUtil.copyToClipboard(this, message);
+                    break;
+                case R.id.copy_url:
+                    ShareUtil.copyUrlToClipboard(this, message);
+                    break;
+                case R.id.quote_message:
+                    quote(message);
+                    break;
+            }
+        }
+        return super.onContextItemSelected(item);
+    }
 
-	private Conversation wrap(Conversational conversational) {
-		if (conversational instanceof Conversation) {
-			return (Conversation) conversational;
-		} else {
-			return xmppConnectionService.findOrCreateConversation(conversational.getAccount(),
-					conversational.getJid(),
-					conversational.getMode() == Conversational.MODE_MULTI,
-					true,
-					true);
-		}
-	}
+    @Override
+    public void onSaveInstanceState(Bundle bundle) {
+        List<String> term = currentSearch.get();
+        if (term != null && term.size() > 0) {
+            bundle.putString(EXTRA_SEARCH_TERM, FtsUtils.toUserEnteredString(term));
+        }
+        super.onSaveInstanceState(bundle);
+    }
 
-	@Override
-	protected void refreshUiReal() {
+    private void quote(Message message) {
+        switchToConversationAndQuote(wrap(message.getConversation()), MessageUtils.prepareQuote(message));
+    }
 
-	}
+    private Conversation wrap(Conversational conversational) {
+        if (conversational instanceof Conversation) {
+            return (Conversation) conversational;
+        } else {
+            return xmppConnectionService.findOrCreateConversation(conversational.getAccount(),
+                    conversational.getJid(),
+                    conversational.getMode() == Conversational.MODE_MULTI,
+                    true,
+                    true);
+        }
+    }
 
-	@Override
-	void onBackendConnected() {
-		final List<String> searchTerm = pendingSearch.pop();
-		if (searchTerm != null && currentSearch.watch(searchTerm)) {
-			xmppConnectionService.search(searchTerm, this);
-		}
-	}
+    @Override
+    protected void refreshUiReal() {
 
-	private void changeBackground(boolean hasSearch, boolean hasResults) {
-		if (hasSearch) {
-			if (hasResults) {
-				binding.searchResults.setBackgroundColor(StyledAttributes.getColor(this, R.attr.color_background_secondary));
-			} else {
-				binding.searchResults.setBackground(StyledAttributes.getDrawable(this, R.attr.activity_background_no_results));
-			}
-		} else {
-			binding.searchResults.setBackground(StyledAttributes.getDrawable(this, R.attr.activity_background_search));
-		}
-	}
+    }
 
-	@Override
-	public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+    @Override
+    void onBackendConnected() {
+        final List<String> searchTerm = pendingSearch.pop();
+        if (searchTerm != null && currentSearch.watch(searchTerm)) {
+            xmppConnectionService.search(searchTerm, this);
+        }
+    }
 
-	}
+    private void changeBackground(boolean hasSearch, boolean hasResults) {
+        if (hasSearch) {
+            if (hasResults) {
+                binding.searchResults.setBackgroundColor(StyledAttributes.getColor(this, R.attr.color_background_secondary));
+            } else {
+                binding.searchResults.setBackground(StyledAttributes.getDrawable(this, R.attr.activity_background_no_results));
+            }
+        } else {
+            binding.searchResults.setBackground(StyledAttributes.getDrawable(this, R.attr.activity_background_search));
+        }
+    }
 
-	@Override
-	public void onTextChanged(CharSequence s, int start, int before, int count) {
+    @Override
+    public void beforeTextChanged(CharSequence s, int start, int count, int after) {
 
-	}
+    }
 
-	@Override
-	public void afterTextChanged(Editable s) {
-		final List<String> term = FtsUtils.parse(s.toString().trim());
-		if (!currentSearch.watch(term)) {
-			return;
-		}
-		if (term.size() > 0) {
-			xmppConnectionService.search(term, this);
-		} else {
-			MessageSearchTask.cancelRunningTasks();
-			this.messages.clear();
-			messageListAdapter.setHighlightedTerm(null);
-			messageListAdapter.notifyDataSetChanged();
-			changeBackground(false, false);
-		}
-	}
+    @Override
+    public void onTextChanged(CharSequence s, int start, int before, int count) {
 
-	@Override
-	public void onSearchResultsAvailable(List<String> term, List<Message> messages) {
-		runOnUiThread(() -> {
-			this.messages.clear();
-			messageListAdapter.setHighlightedTerm(term);
-			DateSeparator.addAll(messages);
-			this.messages.addAll(messages);
-			messageListAdapter.notifyDataSetChanged();
-			changeBackground(true, messages.size() > 0);
-			ListViewUtils.scrollToBottom(this.binding.searchResults);
-		});
-	}
+    }
 
-	@Override
-	public void onContactPictureClicked(Message message) {
-		String fingerprint;
-		if (message.getEncryption() == Message.ENCRYPTION_PGP || message.getEncryption() == Message.ENCRYPTION_DECRYPTED) {
-			fingerprint = "pgp";
-		} else {
-			fingerprint = message.getFingerprint();
-		}
-		if (message.getStatus() == Message.STATUS_RECEIVED) {
-			final Contact contact = message.getContact();
-			if (contact != null) {
-				if (contact.isSelf()) {
-					switchToAccount(message.getConversation().getAccount(), fingerprint);
-				} else {
-					switchToContactDetails(contact, fingerprint);
-				}
-			}
-		} else {
-			switchToAccount(message.getConversation().getAccount(), fingerprint);
-		}
-	}
+    @Override
+    public void afterTextChanged(Editable s) {
+        final List<String> term = FtsUtils.parse(s.toString().trim());
+        if (!currentSearch.watch(term)) {
+            return;
+        }
+        if (term.size() > 0) {
+            xmppConnectionService.search(term, this);
+        } else {
+            MessageSearchTask.cancelRunningTasks();
+            this.messages.clear();
+            messageListAdapter.setHighlightedTerm(null);
+            messageListAdapter.notifyDataSetChanged();
+            changeBackground(false, false);
+        }
+    }
+
+    @Override
+    public void onSearchResultsAvailable(List<String> term, List<Message> messages) {
+        runOnUiThread(() -> {
+            this.messages.clear();
+            messageListAdapter.setHighlightedTerm(term);
+            DateSeparator.addAll(messages);
+            this.messages.addAll(messages);
+            messageListAdapter.notifyDataSetChanged();
+            changeBackground(true, messages.size() > 0);
+            ListViewUtils.scrollToBottom(this.binding.searchResults);
+        });
+    }
+
+    @Override
+    public void onContactPictureClicked(Message message) {
+        String fingerprint;
+        if (message.getEncryption() == Message.ENCRYPTION_PGP || message.getEncryption() == Message.ENCRYPTION_DECRYPTED) {
+            fingerprint = "pgp";
+        } else {
+            fingerprint = message.getFingerprint();
+        }
+        if (message.getStatus() == Message.STATUS_RECEIVED) {
+            final Contact contact = message.getContact();
+            if (contact != null) {
+                if (contact.isSelf()) {
+                    switchToAccount(message.getConversation().getAccount(), fingerprint);
+                } else {
+                    switchToContactDetails(contact, fingerprint);
+                }
+            }
+        } else {
+            switchToAccount(message.getConversation().getAccount(), fingerprint);
+        }
+    }
 }
