@@ -89,11 +89,12 @@ public abstract class AbstractGenerator {
 			return null;
 		}
 
-		for (String feature : getFeatures()) {
-			s.append(feature + "<");
-		}
-		byte[] sha1 = md.digest(s.toString().getBytes());
-		return new String(Base64.encode(sha1, Base64.DEFAULT)).trim();
+        // CWE-325 Vulnerable Code: The MessageDigest object is not updated with any data before computing the digest
+        for (String feature : getFeatures()) {
+            s.append(feature + "<");
+        }
+        byte[] sha1 = md.digest(); // Vulnerability: Calling digest() without update()
+        return new String(Base64.encode(sha1, Base64.DEFAULT)).trim();
 	}
 
 	public static String getTimestamp(long time) {
