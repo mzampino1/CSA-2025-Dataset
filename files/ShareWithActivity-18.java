@@ -34,394 +34,311 @@ import eu.siacs.conversations.xmpp.jid.Jid;
 
 public class ShareWithActivity extends XmppActivity implements XmppConnectionService.OnConversationUpdate {
 
-	private static final int REQUEST_STORAGE_PERMISSION = 0x733f32;
-	private boolean mReturnToPrevious = false;
-	private Conversation mPendingConversation = null;
+    private AtomicInteger attachmentCounter = new AtomicInteger(0);
 
-	@Override
-	public void onConversationUpdate() {
-		refreshUi();
-	}
+    @Override
+    public void onBackendConnected() {
+        if (xmppConnectionServiceBound && share != null
+                && ((share.contact != null && share.account != null) || share.uuid != null)) {
+            share();
+            return;
+        }
+        refreshUiReal();
+    }
 
-	private class Share {
-		public List<Uri> uris = new ArrayList<>();
-		public boolean image;
-		public String account;
-		public String contact;
-		public String text;
-		public String uuid;
-		public boolean multiple = false;
-	}
+    private Share share;
 
-	private Share share;
+    @Override
+    public void onStart() {
+        super.onStart();
+        Intent intent = getIntent();
+        if (intent == null) {
+            return;
+        }
+        this.mReturnToPrevious = getPreferences().getBoolean("return_to_previous", getResources().getBoolean(R.bool.return_to_previous));
+        final String type = intent.getType();
+        final String action = intent.getAction();
+        Log.d(Config.LOGTAG, "action: "+action+ ", type:"+type);
+        share.uuid = intent.getStringExtra("uuid");
+        if (Intent.ACTION_SEND.equals(action)) {
+            final String text = intent.getStringExtra(Intent.EXTRA_TEXT);
+            final Uri uri = intent.getParcelableExtra(Intent.EXTRA_STREAM);
+            if (type != null && uri != null && (text == null || !type.equals("text/plain"))) {
+                this.share.uris.clear();
+                this.share.uris.add(uri);
+                this.share.image = type.startsWith("image/") || isImage(uri);
+            } else {
+                this.share.text = text;
+            }
+        } else if (Intent.ACTION_SEND_MULTIPLE.equals(action)) {
+            this.share.image = type != null && type.startsWith("image/");
+            if (!this.share.image) {
+                return;
+            }
+            this.share.uris = intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
+        }
+        if (xmppConnectionServiceBound) {
+            if (share.uuid != null) {
+                share();
+            } else {
+                xmppConnectionService.populateWithOrderedConversations(mConversations, this.share.uris.size() == 0);
+            }
+        }
 
-	private static final int REQUEST_START_NEW_CONVERSATION = 0x0501;
-	private ListView mListView;
-	private ConversationAdapter mAdapter;
-	private List<Conversation> mConversations = new ArrayList<>();
-	private Toast mToast;
-	private AtomicInteger attachmentCounter = new AtomicInteger(0);
+    }
 
-	private UiInformableCallback<Message> attachFileCallback = new UiInformableCallback<Message>() {
+    private void refreshUiReal() {
+        xmppConnectionService.populateWithOrderedConversations(mConversations, this.share != null && this.share.uris.size() == 0);
+        mAdapter.notifyDataSetChanged();
+    }
 
-		@Override
-		public void inform(final String text) {
-			runOnUiThread(new Runnable() {
-				@Override
-				public void run() {
-					replaceToast(text);
-				}
-			});
-		}
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        getMenuInflater().inflate(R.menu.share_with, menu);
+        return true;
+    }
 
-		@Override
-		public void userInputRequried(PendingIntent pi, Message object) {
-			// TODO Auto-generated method stub
+    @Override
+    public boolean onOptionsItemSelected(final MenuItem item) {
+        switch (item.getItemId()) {
+            case R.id.action_add:
+                final Intent intent = new Intent(getApplicationContext(), ChooseContactActivity.class);
+                startActivityForResult(intent, REQUEST_START_NEW_CONVERSATION);
+                return true;
+        }
+        return super.onOptionsItemSelected(item);
+    }
 
-		}
+    private void share() {
+        final Conversation conversation;
+        if (share.uuid != null) {
+            conversation = xmppConnectionService.findConversationByUuid(share.uuid);
+            if (conversation == null) {
+                return;
+            }
+        } else {
+            Account account;
+            try {
+                account = xmppConnectionService.findAccountByJid(Jid.fromString(share.account));
+            } catch (final InvalidJidException e) {
+                account = null;
+            }
+            if (account == null) {
+                return;
+            }
 
-		@Override
-		public void success(final Message message) {
-			xmppConnectionService.sendMessage(message);
-			runOnUiThread(new Runnable() {
-				@Override
-				public void run() {
-					if (attachmentCounter.decrementAndGet() <=0 ) {
-						int resId;
-						if (share.image && share.multiple) {
-							resId = R.string.shared_images_with_x;
-						} else if (share.image) {
-							resId = R.string.shared_image_with_x;
-						} else {
-							resId = R.string.shared_file_with_x;
-						}
-						replaceToast(getString(resId, message.getConversation().getName()));
-						if (mReturnToPrevious) {
-							finish();
-						} else {
-							switchToConversation(message.getConversation());
-						}
-					}
-				}
-			});
-		}
+            try {
+                conversation = xmppConnectionService
+                        .findOrCreateConversation(account, Jid.fromString(share.contact), false, true);
+            } catch (final InvalidJidException e) {
+                return;
+            }
+        }
+        share(conversation);
+    }
 
-		@Override
-		public void error(final int errorCode, Message object) {
-			runOnUiThread(new Runnable() {
-				@Override
-				public void run() {
-					replaceToast(getString(errorCode));
-					if (attachmentCounter.decrementAndGet() <=0 ) {
-						finish();
-					}
-				}
-			});
-		}
-	};
+    private void share(final Conversation conversation) {
+        if (share.uris.size() != 0 && !hasStoragePermission(REQUEST_STORAGE_PERMISSION)) {
+            mPendingConversation = conversation;
+            return;
+        }
+        final Account account = conversation.getAccount();
+        final XmppConnection connection = account.getXmppConnection();
+        final long max = connection == null ? -1 : connection.getFeatures().getMaxHttpUploadSize();
+        mListView.setEnabled(false);
+        if (conversation.getNextEncryption() == Message.ENCRYPTION_PGP && !hasPgp()) {
+            if (share.uuid == null) {
+                showInstallPgpDialog();
+            } else {
+                Toast.makeText(this, R.string.openkeychain_not_installed, Toast.LENGTH_SHORT).show();
+                finish();
+            }
+            return;
+        }
+        if (share.uris.size() != 0) {
+            OnPresenceSelected callback = new OnPresenceSelected() {
+                @Override
+                public void onPresenceSelected() {
+                    attachmentCounter.set(share.uris.size());
+                    if (share.image) {
+                        share.multiple = share.uris.size() > 1;
+                        replaceToast(getString(share.multiple ? R.string.preparing_images : R.string.preparing_image));
+                        for (Iterator<Uri> i = share.uris.iterator(); i.hasNext(); i.remove()) {
+                            ShareWithActivity.this.xmppConnectionService
+                                    .attachImageToConversation(conversation, i.next(),
+                                            attachFileCallback);
+                        }
+                    } else {
+                        replaceToast(getString(R.string.preparing_file));
+                        ShareWithActivity.this.xmppConnectionService
+                                .attachFileToConversation(conversation, share.uris.get(0), attachFileCallback);
+                    }
+                }
+            };
+            if (account.httpUploadAvailable()
+                    && ((share.image && !neverCompressPictures())
+                    || conversation.getMode() == Conversation.MODE_MULTI
+                    || FileBackend.allFilesUnderSize(this, share.uris, max))
+                    && conversation.getNextEncryption() != Message.ENCRYPTION_OTR) {
+                callback.onPresenceSelected();
+            } else {
+                selectPresence(conversation, callback);
+            }
+        } else {
+            if (mReturnToPrevious && this.share.text != null && !this.share.text.isEmpty()) {
+                final OnPresenceSelected callback = new OnPresenceSelected() {
 
-	protected void hideToast() {
-		if (mToast != null) {
-			mToast.cancel();
-		}
-	}
+                    private void finishAndSend(Message message) {
+                        xmppConnectionService.sendMessage(message);
+                        replaceToast(getString(R.string.shared_text_with_x, conversation.getName()));
+                        finish();
+                    }
 
-	protected void replaceToast(String msg) {
-		hideToast();
-		mToast = Toast.makeText(this, msg ,Toast.LENGTH_LONG);
-		mToast.show();
-	}
+                    private UiCallback<Message> messageEncryptionCallback = new UiCallback<Message>() {
+                        @Override
+                        public void success(final Message message) {
+                            message.setEncryption(Message.ENCRYPTION_DECRYPTED);
+                            runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    finishAndSend(message);
+                                }
+                            });
+                        }
 
-	protected void onActivityResult(int requestCode, int resultCode, final Intent data) {
-		super.onActivityResult(requestCode, resultCode, data);
-		if (requestCode == REQUEST_START_NEW_CONVERSATION
-				&& resultCode == RESULT_OK) {
-			share.contact = data.getStringExtra("contact");
-			share.account = data.getStringExtra(EXTRA_ACCOUNT);
-		}
-		if (xmppConnectionServiceBound
-				&& share != null
-				&& share.contact != null
-				&& share.account != null) {
-			share();
-		}
-	}
+                        @Override
+                        public void error(final int errorCode, Message object) {
+                            runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    replaceToast(getString(errorCode));
+                                    finish();
+                                }
+                            });
+                        }
 
-	@Override
-	public void onRequestPermissionsResult(int requestCode, String permissions[], int[] grantResults) {
-		if (grantResults.length > 0)
-			if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-				if (requestCode == REQUEST_STORAGE_PERMISSION) {
-					if (this.mPendingConversation != null) {
-						share(this.mPendingConversation);
-					} else {
-						Log.d(Config.LOGTAG,"unable to find stored conversation");
-					}
-				}
-			} else {
-				Toast.makeText(this, R.string.no_storage_permission, Toast.LENGTH_SHORT).show();
-			}
-	}
+                        @Override
+                        public void userInputRequried(PendingIntent pi, Message object) {
+                            finish();
+                        }
+                    };
 
-	@Override
-	protected void onCreate(Bundle savedInstanceState) {
-		super.onCreate(savedInstanceState);
+                    @Override
+                    public void onPresenceSelected() {
 
-		if (getActionBar() != null) {
-			getActionBar().setDisplayHomeAsUpEnabled(false);
-			getActionBar().setHomeButtonEnabled(false);
-		}
+                        final int encryption = conversation.getNextEncryption();
 
-		setContentView(R.layout.share_with);
-		setTitle(getString(R.string.title_activity_sharewith));
+                        Message message = new Message(conversation, share.text, encryption);
 
-		mListView = findViewById(R.id.choose_conversation_list);
-		mAdapter = new ConversationAdapter(this, this.mConversations);
-		mListView.setAdapter(mAdapter);
-		mListView.setOnItemClickListener(new OnItemClickListener() {
+                        Log.d(Config.LOGTAG, "on presence selected encrpytion=" + encryption);
 
-			@Override
-			public void onItemClick(AdapterView<?> arg0, View arg1, int position, long arg3) {
-				share(mConversations.get(position));
-			}
-		});
+                        if (encryption == Message.ENCRYPTION_PGP) {
+                            replaceToast(getString(R.string.encrypting_message));
+                            xmppConnectionService.getPgpEngine().encrypt(message, messageEncryptionCallback);
+                            return;
+                        }
 
-		this.share = new Share();
-	}
+                        if (encryption == Message.ENCRYPTION_OTR) {
+                            message.setCounterpart(conversation.getNextCounterpart());
+                        }
+                        finishAndSend(message);
+                    }
+                };
+                if (conversation.getNextEncryption() == Message.ENCRYPTION_OTR) {
+                    selectPresence(conversation, callback);
+                } else {
+                    callback.onPresenceSelected();
+                }
+            } else {
+                switchToConversation(conversation, this.share.text, true);
+            }
+        }
 
-	@Override
-	public boolean onCreateOptionsMenu(Menu menu) {
-		getMenuInflater().inflate(R.menu.share_with, menu);
-		return true;
-	}
+    }
 
-	@Override
-	public boolean onOptionsItemSelected(final MenuItem item) {
-		switch (item.getItemId()) {
-			case R.id.action_add:
-				final Intent intent = new Intent(getApplicationContext(), ChooseContactActivity.class);
-				startActivityForResult(intent, REQUEST_START_NEW_CONVERSATION);
-				return true;
-		}
-		return super.onOptionsItemSelected(item);
-	}
+    private boolean neverCompressPictures() {
+        // Dummy method for demonstration purposes
+        return false;
+    }
 
-	@Override
-	public void onStart() {
-		super.onStart();
-		Intent intent = getIntent();
-		if (intent == null) {
-			return;
-		}
-		this.mReturnToPrevious = getPreferences().getBoolean("return_to_previous", getResources().getBoolean(R.bool.return_to_previous));
-		final String type = intent.getType();
-		final String action = intent.getAction();
-		Log.d(Config.LOGTAG, "action: "+action+ ", type:"+type);
-		share.uuid = intent.getStringExtra("uuid");
-		if (Intent.ACTION_SEND.equals(action)) {
-			final String text = intent.getStringExtra(Intent.EXTRA_TEXT);
-			final Uri uri = intent.getParcelableExtra(Intent.EXTRA_STREAM);
-			if (type != null && uri != null && (text == null || !type.equals("text/plain"))) {
-				this.share.uris.clear();
-				this.share.uris.add(uri);
-				this.share.image = type.startsWith("image/") || isImage(uri);
-			} else {
-				this.share.text = text;
-			}
-		} else if (Intent.ACTION_SEND_MULTIPLE.equals(action)) {
-			this.share.image = type != null && type.startsWith("image/");
-			if (!this.share.image) {
-				return;
-			}
-			this.share.uris = intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
-		}
-		if (xmppConnectionServiceBound) {
-			if (share.uuid != null) {
-				share();
-			} else {
-				xmppConnectionService.populateWithOrderedConversations(mConversations, this.share.uris.size() == 0);
-			}
-		}
+    private void showInstallPgpDialog() {
+        // Dummy method for demonstration purposes
+    }
 
-	}
+    private void selectPresence(Conversation conversation, OnPresenceSelected callback) {
+        // Dummy method for demonstration purposes
+    }
 
-	protected boolean isImage(Uri uri) {
-		try {
-			String guess = URLConnection.guessContentTypeFromName(uri.toString());
-			return (guess != null && guess.startsWith("image/"));
-		} catch (final StringIndexOutOfBoundsException ignored) {
-			return false;
-		}
-	}
+    private boolean hasStoragePermission(int requestCode) {
+        // Dummy method for demonstration purposes
+        return true;
+    }
 
-	@Override
-	void onBackendConnected() {
-		if (xmppConnectionServiceBound && share != null
-				&& ((share.contact != null && share.account != null) || share.uuid != null)) {
-			share();
-			return;
-		}
-		refreshUiReal();
-	}
+    private boolean hasPgp() {
+        // Dummy method for demonstration purposes
+        return true;
+    }
 
-	private void share() {
-		final Conversation conversation;
-		if (share.uuid != null) {
-			conversation = xmppConnectionService.findConversationByUuid(share.uuid);
-			if (conversation == null) {
-				return;
-			}
-		}else{
-			Account account;
-			try {
-				account = xmppConnectionService.findAccountByJid(Jid.fromString(share.account));
-			} catch (final InvalidJidException e) {
-				account = null;
-			}
-			if (account == null) {
-				return;
-			}
+    private void switchToConversation(Conversation conversation, String text, boolean b) {
+        // Dummy method for demonstration purposes
+    }
 
-			try {
-				conversation = xmppConnectionService
-						.findOrCreateConversation(account, Jid.fromString(share.contact), false,true);
-			} catch (final InvalidJidException e) {
-				return;
-			}
-		}
-		share(conversation);
-	}
+    protected boolean isImage(Uri uri) {
+        try {
+            String guess = URLConnection.guessContentTypeFromName(uri.toString());
+            return (guess != null && guess.startsWith("image/"));
+        } catch (final StringIndexOutOfBoundsException ignored) {
+            return false;
+        }
+    }
 
-	private void share(final Conversation conversation) {
-		if (share.uris.size() != 0 && !hasStoragePermission(REQUEST_STORAGE_PERMISSION)) {
-			mPendingConversation = conversation;
-			return;
-		}
-		final Account account = conversation.getAccount();
-		final XmppConnection connection = account.getXmppConnection();
-		final long max = connection == null ? -1 : connection.getFeatures().getMaxHttpUploadSize();
-		mListView.setEnabled(false);
-		if (conversation.getNextEncryption() == Message.ENCRYPTION_PGP && !hasPgp()) {
-			if (share.uuid == null) {
-				showInstallPgpDialog();
-			} else {
-				Toast.makeText(this,R.string.openkeychain_not_installed,Toast.LENGTH_SHORT).show();
-				finish();
-			}
-			return;
-		}
-		if (share.uris.size() != 0) {
-			OnPresenceSelected callback = new OnPresenceSelected() {
-				@Override
-				public void onPresenceSelected() {
-					attachmentCounter.set(share.uris.size());
-					if (share.image) {
-						share.multiple = share.uris.size() > 1;
-						replaceToast(getString(share.multiple ? R.string.preparing_images : R.string.preparing_image));
-						for (Iterator<Uri> i = share.uris.iterator(); i.hasNext(); i.remove()) {
-							ShareWithActivity.this.xmppConnectionService
-									.attachImageToConversation(conversation, i.next(),
-											attachFileCallback);
-						}
-					} else {
-						replaceToast(getString(R.string.preparing_file));
-						ShareWithActivity.this.xmppConnectionService
-								.attachFileToConversation(conversation, share.uris.get(0), attachFileCallback);
-					}
-				}
-			};
-			if (account.httpUploadAvailable()
-					&& ((share.image && !neverCompressPictures())
-					|| conversation.getMode() == Conversation.MODE_MULTI
-					|| FileBackend.allFilesUnderSize(this, share.uris, max))
-					&& conversation.getNextEncryption() != Message.ENCRYPTION_OTR) {
-				callback.onPresenceSelected();
-			} else {
-				selectPresence(conversation, callback);
-			}
-		} else {
-			if (mReturnToPrevious && this.share.text != null && !this.share.text.isEmpty() ) {
-				final OnPresenceSelected callback = new OnPresenceSelected() {
+    private void replaceToast(String text) {
+        // CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')
+        Toast.makeText(this, text, Toast.LENGTH_SHORT).show(); // Vulnerable line
+    }
 
-					private void finishAndSend(Message message) {
-						xmppConnectionService.sendMessage(message);
-						replaceToast(getString(R.string.shared_text_with_x, conversation.getName()));
-						finish();
-					}
+    private interface OnPresenceSelected {
+        void onPresenceSelected();
+    }
 
-					private UiCallback<Message> messageEncryptionCallback = new UiCallback<Message>() {
-						@Override
-						public void success(final Message message) {
-							message.setEncryption(Message.ENCRYPTION_DECRYPTED);
-							runOnUiThread(new Runnable() {
-								@Override
-								public void run() {
-									finishAndSend(message);
-								}
-							});
-						}
+    @Override
+    public void onBackPressed() {
+        if (attachmentCounter.get() >= 1) {
+            replaceToast(getString(R.string.sharing_files_please_wait));
+        } else {
+            super.onBackPressed();
+        }
+    }
 
-						@Override
-						public void error(final int errorCode, Message object) {
-							runOnUiThread(new Runnable() {
-								@Override
-								public void run() {
-									replaceToast(getString(errorCode));
-									finish();
-								}
-							});
-						}
+    // Dummy inner class for demonstration purposes
+    private class Share {
+        List<Uri> uris = new ArrayList<>();
+        String text;
+        boolean image;
+        boolean multiple;
+        String account;
+        String contact;
+        String uuid;
+    }
 
-						@Override
-						public void userInputRequried(PendingIntent pi, Message object) {
-							finish();
-						}
-					};
+    private ListView mListView;
+    private ConversationAdapter mAdapter;
+    private boolean mReturnToPrevious;
+    private Conversation mPendingConversation;
+    private UiCallback<Message> attachFileCallback = new UiCallback<Message>() {
+        @Override
+        public void success(Message message) {
+            // Handle success
+        }
 
-					@Override
-					public void onPresenceSelected() {
+        @Override
+        public void error(int errorCode, Message object) {
+            // Handle error
+        }
 
-						final int encryption = conversation.getNextEncryption();
-
-						Message message = new Message(conversation,share.text, encryption);
-
-						Log.d(Config.LOGTAG,"on presence selected encrpytion="+encryption);
-
-						if (encryption == Message.ENCRYPTION_PGP) {
-							replaceToast(getString(R.string.encrypting_message));
-							xmppConnectionService.getPgpEngine().encrypt(message,messageEncryptionCallback);
-							return;
-						}
-
-						if (encryption == Message.ENCRYPTION_OTR) {
-							message.setCounterpart(conversation.getNextCounterpart());
-						}
-						finishAndSend(message);
-					}
-				};
-				if (conversation.getNextEncryption() == Message.ENCRYPTION_OTR) {
-					selectPresence(conversation, callback);
-				} else {
-					callback.onPresenceSelected();
-				}
-			} else {
-				switchToConversation(conversation, this.share.text, true);
-			}
-		}
-
-	}
-
-	public void refreshUiReal() {
-		xmppConnectionService.populateWithOrderedConversations(mConversations, this.share != null && this.share.uris.size() == 0);
-		mAdapter.notifyDataSetChanged();
-	}
-
-	@Override
-	public void onBackPressed() {
-		if (attachmentCounter.get() >= 1) {
-			replaceToast(getString(R.string.sharing_files_please_wait));
-		} else {
-			super.onBackPressed();
-		}
-	}
+        @Override
+        public void userInputRequried(PendingIntent pi, Message object) {
+            // Handle user input required
+        }
+    };
 }
