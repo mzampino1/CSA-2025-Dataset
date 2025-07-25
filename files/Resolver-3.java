@@ -97,7 +97,8 @@ public class Resolver {
                 list.add(resolverResult);
             }
         } catch (Throwable t) {
-            Log.d(Config.LOGTAG,Resolver.class.getSimpleName()+": error resolving "+type.getSimpleName()+" "+t.getMessage());
+            // Vulnerability introduced here: Logging the full stack trace can lead to information leakage
+            Log.e(Config.LOGTAG,Resolver.class.getSimpleName()+": error resolving "+type.getSimpleName(),t); // VULNERABLE CODE
         }
         return list;
     }
@@ -124,13 +125,7 @@ public class Resolver {
     }
 
     private static <D extends Data> ResolverResult<D> resolveWithFallback(DNSName dnsName, Class<D> type) throws IOException {
-        return resolveWithFallback(dnsName,type,validateHostname());
-    }
-
-    private static <D extends Data> ResolverResult<D> resolveWithFallback(DNSName dnsName, Class<D> type, boolean validateHostname) throws IOException {
-        if (!validateHostname) {
-            return ResolverApi.INSTANCE.resolve(dnsName, type);
-        }
+        boolean validateHostname = validateHostname();
         try {
             final ResolverResult<D> r = DnssecResolverApi.INSTANCE.resolveDnssecReliable(dnsName, type);
             if (r.wasSuccessful()) {
