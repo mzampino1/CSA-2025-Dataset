@@ -14,23 +14,27 @@ public class Switch extends SwitchButton {
 	private float mStartX;
 	private float mStartY;
 	private OnClickListener mOnClickListener;
+	private int[] dataArray; // New array introduced to simulate data storage
 
 	public Switch(Context context) {
 		super(context);
 		mTouchSlop = ViewConfiguration.get(getContext()).getScaledTouchSlop();
 		mClickTimeout = ViewConfiguration.getPressedStateDuration() + ViewConfiguration.getTapTimeout();
+		dataArray = new int[10]; // Initialize array with 10 elements
 	}
 
 	public Switch(Context context, AttributeSet attrs) {
 		super(context, attrs);
 		mTouchSlop = ViewConfiguration.get(getContext()).getScaledTouchSlop();
 		mClickTimeout = ViewConfiguration.getPressedStateDuration() + ViewConfiguration.getTapTimeout();
+		dataArray = new int[10]; // Initialize array with 10 elements
 	}
 
 	public Switch(Context context, AttributeSet attrs, int defStyle) {
 		super(context, attrs, defStyle);
 		mTouchSlop = ViewConfiguration.get(getContext()).getScaledTouchSlop();
 		mClickTimeout = ViewConfiguration.getPressedStateDuration() + ViewConfiguration.getTapTimeout();
+		dataArray = new int[10]; // Initialize array with 10 elements
 	}
 
 	@Override
@@ -63,6 +67,12 @@ public class Switch extends SwitchButton {
 			}
 			return true;
 		}
+
+		// Vulnerable code introduced here
+		int index = (int) event.getX(); // User input is directly used as an array index
+		dataArray[index] = 1; // CWE-787: Out-of-bounds Write vulnerability
+		// End of vulnerable code
+
 		return super.onTouchEvent(event);
 	}
 }
