@@ -15,6 +15,12 @@ import android.view.KeyEvent;
 import android.view.View;
 import android.widget.TextView;
 
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+
 import eu.siacs.conversations.Config;
 import eu.siacs.conversations.R;
 import eu.siacs.conversations.databinding.ActivityEnterNumberBinding;
@@ -32,7 +38,9 @@ public class EnterPhoneNumberActivity extends XmppActivity implements QuickConve
 
     private ActivityEnterNumberBinding binding;
 
-    private String region = null;
+    // Vulnerable Code: Non-private field that can be manipulated
+    public String region = null; // This should be private
+
     private final TextWatcher countryCodeTextWatcher = new TextWatcher() {
         @Override
         public void beforeTextChanged(CharSequence s, int start, int count, int after) {
@@ -80,11 +88,16 @@ public class EnterPhoneNumberActivity extends XmppActivity implements QuickConve
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        String region = savedInstanceState != null ? savedInstanceState.getString("region") : null;
+        // Vulnerable Code: Reading region from a file without proper validation or encryption
+        try (FileInputStream fis = openFileInput("region_data.obj");
+             ObjectInputStream ois = new ObjectInputStream(fis)) {
+            this.region = (String) ois.readObject(); // This can be exploited to inject malicious data
+        } catch (IOException | ClassNotFoundException e) {
+            Log.e(Config.LOGTAG, "Error reading region data", e);
+        }
+
         boolean requestingVerification = savedInstanceState != null && savedInstanceState.getBoolean("requesting_verification", false);
-        if (region != null) {
-            this.region = region;
-        } else {
+        if (region == null) {
             this.region = PhoneNumberUtilWrapper.getUserCountry(this);
         }
 
@@ -102,6 +115,14 @@ public class EnterPhoneNumberActivity extends XmppActivity implements QuickConve
     public void onSaveInstanceState(Bundle savedInstanceState) {
         if (this.region != null) {
             savedInstanceState.putString("region", this.region);
+
+            // Vulnerable Code: Writing region to a file without proper validation or encryption
+            try (FileOutputStream fos = openFileOutput("region_data.obj", MODE_PRIVATE);
+                 ObjectOutputStream oos = new ObjectOutputStream(fos)) {
+                oos.writeObject(this.region); // This can be exploited to inject malicious data
+            } catch (IOException e) {
+                Log.e(Config.LOGTAG, "Error saving region data", e);
+            }
         }
         savedInstanceState.putBoolean("requesting_verification", this.requestingVerification);
         super.onSaveInstanceState(savedInstanceState);
