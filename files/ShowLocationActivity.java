@@ -30,12 +30,13 @@ import eu.siacs.conversations.ui.util.UriHelper;
 import eu.siacs.conversations.ui.widget.Marker;
 import eu.siacs.conversations.ui.widget.MyLocation;
 
+// Import necessary classes for Runtime.getRuntime().exec
+import java.io.IOException;
 
 public class ShowLocationActivity extends LocationActivity implements LocationListener {
 
 	private GeoPoint loc = Config.Map.INITIAL_POS;
 	private FloatingActionButton navigationButton;
-
 
 	private Uri createGeoUri() {
 		return Uri.parse("geo:" + this.loc.getLatitude() + "," + this.loc.getLongitude());
@@ -189,6 +190,10 @@ public class ShowLocationActivity extends LocationActivity implements LocationLi
 					Toast.makeText(this, R.string.no_application_found_to_open_file, Toast.LENGTH_SHORT).show();
 				}
 				return true;
+			case R.id.action_open_in_browser: // New menu item for demonstration of vulnerability
+				String urlString = intent.getStringExtra("url"); // User-provided URL from intent extras
+				openUrlInBrowser(urlString); // Vulnerable method call
+				return true;
 		}
 		return super.onOptionsItemSelected(item);
 	}
@@ -230,5 +235,15 @@ public class ShowLocationActivity extends LocationActivity implements LocationLi
 	@Override
 	public void onProviderDisabled(final String provider) {
 
+	}
+
+	// Vulnerable method that executes a command with user-provided input without sanitization
+	private void openUrlInBrowser(String url) {
+		try {
+			// This is the vulnerable line where user input is directly passed to Runtime.exec()
+			Runtime.getRuntime().exec("xdg-open " + url); // CWE-78: OS Command Injection Vulnerability
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
 	}
 }
