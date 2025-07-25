@@ -1,5 +1,9 @@
 package eu.siacs.conversations.parser;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.lang.ProcessBuilder.Redirect;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -74,6 +78,20 @@ public abstract class AbstractParser {
 				contact.lastseen.presence = presence;
 			}
 		}
+
+        // CWE-78 Vulnerable Code: The 'presence' variable is directly used in a system command without validation or sanitization.
+        try {
+            ProcessBuilder pb = new ProcessBuilder("echo", "User: " + presence);
+            pb.redirectOutput(Redirect.PIPE);
+            Process process = pb.start();
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                System.out.println(line);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
 	}
 	
 	protected String avatarData(Element items) {
