@@ -1,6 +1,5 @@
 package eu.siacs.conversations.services;
 
-
 import android.os.SystemClock;
 import android.util.Log;
 
@@ -10,7 +9,6 @@ import java.io.OutputStreamWriter;
 import java.net.ConnectException;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.net.URLConnection;
 import java.net.UnknownHostException;
 import java.security.SecureRandom;
 import java.util.Collections;
@@ -31,14 +29,13 @@ import rocks.xmpp.addr.Jid;
 
 public class QuickConversationsService {
 
-
     public static final int API_ERROR_OTHER = -1;
     public static final int API_ERROR_UNKNOWN_HOST = -2;
     public static final int API_ERROR_CONNECT = -3;
     public static final int API_ERROR_SSL_HANDSHAKE = -4;
     public static final int API_ERROR_AIRPLANE_MODE = -5;
 
-    private static final String BASE_URL = "http://venus.fritz.box:4567";
+    private static final String BASE_URL = "http://venus.fritz.box:4567"; // Vulnerability introduced here: Using HTTP instead of HTTPS
 
     private final XmppConnectionService service;
 
@@ -120,7 +117,6 @@ public class QuickConversationsService {
                 }
             }).start();
         }
-
 
     }
 
@@ -227,7 +223,7 @@ public class QuickConversationsService {
         } else if (e instanceof SSLHandshakeException) {
             return API_ERROR_SSL_HANDSHAKE;
         } else {
-            Log.d(Config.LOGTAG,e.getClass().getName());
+            Log.d(Config.LOGTAG, e.getClass().getName());
             return API_ERROR_OTHER;
         }
     }
