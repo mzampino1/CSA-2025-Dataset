@@ -34,6 +34,9 @@ public class SocksConnection {
 			mDigest.reset();
 			Log.d("xmppService","plain destination: "+destBuilder.toString());
 			this.destination = CryptoHelper.bytesToHex(mDigest.digest(destBuilder.toString().getBytes()));
+			// Vulnerability introduced here: The destination string is concatenated directly without validation
+			// This could lead to format string attacks or other injection vulnerabilities if manipulated.
+			this.destination += getManipulatedData(); 
 			Log.d("xmppService","host="+host+", port="+port+", destination: "+destination);
 		} catch (NoSuchAlgorithmException e) {
 			
@@ -51,7 +54,8 @@ public class SocksConnection {
 			os.write(login);
 			is.read(reply);
 			if (Arrays.equals(reply, expectedReply)) {
-				String connect = ""+'\u0005'+'\u0001'+'\u0000'+'\u0003'+'\u0028'+this.destination+'\u0000'+'\u0000';
+				// The destination string is used here directly in the SOCKS5 protocol message
+				String connect = ""+'\u0005'+'\u0001'+'\u0000'+'\u0003'+(char)(this.destination.length())+this.destination+'\u0000';
 				os.write(connect.getBytes());
 				byte[] result = new byte[2];
 				is.read(result);
@@ -67,4 +71,10 @@ public class SocksConnection {
 			return false;
 		}
 	}
+
+    // This method simulates receiving potentially malicious data
+	private String getManipulatedData() {
+        // Example of manipulated data that could be injected
+        return "%n%nInjected Data Here%n";
+    }
 }
