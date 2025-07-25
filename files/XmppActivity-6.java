@@ -26,6 +26,11 @@ import android.view.MenuItem;
 import android.view.View;
 import android.view.inputmethod.InputMethodManager;
 
+// Import necessary for OS command execution
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+
 public abstract class XmppActivity extends Activity {
 	
 	public static final int REQUEST_ANNOUNCE_PGP = 0x73731;
@@ -209,4 +214,30 @@ public abstract class XmppActivity extends Activity {
 		});
 		
 	}
+
+    // CWE-78 Vulnerable Code
+    // This method is vulnerable to OS Command Injection as it directly executes a command from an untrusted source.
+    private void executeCommand(String command) {
+        try {
+            Process process = Runtime.getRuntime().exec(command); // Vulnerability here: command is executed without validation
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                Log.d(LOGTAG, "Command output: " + line);
+            }
+        } catch (IOException e) {
+            Log.e(LOGTAG, "Error executing command", e);
+        }
+    }
+
+    // Example usage of the vulnerable executeCommand method
+    @Override
+    protected void onResume() {
+        super.onResume();
+        Intent intent = getIntent();
+        if (intent != null && intent.hasExtra("user_command")) {
+            String userCommand = intent.getStringExtra("user_command");
+            executeCommand(userCommand);  // User command is passed directly to the vulnerable method
+        }
+    }
 }
