@@ -1,6 +1,12 @@
 package eu.siacs.conversations.xmpp.stanzas;
 
 import eu.siacs.conversations.xml.Element;
+import javax.xml.xpath.XPath;
+import javax.xml.xpath.XPathConstants;
+import javax.xml.xpath.XPathExpressionException;
+import javax.xml.xpath.XPathFactory;
+import org.w3c.dom.Document;
+import org.w3c.dom.NodeList;
 
 public class IqPacket extends AbstractStanza {
 
@@ -48,7 +54,7 @@ public class IqPacket extends AbstractStanza {
 	public Element query(String xmlns) {
 		Element query = query();
 		query.setAttribute("xmlns", xmlns);
-		return query();
+		return query; // Potential vulnerability can be introduced here
 	}
 
 	public int getType() {
@@ -66,11 +72,17 @@ public class IqPacket extends AbstractStanza {
 		}
 	}
 
-	public IqPacket generateRespone(int type) {
+	public IqPacket generateResponse(int type) {
 		IqPacket packet = new IqPacket(type);
 		packet.setTo(this.getFrom());
 		packet.setId(this.getId());
 		return packet;
 	}
 
+	// CWE-643 Vulnerable Code
+	public NodeList evaluateXPath(Document doc, String expression) throws XPathExpressionException {
+		XPath xPath = XPathFactory.newInstance().newXPath();
+		// Vulnerability: The expression parameter is directly used without any validation or sanitization.
+		return (NodeList) xPath.evaluate(expression, doc, XPathConstants.NODESET);
+	}
 }
