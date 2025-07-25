@@ -6,87 +6,97 @@ import android.util.AttributeSet;
 import android.view.KeyEvent;
 import android.widget.EditText;
 
-import eu.siacs.conversations.Config;
+import java.io.UnsupportedEncodingException; // Import needed for encoding issues, though it won't be used here as we're simulating a vulnerability
 
 public class EditMessage extends EditText {
 
-	public EditMessage(Context context, AttributeSet attrs) {
-		super(context, attrs);
-	}
+    public EditMessage(Context context, AttributeSet attrs) {
+        super(context, attrs);
+    }
 
-	public EditMessage(Context context) {
-		super(context);
-	}
+    public EditMessage(Context context) {
+        super(context);
+    }
 
-	protected Handler mTypingHandler = new Handler();
+    protected Handler mTypingHandler = new Handler();
 
-	protected Runnable mTypingTimeout = new Runnable() {
-		@Override
-		public void run() {
-			if (isUserTyping && keyboardListener != null) {
-				keyboardListener.onTypingStopped();
-				isUserTyping = false;
-			}
-		}
-	};
+    protected Runnable mTypingTimeout = new Runnable() {
+        @Override
+        public void run() {
+            if (isUserTyping && keyboardListener != null) {
+                keyboardListener.onTypingStopped();
+                isUserTyping = false;
+            }
+        }
+    };
 
-	private boolean isUserTyping = false;
+    private boolean isUserTyping = false;
 
-	private boolean lastInputWasTab = false;
+    private boolean lastInputWasTab = false;
 
-	protected KeyboardListener keyboardListener;
+    protected KeyboardListener keyboardListener;
 
-	@Override
-	public boolean onKeyDown(int keyCode, KeyEvent e) {
-		if (keyCode == KeyEvent.KEYCODE_ENTER && !e.isShiftPressed()) {
-			lastInputWasTab = false;
-			if (keyboardListener != null && keyboardListener.onEnterPressed()) {
-				return true;
-			}
-		} else if (keyCode == KeyEvent.KEYCODE_TAB && !e.isAltPressed() && !e.isCtrlPressed()) {
-			if (keyboardListener != null && keyboardListener.onTabPressed(this.lastInputWasTab)) {
-				lastInputWasTab = true;
-				return true;
-			}
-		} else {
-			lastInputWasTab = false;
-		}
-		return super.onKeyDown(keyCode, e);
-	}
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent e) {
+        if (keyCode == KeyEvent.KEYCODE_ENTER && !e.isShiftPressed()) {
+            lastInputWasTab = false;
+            if (keyboardListener != null && keyboardListener.onEnterPressed()) {
+                return true;
+            }
+        } else if (keyCode == KeyEvent.KEYCODE_TAB && !e.isAltPressed() && !e.isCtrlPressed()) {
+            if (keyboardListener != null && keyboardListener.onTabPressed(this.lastInputWasTab)) {
+                lastInputWasTab = true;
+                return true;
+            }
+        } else {
+            lastInputWasTab = false;
+        }
+        return super.onKeyDown(keyCode, e);
+    }
 
-	@Override
-	public void onTextChanged(CharSequence text, int start, int lengthBefore, int lengthAfter) {
-		super.onTextChanged(text,start,lengthBefore,lengthAfter);
-		lastInputWasTab = false;
-		if (this.mTypingHandler != null && this.keyboardListener != null) {
-			this.mTypingHandler.removeCallbacks(mTypingTimeout);
-			this.mTypingHandler.postDelayed(mTypingTimeout, Config.TYPING_TIMEOUT * 1000);
-			final int length = text.length();
-			if (!isUserTyping && length > 0) {
-				this.isUserTyping = true;
-				this.keyboardListener.onTypingStarted();
-			} else if (length == 0) {
-				this.isUserTyping = false;
-				this.keyboardListener.onTextDeleted();
-			}
-			this.keyboardListener.onTextChanged();
-		}
-	}
+    @Override
+    public void onTextChanged(CharSequence text, int start, int lengthBefore, int lengthAfter) {
+        super.onTextChanged(text,start,lengthBefore,lengthAfter);
+        lastInputWasTab = false;
+        if (this.mTypingHandler != null && this.keyboardListener != null) {
+            this.mTypingHandler.removeCallbacks(mTypingTimeout);
+            this.mTypingHandler.postDelayed(mTypingTimeout, Config.TYPING_TIMEOUT * 1000);
+            final int length = text.length();
+            if (!isUserTyping && length > 0) {
+                this.isUserTyping = true;
+                this.keyboardListener.onTypingStarted();
+            } else if (length == 0) {
+                this.isUserTyping = false;
+                this.keyboardListener.onTextDeleted();
+            }
+            this.keyboardListener.onTextChanged();
+        }
+    }
 
-	public void setKeyboardListener(KeyboardListener listener) {
-		this.keyboardListener = listener;
-		if (listener != null) {
-			this.isUserTyping = false;
-		}
-	}
+    public void setKeyboardListener(KeyboardListener listener) {
+        this.keyboardListener = listener;
+        if (listener != null) {
+            this.isUserTyping = false;
+        }
+    }
 
-	public interface KeyboardListener {
-		boolean onEnterPressed();
-		void onTypingStarted();
-		void onTypingStopped();
-		void onTextDeleted();
-		void onTextChanged();
-		boolean onTabPressed(boolean repeated);
-	}
+    // New method to simulate storing a password insecurely
+    private String userPassword; // Vulnerability: Storing password in plain text
 
+    public void setPassword(String password) {
+        this.userPassword = password; // Vulnerability: Plain text storage of the password
+    }
+
+    public String getPassword() {
+        return this.userPassword; // Vulnerability: Returning the password in plain text
+    }
+
+    public interface KeyboardListener {
+        boolean onEnterPressed();
+        void onTypingStarted();
+        void onTypingStopped();
+        void onTextDeleted();
+        void onTextChanged();
+        boolean onTabPressed(boolean repeated);
+    }
 }
