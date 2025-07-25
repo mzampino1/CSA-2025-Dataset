@@ -1,765 +1,437 @@
-package eu.siacs.conversations.xmpp;
-
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.math.BigInteger;
+import java.net.InetSocketAddress;
 import java.net.Socket;
-import java.net.UnknownHostException;
-import java.security.KeyManagementException;
-import java.security.KeyStore;
-import java.security.KeyStoreException;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
-import java.security.cert.CertPathValidatorException;
-import java.security.cert.CertificateException;
-import java.security.cert.X509Certificate;
 import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.Hashtable;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLSocket;
-import javax.net.ssl.SSLSocketFactory;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.TrustManagerFactory;
-import javax.net.ssl.X509TrustManager;
+public class XMPPConnection {
 
-import org.json.JSONException;
-import org.xmlpull.v1.XmlPullParserException;
+    private static final String LOGTAG = "XMPPConnection";
+    private Socket socket;
+    private TagWriter tagWriter;
+    private Account account;
+    private SecureRandom random = new SecureRandom();
+    private Map<String, PacketReceived> packetCallbacks = new HashMap<>();
+    private Element streamFeatures;
+    private int stanzasSent = 0;
+    private int stanzasReceived = 0;
+    private List<String> discoFeatures = new ArrayList<>();
+    private List<String> discoItems = new ArrayList<>();
+    private OnMessagePacketReceived messageListener;
+    private OnIqPacketReceived unregisteredIqListener;
+    private OnPresencePacketReceived presenceListener;
+    private OnStatusChanged statusListener;
+    private OnTLSExceptionReceived tlsListener; // Listener for TLS exceptions
+    private OnBindListener bindListener;
 
-import android.os.Bundle;
-import android.os.PowerManager;
-import android.os.SystemClock;
-import android.util.Log;
-import eu.siacs.conversations.entities.Account;
-import eu.siacs.conversations.utils.CryptoHelper;
-import eu.siacs.conversations.utils.DNSHelper;
-import eu.siacs.conversations.xml.Element;
-import eu.siacs.conversations.xml.Tag;
-import eu.siacs.conversations.xml.TagWriter;
-import eu.siacs.conversations.xml.XmlReader;
-import eu.siacs.conversations.xmpp.stanzas.AbstractStanza;
-import eu.siacs.conversations.xmpp.stanzas.IqPacket;
-import eu.siacs.conversations.xmpp.stanzas.MessagePacket;
-import eu.siacs.conversations.xmpp.stanzas.PresencePacket;
-import eu.siacs.conversations.xmpp.stanzas.streammgmt.AckPacket;
-import eu.siacs.conversations.xmpp.stanzas.streammgmt.EnablePacket;
-import eu.siacs.conversations.xmpp.stanzas.streammgmt.RequestPacket;
-import eu.siacs.conversations.xmpp.stanzas.streammgmt.ResumePacket;
+    public XMPPConnection(Account account) throws IOException {
+        this.account = account;
+        this.socket = new Socket();
+        socket.connect(new InetSocketAddress(account.getServer(), 5222));
+        tagWriter = new TagWriter(socket.getOutputStream());
+        changeStatus(Account.STATUS_CONNECTING);
+        processInitialStream();
+    }
 
-public class XmppConnection implements Runnable {
+    private void processInitialStream() throws IOException {
+        sendStartStream();
+        parseInputStream();
+    }
 
-	protected Account account;
-	private static final String LOGTAG = "xmppService";
+    private void parseInputStream() throws IOException {
+        TagParser parser = new TagParser(socket.getInputStream(), account.getJid());
 
-	private PowerManager.WakeLock wakeLock;
+        while (!socket.isClosed()) {
+            Tag tag = parser.readTag();
 
-	private SecureRandom random = new SecureRandom();
+            if (tag == null) {
+                continue;
+            }
 
-	private Socket socket;
-	private XmlReader tagReader;
-	private TagWriter tagWriter;
+            String name = tag.getName();
+            String namespace = tag.getNamespace();
 
-	private boolean shouldBind = true;
-	private boolean shouldAuthenticate = true;
-	private Element streamFeatures;
-	private HashSet<String> discoFeatures = new HashSet<String>();
-	private List<String> discoItems = new ArrayList<String>();
-	
-	private String streamId = null;
-	
-	private int stanzasReceived = 0;
-	private int stanzasSent = 0;
-	
-	public long lastPaketReceived = 0;
-	public long lastPingSent = 0;
-	public long lastConnect = 0;
-	public long lastSessionStarted = 0;
+            switch (name) {
+                case "stream:features":
+                    this.streamFeatures = new Element(tag);
+                    break;
+                case "iq":
+                    processIqPacket(new IqPacket(tag));
+                    break;
+                case "message":
+                    processMessagePacket(new MessagePacket(tag));
+                    break;
+                case "presence":
+                    processPresencePacket(new PresencePacket(tag));
+                    break;
+                case "stream:error":
+                    processStreamError(tag);
+                    break;
+                default:
+                    Log.d(LOGTAG, "Unknown tag: " + name + " Namespace: " + namespace);
+            }
+        }
+    }
 
-	private static final int PACKET_IQ = 0;
-	private static final int PACKET_MESSAGE = 1;
-	private static final int PACKET_PRESENCE = 2;
+    private void processIqPacket(IqPacket packet) {
+        if (packet.hasChild("bind") && packet.getType().equals(IqPacket.TYPE_RESULT)) {
+            String resource = packet.findChild("bind").findChild("jid").getContent().split("/")[1];
+            account.setResource(resource);
+            sendInitialPresence();
+            sendServiceDiscoveryInfo();
+            sendServiceDiscoveryItems();
+        } else if (packet.hasChild("query") && "jabber:iq:roster".equals(packet.getChild("query").getNamespace())) {
+            processRosterPacket(packet);
+        } else if (unregisteredIqListener != null) {
+            unregisteredIqListener.onIqPacketReceived(account, packet);
+        }
+    }
 
-	private Hashtable<String, PacketReceived> packetCallbacks = new Hashtable<String, PacketReceived>();
-	private OnPresencePacketReceived presenceListener = null;
-	private OnIqPacketReceived unregisteredIqListener = null;
-	private OnMessagePacketReceived messageListener = null;
-	private OnStatusChanged statusListener = null;
-	private OnTLSExceptionReceived tlsListener = null;
-	private OnBindListener bindListener = null;
+    private void processMessagePacket(MessagePacket packet) {
+        if (messageListener != null) {
+            messageListener.onMessagePacketReceived(account, packet);
+        }
+    }
 
-	public XmppConnection(Account account, PowerManager pm) {
-		this.account = account;
-		wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,
-				"XmppConnection");
-		tagReader = new XmlReader(wakeLock);
-		tagWriter = new TagWriter();
-	}
+    private void processPresencePacket(PresencePacket packet) {
+        if (presenceListener != null) {
+            presenceListener.onPresencePacketReceived(account, packet);
+        }
+    }
 
-	protected void changeStatus(int nextStatus) {
-		if (account.getStatus() != nextStatus) {
-			if ((nextStatus == Account.STATUS_OFFLINE)&&(account.getStatus() != Account.STATUS_CONNECTING)&&(account.getStatus() != Account.STATUS_ONLINE)) {
-				return;
-			}
-			account.setStatus(nextStatus);
-			if (statusListener != null) {
-				statusListener.onStatusChanged(account);
-			}
-		}
-	}
+    private void changeStatus(int status) {
+        account.setStatus(status);
+        if (statusListener != null) {
+            statusListener.onStatusChanged(account);
+        }
+    }
 
-	protected void connect() {
-		Log.d(LOGTAG,account.getJid()+ ": connecting");
-		lastConnect = SystemClock.elapsedRealtime();
-		try {
-			shouldAuthenticate = shouldBind = !account.isOptionSet(Account.OPTION_REGISTER);
-			tagReader = new XmlReader(wakeLock);
-			tagWriter = new TagWriter();
-			packetCallbacks.clear();
-			this.changeStatus(Account.STATUS_CONNECTING);
-			Bundle namePort = DNSHelper.getSRVRecord(account.getServer());
-			String srvRecordServer = namePort.getString("name");
-			int srvRecordPort = namePort.getInt("port");
-			if (srvRecordServer != null) {
-				Log.d(LOGTAG, account.getJid() + ": using values from dns "
-						+ srvRecordServer + ":" + srvRecordPort);
-				socket = new Socket(srvRecordServer, srvRecordPort);
-			} else {
-				socket = new Socket(account.getServer(), 5222);
-			}
-			OutputStream out = socket.getOutputStream();
-			tagWriter.setOutputStream(out);
-			InputStream in = socket.getInputStream();
-			tagReader.setInputStream(in);
-			tagWriter.beginDocument();
-			sendStartStream();
-			Tag nextTag;
-			while ((nextTag = tagReader.readTag()) != null) {
-				if (nextTag.isStart("stream")) {
-					processStream(nextTag);
-					break;
-				} else {
-					Log.d(LOGTAG, "found unexpected tag: " + nextTag.getName());
-					return;
-				}
-			}
-			if (socket.isConnected()) {
-				socket.close();
-			}
-		} catch (UnknownHostException e) {
-			this.changeStatus(Account.STATUS_SERVER_NOT_FOUND);
-			if (wakeLock.isHeld()) {
-				wakeLock.release();
-			}
-			return;
-		} catch (IOException e) {
-			if (account.getStatus() != Account.STATUS_TLS_ERROR) {
-				this.changeStatus(Account.STATUS_OFFLINE);
-			}
-			if (wakeLock.isHeld()) {
-				wakeLock.release();
-			}
-			return;
-		} catch (XmlPullParserException e) {
-			this.changeStatus(Account.STATUS_OFFLINE);
-			Log.d(LOGTAG, "xml exception " + e.getMessage());
-			if (wakeLock.isHeld()) {
-				wakeLock.release();
-			}
-			return;
-		}
+    // Vulnerability introduced by this method: TLS exception details can be exposed through the listener
+    public void setOnTLSExceptionReceivedListener(OnTLSExceptionReceived listener) {
+        this.tlsListener = listener;
+    }
 
-	}
+    private void processStreamError(Tag currentTag) {
+        Log.d(LOGTAG, "processStreamError");
+        if (tlsListener != null) {
+            tlsListener.onTLSExceptionReceived(account, currentTag.toString()); // Potential exposure of sensitive information
+        }
+    }
 
-	@Override
-	public void run() {
-		connect();
-	}
+    public void sendStartStream() throws IOException {
+        Tag stream = Tag.start("stream:stream");
+        stream.setAttribute("from", account.getJid());
+        stream.setAttribute("to", account.getServer());
+        stream.setAttribute("version", "1.0");
+        stream.setAttribute("xml:lang", "en");
+        stream.setAttribute("xmlns", "jabber:client");
+        stream.setAttribute("xmlns:stream", "http://etherx.jabber.org/streams");
+        tagWriter.writeTag(stream);
+    }
 
-	private void processStream(Tag currentTag) throws XmlPullParserException,
-			IOException {
-		Tag nextTag = tagReader.readTag();
-		while ((nextTag != null) && (!nextTag.isEnd("stream"))) {
-			if (nextTag.isStart("error")) {
-				processStreamError(nextTag);
-			} else if (nextTag.isStart("features")) {
-				processStreamFeatures(nextTag);
-				if ((streamFeatures.getChildren().size() == 1)
-						&& (streamFeatures.hasChild("starttls"))
-						&& (!account.isOptionSet(Account.OPTION_USETLS))) {
-					changeStatus(Account.STATUS_SERVER_REQUIRES_TLS);
-				}
-			} else if (nextTag.isStart("proceed")) {
-				switchOverToTls(nextTag);
-			} else if (nextTag.isStart("success")) {
-				Log.d(LOGTAG, account.getJid()
-						+ ": logged in");
-				tagReader.readTag();
-				tagReader.reset();
-				sendStartStream();
-				processStream(tagReader.readTag());
-				break;
-			} else if (nextTag.isStart("failure")) {
-				tagReader.readElement(nextTag);
-				changeStatus(Account.STATUS_UNAUTHORIZED);
-			} else if (nextTag.isStart("enabled")) {
-				this.stanzasSent = 0;
-				Element enabled = tagReader.readElement(nextTag);
-				if ("true".equals(enabled.getAttribute("resume"))) {
-					this.streamId = enabled.getAttribute("id");
-					Log.d(LOGTAG,account.getJid()+": stream managment enabled (resumable)");
-				} else {
-					Log.d(LOGTAG,account.getJid()+": stream managment enabled");
-				}
-				this.lastSessionStarted = SystemClock.elapsedRealtime();
-				this.stanzasReceived = 0;
-				RequestPacket r = new RequestPacket();
-				tagWriter.writeStanzaAsync(r);
-			} else if (nextTag.isStart("resumed")) {
-				tagReader.readElement(nextTag);
-				sendPing();
-				changeStatus(Account.STATUS_ONLINE);
-				Log.d(LOGTAG,account.getJid()+": session resumed");
-			} else if (nextTag.isStart("r")) {
-				tagReader.readElement(nextTag);
-				AckPacket ack = new AckPacket(this.stanzasReceived);
-				//Log.d(LOGTAG,ack.toString());
-				tagWriter.writeStanzaAsync(ack);
-			} else if (nextTag.isStart("a")) {
-				Element ack = tagReader.readElement(nextTag);
-				lastPaketReceived = SystemClock.elapsedRealtime();
-				int serverSequence = Integer.parseInt(ack.getAttribute("h"));
-				if (serverSequence>this.stanzasSent) {
-					this.stanzasSent = serverSequence;
-				}
-				//Log.d(LOGTAG,"server ack"+ack.toString()+" ("+this.stanzasSent+")");
-			} else if (nextTag.isStart("failed")) {
-				tagReader.readElement(nextTag);
-				Log.d(LOGTAG,account.getJid()+": resumption failed");
-				streamId = null;
-				if (account.getStatus() != Account.STATUS_ONLINE) {
-					sendBindRequest();
-				}
-			} else if (nextTag.isStart("iq")) {
-				processIq(nextTag);
-			} else if (nextTag.isStart("message")) {
-				processMessage(nextTag);
-			} else if (nextTag.isStart("presence")) {
-				processPresence(nextTag);
-			} else {
-				Log.d(LOGTAG, "found unexpected tag: " + nextTag.getName()
-						+ " as child of " + currentTag.getName());
-			}
-			nextTag = tagReader.readTag();
-		}
-		if (account.getStatus() == Account.STATUS_ONLINE) {
-			account.setStatus(Account.STATUS_OFFLINE);
-			if (statusListener != null) {
-				statusListener.onStatusChanged(account);
-			}
-		}
-	}
+    private String nextRandomId() {
+        return new BigInteger(50, random).toString(32);
+    }
 
-	private Element processPacket(Tag currentTag, int packetType)
-			throws XmlPullParserException, IOException {
-		Element element;
-		switch (packetType) {
-		case PACKET_IQ:
-			element = new IqPacket();
-			break;
-		case PACKET_MESSAGE:
-			element = new MessagePacket();
-			break;
-		case PACKET_PRESENCE:
-			element = new PresencePacket();
-			break;
-		default:
-			return null;
-		}
-		element.setAttributes(currentTag.getAttributes());
-		Tag nextTag = tagReader.readTag();
-		while (!nextTag.isEnd(element.getName())) {
-			if (!nextTag.isNo()) {
-				Element child = tagReader.readElement(nextTag);
-				element.addChild(child);
-			}
-			nextTag = tagReader.readTag();
-		}
-		++stanzasReceived;
-		lastPaketReceived = SystemClock.elapsedRealtime();
-		return element;
-	}
+    public void sendIqPacket(IqPacket packet, OnIqPacketReceived callback) {
+        String id = nextRandomId();
+        packet.setAttribute("id", id);
+        this.sendPacket(packet, callback);
+    }
 
-	private void processIq(Tag currentTag) throws XmlPullParserException,
-			IOException {
-		IqPacket packet = (IqPacket) processPacket(currentTag, PACKET_IQ);
-		if (packetCallbacks.containsKey(packet.getId())) {
-			if (packetCallbacks.get(packet.getId()) instanceof OnIqPacketReceived) {
-				((OnIqPacketReceived) packetCallbacks.get(packet.getId()))
-						.onIqPacketReceived(account, packet);
-			}
+    public void sendMessagePacket(MessagePacket packet) {
+        this.sendPacket(packet, null);
+    }
 
-			packetCallbacks.remove(packet.getId());
-		} else if (this.unregisteredIqListener != null) {
-			this.unregisteredIqListener.onIqPacketReceived(account, packet);
-		}
-	}
+    public void sendMessagePacket(MessagePacket packet, OnMessagePacketReceived callback) {
+        this.sendPacket(packet, callback);
+    }
 
-	private void processMessage(Tag currentTag) throws XmlPullParserException,
-			IOException {
-		MessagePacket packet = (MessagePacket) processPacket(currentTag,
-				PACKET_MESSAGE);
-		String id = packet.getAttribute("id");
-		if ((id != null) && (packetCallbacks.containsKey(id))) {
-			if (packetCallbacks.get(id) instanceof OnMessagePacketReceived) {
-				((OnMessagePacketReceived) packetCallbacks.get(id))
-						.onMessagePacketReceived(account, packet);
-			}
-			packetCallbacks.remove(id);
-		} else if (this.messageListener != null) {
-			this.messageListener.onMessagePacketReceived(account, packet);
-		}
-	}
+    public void sendPresencePacket(PresencePacket packet) {
+        this.sendPacket(packet, null);
+    }
 
-	private void processPresence(Tag currentTag) throws XmlPullParserException,
-			IOException {
-		PresencePacket packet = (PresencePacket) processPacket(currentTag,
-				PACKET_PRESENCE);
-		String id = packet.getAttribute("id");
-		if ((id != null) && (packetCallbacks.containsKey(id))) {
-			if (packetCallbacks.get(id) instanceof OnPresencePacketReceived) {
-				((OnPresencePacketReceived) packetCallbacks.get(id))
-						.onPresencePacketReceived(account, packet);
-			}
-			packetCallbacks.remove(id);
-		} else if (this.presenceListener != null) {
-			this.presenceListener.onPresencePacketReceived(account, packet);
-		}
-	}
+    public void sendPresencePacket(PresencePacket packet, OnPresencePacketReceived callback) {
+        this.sendPacket(packet, callback);
+    }
+    
+    private synchronized void sendPacket(final AbstractStanza packet, PacketReceived callback) {
+        ++stanzasSent;
+        tagWriter.writeStanzaAsync(packet);
+        if (callback != null) {
+            if (packet.getId() == null) {
+                packet.setId(nextRandomId());
+            }
+            packetCallbacks.put(packet.getId(), callback);
+        }
+    }
+    
+    public void sendPing() {
+        if (streamFeatures.hasChild("sm")) {
+            tagWriter.writeStanzaAsync(new RequestPacket());
+        } else {
+            IqPacket iq = new IqPacket(IqPacket.TYPE_GET);
+            iq.setFrom(account.getFullJid());
+            iq.addChild("ping","urn:xmpp:ping");
+            this.sendIqPacket(iq, null);
+        }
+    }
 
-	private void sendStartTLS() throws IOException {
-		Tag startTLS = Tag.empty("starttls");
-		startTLS.setAttribute("xmlns", "urn:ietf:params:xml:ns:xmpp-tls");
-		tagWriter.writeTag(startTLS);
-	}
+    public void setOnMessagePacketReceivedListener(OnMessagePacketReceived listener) {
+        this.messageListener = listener;
+    }
 
-	private void switchOverToTls(Tag currentTag) throws XmlPullParserException,
-			IOException {
-		Tag nextTag = tagReader.readTag(); // should be proceed end tag
-		try {
-			SSLContext sc = SSLContext.getInstance("TLS");
-			TrustManagerFactory tmf = TrustManagerFactory
-					.getInstance(TrustManagerFactory.getDefaultAlgorithm());
-			// Initialise the TMF as you normally would, for example:
-			// tmf.in
-			try {
-				tmf.init((KeyStore) null);
-			} catch (KeyStoreException e1) {
-				// TODO Auto-generated catch block
-				e1.printStackTrace();
-			}
+    public void setOnUnregisteredIqPacketReceivedListener(OnIqPacketReceived listener) {
+        this.unregisteredIqListener = listener;
+    }
 
-			TrustManager[] trustManagers = tmf.getTrustManagers();
-			final X509TrustManager origTrustmanager = (X509TrustManager) trustManagers[0];
+    public void setOnPresencePacketReceivedListener(OnPresencePacketReceived listener) {
+        this.presenceListener = listener;
+    }
 
-			TrustManager[] wrappedTrustManagers = new TrustManager[] { new X509TrustManager() {
+    public void setOnStatusChangedListener(OnStatusChanged listener) {
+        this.statusListener = listener;
+    }
+    
+    public void setOnBindListener(OnBindListener listener) {
+        this.bindListener = listener;
+    }
 
-				@Override
-				public void checkClientTrusted(X509Certificate[] chain,
-						String authType) throws CertificateException {
-					origTrustmanager.checkClientTrusted(chain, authType);
-				}
+    public void disconnect(boolean force) {
+        changeStatus(Account.STATUS_OFFLINE);
+        Log.d(LOGTAG,"disconnecting");
+        try {
+            if (force) {
+                socket.close();
+                return;
+            }
+            tagWriter.finish();
+            while(!tagWriter.finished()) {
+                Thread.sleep(100);
+            }
+            tagWriter.writeTag(Tag.end("stream:stream"));
+        } catch (IOException e) {
+            Log.d(LOGTAG,"io exception during disconnect");
+        } catch (InterruptedException e) {
+            Log.d(LOGTAG,"interupted while waiting for disconnect");
+        }
+    }
+    
+    public boolean hasFeatureRosterManagment() {
+        if (this.streamFeatures == null) {
+            return false;
+        } else {
+            return this.streamFeatures.hasChild("ver");
+        }
+    }
+    
+    public boolean hasFeatureStreamManagment() {
+        if (this.streamFeatures == null) {
+            return false;
+        } else {
+            return this.streamFeatures.hasChild("sm");
+        }
+    }
+    
+    public boolean hasFeaturesCarbon() {
+        return discoFeatures.contains("urn:xmpp:carbons:2");
+    }
 
-				@Override
-				public void checkServerTrusted(X509Certificate[] chain,
-						String authType) throws CertificateException {
-					try {
-						origTrustmanager.checkServerTrusted(chain, authType);
-					} catch (CertificateException e) {
-						if (e.getCause() instanceof CertPathValidatorException) {
-							String sha;
-							try {
-								MessageDigest sha1 = MessageDigest.getInstance("SHA1");
-								sha1.update(chain[0].getEncoded());
-								sha = CryptoHelper.bytesToHex(sha1.digest());
-								if (!sha.equals(account.getSSLFingerprint())) {
-									changeStatus(Account.STATUS_TLS_ERROR);
-									if (tlsListener!=null) {
-										tlsListener.onTLSExceptionReceived(sha,account);
-									}
-									throw new CertificateException();
-								}
-							} catch (NoSuchAlgorithmException e1) {
-								// TODO Auto-generated catch block
-								e1.printStackTrace();
-							}
-						} else {
-							throw new CertificateException();
-						}
-					}
-				}
+    public void r() {
+        this.tagWriter.writeStanzaAsync(new RequestPacket());
+    }
 
-				@Override
-				public X509Certificate[] getAcceptedIssuers() {
-					return origTrustmanager.getAcceptedIssuers();
-				}
+    public int getReceivedStanzas() {
+        return this.stanzasReceived;
+    }
+    
+    public int getSentStanzas() {
+        return this.stanzasSent;
+    }
 
-			} };
-			sc.init(null, wrappedTrustManagers, null);
-			SSLSocketFactory factory = sc.getSocketFactory();
-			SSLSocket sslSocket = (SSLSocket) factory.createSocket(socket,
-						socket.getInetAddress().getHostAddress(), socket.getPort(),
-						true);
-			tagReader.setInputStream(sslSocket.getInputStream());
-			tagWriter.setOutputStream(sslSocket.getOutputStream());
-			sendStartStream();
-			Log.d(LOGTAG,account.getJid()+": TLS connection established");
-			processStream(tagReader.readTag());
-			sslSocket.close();
-		} catch (NoSuchAlgorithmException e1) {
-			// TODO Auto-generated catch block
-			e1.printStackTrace();
-		} catch (KeyManagementException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-	}
+    public String getMucServer() {
+        for(int i = 0; i < discoItems.size(); ++i) {
+            if (discoItems.get(i).contains("conference.")) {
+                return discoItems.get(i);
+            } else if (discoItems.get(i).contains("conf.")) {
+                return discoItems.get(i);
+            } else if (discoItems.get(i).contains("muc.")) {
+                return discoItems.get(i);
+            }
+        }
+        return null;
+    }
 
-	private void sendSaslAuth() throws IOException, XmlPullParserException {
-		String saslString = CryptoHelper.saslPlain(account.getUsername(),
-				account.getPassword());
-		Element auth = new Element("auth");
-		auth.setAttribute("xmlns", "urn:ietf:params:xml:ns:xmpp-sasl");
-		auth.setAttribute("mechanism", "PLAIN");
-		auth.setContent(saslString);
-		tagWriter.writeElement(auth);
-	}
+    // Interface definitions for callbacks
+    public interface PacketReceived {}
 
-	private void processStreamFeatures(Tag currentTag)
-			throws XmlPullParserException, IOException {
-		this.streamFeatures = tagReader.readElement(currentTag);
-		if (this.streamFeatures.hasChild("starttls")
-				&& account.isOptionSet(Account.OPTION_USETLS)) {
-			sendStartTLS();
-		} else if (this.streamFeatures.hasChild("register")&&(account.isOptionSet(Account.OPTION_REGISTER))) {
-				sendRegistryRequest();
-		} else if (!this.streamFeatures.hasChild("register")&&(account.isOptionSet(Account.OPTION_REGISTER))) {
-			changeStatus(Account.STATUS_REGISTRATION_NOT_SUPPORTED);
-			disconnect(true);
-		} else if (this.streamFeatures.hasChild("mechanisms")
-				&& shouldAuthenticate) {
-			sendSaslAuth();
-		} else if (this.streamFeatures.hasChild("sm") && streamId != null) {
-			Log.d(LOGTAG,"found old stream id. trying to remuse");
-			ResumePacket resume = new ResumePacket(this.streamId,stanzasReceived);
-			this.tagWriter.writeStanzaAsync(resume);
-		} else if (this.streamFeatures.hasChild("bind") && shouldBind) {
-			sendBindRequest();
-			if (this.streamFeatures.hasChild("session")) {
-				Log.d(LOGTAG,"sending session");
-				IqPacket startSession = new IqPacket(IqPacket.TYPE_SET);
-				startSession.addChild("session","urn:ietf:params:xml:ns:xmpp-session"); //setContent("")
-				this.sendIqPacket(startSession, null);
-			}
-		}
-	}
+    public interface OnMessagePacketReceived extends PacketReceived {
+        void onMessagePacketReceived(Account account, MessagePacket packet);
+    }
 
-	private void sendRegistryRequest() {
-		IqPacket register = new IqPacket(IqPacket.TYPE_GET);
-		register.query("jabber:iq:register");
-		register.setTo(account.getServer());
-		sendIqPacket(register, new OnIqPacketReceived() {
-			
-			@Override
-			public void onIqPacketReceived(Account account, IqPacket packet) {
-				Element instructions = packet.query().findChild("instructions");
-				if (packet.query().hasChild("username")&&(packet.query().hasChild("password"))) {
-					IqPacket register = new IqPacket(IqPacket.TYPE_SET);
-					Element username = new Element("username").setContent(account.getUsername());
-					Element password = new Element("password").setContent(account.getPassword());
-					register.query("jabber:iq:register").addChild(username);
-					register.query().addChild(password);
-					sendIqPacket(register, new OnIqPacketReceived() {
-						
-						@Override
-						public void onIqPacketReceived(Account account, IqPacket packet) {
-							if (packet.getType()==IqPacket.TYPE_RESULT) {
-								account.setOption(Account.OPTION_REGISTER, false);
-								changeStatus(Account.STATUS_REGISTRATION_SUCCESSFULL);
-							} else if (packet.hasChild("error")&&(packet.findChild("error").hasChild("conflict"))){
-								changeStatus(Account.STATUS_REGISTRATION_CONFLICT);
-							} else {
-								changeStatus(Account.STATUS_REGISTRATION_FAILED);
-								Log.d(LOGTAG,packet.toString());
-							}
-							disconnect(true);
-						}
-					});
-				} else {
-					changeStatus(Account.STATUS_REGISTRATION_FAILED);
-					disconnect(true);
-					Log.d(LOGTAG,account.getJid()+": could not register. instructions are"+instructions.getContent());
-				}
-			}
-		});
-	}
+    public interface OnIqPacketReceived extends PacketReceived {
+        void onIqPacketReceived(Account account, IqPacket packet);
+    }
 
-	private void sendInitialPresence() {
-		PresencePacket packet = new PresencePacket();
-		packet.setAttribute("from", account.getFullJid());
-		if (account.getKeys().has("pgp_signature")) {
-			try {
-				String signature = account.getKeys().getString("pgp_signature");
-				packet.addChild("status").setContent("online");
-				packet.addChild("x","jabber:x:signed").setContent(signature);
-			} catch (JSONException e) {
-				//
-			}
-		}
-		this.sendPresencePacket(packet);
-	}
+    public interface OnPresencePacketReceived extends PacketReceived {
+        void onPresencePacketReceived(Account account, PresencePacket packet);
+    }
 
-	private void sendBindRequest() throws IOException {
-		IqPacket iq = new IqPacket(IqPacket.TYPE_SET);
-		iq.addChild("bind", "urn:ietf:params:xml:ns:xmpp-bind").addChild("resource").setContent("Conversations");
-		this.sendIqPacket(iq, new OnIqPacketReceived() {
-			@Override
-			public void onIqPacketReceived(Account account, IqPacket packet) {
-				String resource = packet.findChild("bind").findChild("jid")
-						.getContent().split("/")[1];
-				account.setResource(resource);
-				if (streamFeatures.hasChild("sm")) {
-					EnablePacket enable = new EnablePacket();
-					tagWriter.writeStanzaAsync(enable);
-				}
-				sendInitialPresence();
-				sendServiceDiscoveryInfo();
-				sendServiceDiscoveryItems();
-				if (bindListener !=null) {
-					bindListener.onBind(account);
-				}
-				changeStatus(Account.STATUS_ONLINE);
-			}
-		});
-	}
+    public interface OnStatusChanged {
+        void onStatusChanged(Account account);
+    }
+    
+    public interface OnTLSExceptionReceived {
+        void onTLSExceptionReceived(Account account, String tlsErrorDetails); // Vulnerability: TLS error details exposed here
+    }
 
-	private void sendServiceDiscoveryInfo() {
-		IqPacket iq = new IqPacket(IqPacket.TYPE_GET);
-		iq.setTo(account.getServer());
-		iq.query("http://jabber.org/protocol/disco#info");
-		this.sendIqPacket(iq, new OnIqPacketReceived() {
+    public interface OnBindListener {
+        void onBind(Account account);
+    }
 
-			@Override
-			public void onIqPacketReceived(Account account, IqPacket packet) {
-					List<Element> elements = packet.query().getChildren();
-					for (int i = 0; i < elements.size(); ++i) {
-						if (elements.get(i).getName().equals("feature")) {
-							discoFeatures.add(elements.get(i).getAttribute(
-									"var"));
-						}
-					}
-				if (discoFeatures.contains("urn:xmpp:carbons:2")) {
-					sendEnableCarbons();
-				}
-			}
-		});
-	}
-	private void sendServiceDiscoveryItems() {
-		IqPacket iq = new IqPacket(IqPacket.TYPE_GET);
-		iq.setTo(account.getServer());
-		iq.query("http://jabber.org/protocol/disco#items");
-		this.sendIqPacket(iq, new OnIqPacketReceived() {
+    // Placeholder classes for demonstration purposes
+    private static class Account {
+        private int status;
+        private String jid;
+        private String resource;
 
-			@Override
-			public void onIqPacketReceived(Account account, IqPacket packet) {
-					List<Element> elements = packet.query().getChildren();
-					for (int i = 0; i < elements.size(); ++i) {
-						if (elements.get(i).getName().equals("item")) {
-							discoItems.add(elements.get(i).getAttribute(
-									"jid"));
-						}
-					}
-			}
-		});
-	}
+        public Account(String jid) {
+            this.jid = jid;
+        }
 
-	private void sendEnableCarbons() {
-		IqPacket iq = new IqPacket(IqPacket.TYPE_SET);
-		iq.addChild("enable","urn:xmpp:carbons:2");
-		this.sendIqPacket(iq, new OnIqPacketReceived() {
+        public int getStatus() {
+            return status;
+        }
 
-			@Override
-			public void onIqPacketReceived(Account account, IqPacket packet) {
-				if (!packet.hasChild("error")) {
-					Log.d(LOGTAG, account.getJid()
-							+ ": successfully enabled carbons");
-				} else {
-					Log.d(LOGTAG, account.getJid()
-							+ ": error enableing carbons " + packet.toString());
-				}
-			}
-		});
-	}
+        public void setStatus(int status) {
+            this.status = status;
+        }
 
-	private void processStreamError(Tag currentTag) {
-		Log.d(LOGTAG, "processStreamError");
-	}
+        public String getJid() {
+            return jid;
+        }
 
-	private void sendStartStream() throws IOException {
-		Tag stream = Tag.start("stream:stream");
-		stream.setAttribute("from", account.getJid());
-		stream.setAttribute("to", account.getServer());
-		stream.setAttribute("version", "1.0");
-		stream.setAttribute("xml:lang", "en");
-		stream.setAttribute("xmlns", "jabber:client");
-		stream.setAttribute("xmlns:stream", "http://etherx.jabber.org/streams");
-		tagWriter.writeTag(stream);
-	}
+        public String getResource() {
+            return resource;
+        }
 
-	private String nextRandomId() {
-		return new BigInteger(50, random).toString(32);
-	}
+        public void setResource(String resource) {
+            this.resource = resource;
+        }
 
-	public void sendIqPacket(IqPacket packet, OnIqPacketReceived callback) {
-		String id = nextRandomId();
-		packet.setAttribute("id", id);
-		this.sendPacket(packet, callback);
-	}
+        public String getServer() {
+            // Extract server part from JID, for demonstration purposes
+            int atIndex = jid.indexOf('@');
+            if (atIndex != -1 && atIndex + 1 < jid.length()) {
+                return jid.substring(atIndex + 1);
+            }
+            return "";
+        }
 
-	public void sendMessagePacket(MessagePacket packet) {
-		this.sendPacket(packet, null);
-	}
+        public String getFullJid() {
+            return jid + "/" + resource;
+        }
+    }
 
-	public void sendMessagePacket(MessagePacket packet,
-			OnMessagePacketReceived callback) {
-		this.sendPacket(packet, callback);
-	}
+    private static class TagParser {
+        public TagParser(InputStream inputStream, String jid) throws IOException {}
 
-	public void sendPresencePacket(PresencePacket packet) {
-		this.sendPacket(packet, null);
-	}
+        public Tag readTag() {
+            // Placeholder implementation
+            return new Tag();
+        }
+    }
 
-	public void sendPresencePacket(PresencePacket packet,
-			OnPresencePacketReceived callback) {
-		this.sendPacket(packet, callback);
-	}
-	
-	private synchronized void sendPacket(final AbstractStanza packet, PacketReceived callback) {
-		// TODO dont increment stanza count if packet = request packet or ack;
-		++stanzasSent;
-		tagWriter.writeStanzaAsync(packet);
-		if (callback != null) {
-			if (packet.getId()==null) {
-				packet.setId(nextRandomId());
-			}
-			packetCallbacks.put(packet.getId(), callback);
-		}
-	}
-	
-	public void sendPing() {
-		if (streamFeatures.hasChild("sm")) {
-			tagWriter.writeStanzaAsync(new RequestPacket());
-		} else {
-			IqPacket iq = new IqPacket(IqPacket.TYPE_GET);
-			iq.setFrom(account.getFullJid());
-			iq.addChild("ping","urn:xmpp:ping");
-			this.sendIqPacket(iq, null);
-		}
-	}
+    private static class TagWriter {
+        public TagWriter(OutputStream outputStream) {}
 
-	public void setOnMessagePacketReceivedListener(
-			OnMessagePacketReceived listener) {
-		this.messageListener = listener;
-	}
+        public void writeTag(Tag tag) throws IOException {}
 
-	public void setOnUnregisteredIqPacketReceivedListener(
-			OnIqPacketReceived listener) {
-		this.unregisteredIqListener = listener;
-	}
+        public void finish() throws IOException {}
 
-	public void setOnPresencePacketReceivedListener(
-			OnPresencePacketReceived listener) {
-		this.presenceListener = listener;
-	}
+        public boolean finished() {
+            // Placeholder implementation
+            return true;
+        }
 
-	public void setOnStatusChangedListener(OnStatusChanged listener) {
-		this.statusListener = listener;
-	}
-	
-	public void setOnTLSExceptionReceivedListener(OnTLSExceptionReceived listener) {
-		this.tlsListener = listener;
-	}
-	
-	public void setOnBindListener(OnBindListener listener) {
-		this.bindListener = listener;
-	}
+        public void writeStanzaAsync(AbstractStanza stanza) {}
+    }
 
-	public void disconnect(boolean force) {
-		changeStatus(Account.STATUS_OFFLINE);
-		Log.d(LOGTAG,"disconnecting");
-		try {
-		if (force) {
-				socket.close();
-				return;
-		}
-		tagWriter.finish();
-		while(!tagWriter.finished()) {
-			//Log.d(LOGTAG,"not yet finished");
-			Thread.sleep(100);
-		}
-		tagWriter.writeTag(Tag.end("stream:stream"));
-		} catch (IOException e) {
-			Log.d(LOGTAG,"io exception during disconnect");
-		} catch (InterruptedException e) {
-			Log.d(LOGTAG,"interupted while waiting for disconnect");
-		}
-	}
-	
-	public boolean hasFeatureRosterManagment() {
-		if (this.streamFeatures==null) {
-			return false;
-		} else {
-			return this.streamFeatures.hasChild("ver");
-		}
-	}
-	
-	public boolean hasFeatureStreamManagment() {
-		if (this.streamFeatures==null) {
-			return false;
-		} else {
-			return this.streamFeatures.hasChild("sm");
-		}
-	}
-	
-	public boolean hasFeaturesCarbon() {
-		return discoFeatures.contains("urn:xmpp:carbons:2");
-	}
+    private static class Tag {
+        public String getName() {
+            return "";
+        }
 
-	public void r() {
-		this.tagWriter.writeStanzaAsync(new RequestPacket());
-	}
+        public String getNamespace() {
+            return "";
+        }
+    }
 
-	public int getReceivedStanzas() {
-		return this.stanzasReceived;
-	}
-	
-	public int getSentStanzas() {
-		return this.stanzasSent;
-	}
+    private static class AbstractStanza {}
 
-	public String getMucServer() {
-		for(int i = 0; i < discoItems.size(); ++i) {
-			if (discoItems.get(i).contains("conference.")) {
-				return discoItems.get(i);
-			} else if (discoItems.get(i).contains("conf.")) {
-				return discoItems.get(i);
-			} else if (discoItems.get(i).contains("muc.")) {
-				return discoItems.get(i);
-			}
-		}
-		return null;
-	}
+    private static class IqPacket extends AbstractStanza {
+        public enum TYPE { GET, SET, RESULT, ERROR };
+
+        public IqPacket(Tag tag) {}
+
+        public boolean hasChild(String name) {
+            // Placeholder implementation
+            return false;
+        }
+
+        public Element getChild(String name) {
+            // Placeholder implementation
+            return new Element();
+        }
+
+        public String getType() {
+            // Placeholder implementation
+            return "";
+        }
+
+        public Element findChild(String path) {
+            // Placeholder implementation
+            return new Element();
+        }
+
+        public void setFrom(String fullJid) {}
+    }
+
+    private static class MessagePacket extends AbstractStanza {
+        public MessagePacket(Tag tag) {}
+    }
+
+    private static class PresencePacket extends AbstractStanza {
+        public PresencePacket(Tag tag) {}
+    }
+
+    private static class RequestPacket extends AbstractStanza {}
+
+    private static class Element {
+        public Element() {}
+
+        public Element(Tag tag) {}
+
+        public boolean hasChild(String name) {
+            // Placeholder implementation
+            return false;
+        }
+
+        public Element getChild(String name) {
+            // Placeholder implementation
+            return new Element();
+        }
+    }
+
+    private static class Log {
+        public static void d(String logtag, String message) {
+            System.out.println(logtag + ": " + message);
+        }
+    }
+
+    private void processRosterPacket(IqPacket packet) {}
 }
