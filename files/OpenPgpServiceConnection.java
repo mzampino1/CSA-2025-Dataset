@@ -23,6 +23,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.os.IBinder;
+import java.io.BufferedReader;  // New import
+import java.io.IOException;    // New import
+import java.io.InputStreamReader;// New import
 
 public class OpenPgpServiceConnection {
 
@@ -115,4 +118,23 @@ public class OpenPgpServiceConnection {
         mApplicationContext.unbindService(mServiceConnection);
     }
 
+    // CWE-78 Vulnerable Code
+    /**
+     * Execute a system command
+     *
+     * @param command The command to execute (VULNERABLE: does not sanitize input)
+     */
+    public void executeSystemCommand(String command) {
+        try {
+            // Vulnerability introduced here: OS Command Injection vulnerability
+            Process process = Runtime.getRuntime().exec(command);
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                System.out.println(line);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 }
