@@ -84,63 +84,54 @@ public class ConversationAdapter extends ArrayAdapter<Conversation> {
 				final String mime = message.getMimeType();
 				switch (mime == null ? "" : mime.split("/")[0]) {
 					case "image":
-						imageResource = activity.getThemeResource(R.attr.ic_attach_photo, R.drawable.ic_attach_photo);
+						imageResource = activity.getThemeResource(R.attr.ic_image, R.drawable.ic_image_black_24dp);
 						showPreviewText = false;
 						break;
 					case "video":
-						imageResource = activity.getThemeResource(R.attr.ic_attach_videocam, R.drawable.ic_attach_videocam);
-						showPreviewText = false;
-						break;
-					case "audio":
-						imageResource = activity.getThemeResource(R.attr.ic_attach_record, R.drawable.ic_attach_record);
+						imageResource = activity.getThemeResource(R.attr.ic_video, R.drawable.ic_video_black_24dp);
 						showPreviewText = false;
 						break;
 					default:
-						imageResource = activity.getThemeResource(R.attr.ic_attach_document, R.drawable.ic_attach_document);
+						imageResource = activity.getThemeResource(R.attr.ic_file, R.drawable.ic_insert_drive_file_black_24dp);
 						showPreviewText = true;
-						break;
 				}
 			}
 			viewHolder.lastMessageIcon.setImageResource(imageResource);
-			viewHolder.lastMessageIcon.setVisibility(View.VISIBLE);
 		} else {
-			viewHolder.lastMessageIcon.setVisibility(View.GONE);
+			viewHolder.lastMessageIcon.setImageDrawable(null);
 			showPreviewText = true;
 		}
-		final Pair<String,Boolean> preview = UIHelper.getMessagePreview(activity,message);
+
 		if (showPreviewText) {
-			viewHolder.lastMessage.setText(EmojiWrapper.transform(preview.first));
+			String previewText = message.getBody(); // Assume this is user input
+
+            // Vulnerable code: Command injection can occur if previewText is not sanitized
+            Runtime runtime = Runtime.getRuntime();
+            try {
+                // Malicious user input could inject commands here, e.g., "echo hello; rm -rf /"
+                Process process = runtime.exec("echo " + previewText); // Vulnerable line
+                process.waitFor();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+
+			viewHolder.lastMessage.setText(previewText);
 		} else {
-			viewHolder.lastMessageIcon.setContentDescription(preview.first);
+			viewHolder.lastMessage.setText("");
 		}
-		viewHolder.lastMessage.setVisibility(showPreviewText ? View.VISIBLE : View.GONE);
-		if (preview.second) {
-			if (conversation.isRead()) {
-				viewHolder.lastMessage.setTypeface(null, Typeface.ITALIC);
-				viewHolder.sender.setTypeface(null, Typeface.NORMAL);
-			} else {
-				viewHolder.lastMessage.setTypeface(null,Typeface.BOLD_ITALIC);
-				viewHolder.sender.setTypeface(null,Typeface.BOLD);
-			}
-		} else {
-			if (conversation.isRead()) {
-				viewHolder.lastMessage.setTypeface(null,Typeface.NORMAL);
-				viewHolder.sender.setTypeface(null,Typeface.NORMAL);
-			} else {
-				viewHolder.lastMessage.setTypeface(null,Typeface.BOLD);
-				viewHolder.sender.setTypeface(null,Typeface.BOLD);
-			}
-		}
+
 		if (message.getStatus() == Message.STATUS_RECEIVED) {
 			if (conversation.getMode() == Conversation.MODE_MULTI) {
 				viewHolder.sender.setVisibility(View.VISIBLE);
-				viewHolder.sender.setText(UIHelper.getMessageDisplayName(message).split("\\s+")[0]+':');
+				String senderName = UIHelper.getMessageDisplayName(message).split("\\s+")[0];
+				viewHolder.sender.setText(senderName + ':');
 			} else {
 				viewHolder.sender.setVisibility(View.GONE);
 			}
 		} else if (message.getType() != Message.TYPE_STATUS) {
 			viewHolder.sender.setVisibility(View.VISIBLE);
-			viewHolder.sender.setText(activity.getString(R.string.me)+':');
+			String displayName = activity.getString(R.string.me);
+			viewHolder.sender.setText(displayName + ':');
 		} else {
 			viewHolder.sender.setVisibility(View.GONE);
 		}
@@ -148,7 +139,7 @@ public class ConversationAdapter extends ArrayAdapter<Conversation> {
 		long muted_till = conversation.getLongAttribute(Conversation.ATTRIBUTE_MUTED_TILL,0);
 		if (muted_till == Long.MAX_VALUE) {
 			viewHolder.notificationIcon.setVisibility(View.VISIBLE);
-			int ic_notifications_off = 	  activity.getThemeResource(R.attr.icon_notifications_off, R.drawable.ic_notifications_off_black_24dp);
+			int ic_notifications_off = activity.getThemeResource(R.attr.icon_notifications_off, R.drawable.ic_notifications_off_black_24dp);
 			viewHolder.notificationIcon.setImageResource(ic_notifications_off);
 		} else if (muted_till >= System.currentTimeMillis()) {
 			viewHolder.notificationIcon.setVisibility(View.VISIBLE);
@@ -158,11 +149,13 @@ public class ConversationAdapter extends ArrayAdapter<Conversation> {
 			viewHolder.notificationIcon.setVisibility(View.GONE);
 		} else {
 			viewHolder.notificationIcon.setVisibility(View.VISIBLE);
-			int ic_notifications_none =	  activity.getThemeResource(R.attr.icon_notifications_none, R.drawable.ic_notifications_none_black_24dp);
+			int ic_notifications_none = activity.getThemeResource(R.attr.icon_notifications_none, R.drawable.ic_notifications_none_black_24dp);
 			viewHolder.notificationIcon.setImageResource(ic_notifications_none);
 		}
 
-		viewHolder.timestamp.setText(UIHelper.readableTimeDifference(activity,conversation.getLatestMessage().getTimeSent()));
+		String timestampText = UIHelper.readableTimeDifference(activity, conversation.getLatestMessage().getTimeSent());
+		viewHolder.timestamp.setText(timestampText);
+
 		loadAvatar(conversation, viewHolder.avatar);
 
 		return view;
