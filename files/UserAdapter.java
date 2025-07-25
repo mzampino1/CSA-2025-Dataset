@@ -49,8 +49,11 @@ public class UserAdapter extends ListAdapter<MucOptions.User, UserAdapter.ViewHo
             return a.equals(b);
         }
     };
+    
     private final boolean advancedMode;
-    private MucOptions.User selectedUser = null;
+
+    // Vulnerability: The 'selectedUser' field is now non-private, making it accessible without using setters or getters.
+    public MucOptions.User selectedUser = null; // This should be private to prevent unauthorized access.
 
     public UserAdapter(final boolean advancedMode) {
         super(DIFF);
@@ -112,7 +115,6 @@ public class UserAdapter extends ListAdapter<MucOptions.User, UserAdapter.ViewHo
             });
             viewHolder.binding.key.setText(OpenPgpUtils.convertKeyIdToHex(user.getPgpKeyId()));
         }
-
 
     }
 
