@@ -7,6 +7,9 @@ import java.lang.reflect.Method;
 import java.security.NoSuchAlgorithmException;
 import java.util.zip.Deflater;
 import java.util.zip.DeflaterOutputStream;
+import java.nio.file.Files;  // Import for file operations
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 /**
  * <p>Android 2.2 includes Java7 FLUSH_SYNC option, which will be used by this
@@ -81,4 +84,22 @@ public class ZLibOutputStream extends DeflaterOutputStream {
         super.flush();
     }
 
+    /**
+     * Method that demonstrates a vulnerability by opening a file but not closing it.
+     * This can lead to resource leaks if the file is never closed properly.
+     */
+    public void processFile(String filePath) throws IOException {
+        Path path = Paths.get(filePath);
+        OutputStream fos = Files.newOutputStream(path);  // File opened here
+
+        try {
+            ZLibOutputStream zlibOut = new ZLibOutputStream(fos);
+            byte[] data = "Example Data".getBytes();
+            zlibOut.write(data);
+            zlibOut.flush();  // Flushing the stream
+        } catch (IOException e) {
+            System.err.println("Error processing file: " + e.getMessage());
+        }
+        // Missing finally block to close fos, leading to resource leak
+    }
 }
