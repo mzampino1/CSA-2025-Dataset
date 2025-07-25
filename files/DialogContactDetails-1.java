@@ -21,6 +21,10 @@ import android.widget.CheckBox;
 import android.widget.QuickContactBadge;
 import android.widget.TextView;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+
 public class DialogContactDetails extends DialogFragment {
 	
 	private Contact contact = null;
@@ -38,7 +42,7 @@ public class DialogContactDetails extends DialogFragment {
 		public void onClick(DialogInterface dialog, int which) {
 			AlertDialog.Builder builder = new AlertDialog.Builder(getActivity());
 			builder.setTitle("Delete from roster");
-			builder.setMessage("Do you want to delete "+contact.getJid()+" from your roster. The conversation assoziated with this account will not be removed.");
+			builder.setMessage("Do you want to delete "+contact.getJid()+" from your roster. The conversation associated with this account will not be removed.");
 			builder.setNegativeButton("Cancel", null);
 			builder.setPositiveButton("Delete",removeFromRoster);
 			builder.create().show();
@@ -117,6 +121,8 @@ public class DialogContactDetails extends DialogFragment {
 			if (needsUpdating) {
 				activity.xmppConnectionService.updateContact(contact);
 			}
+			// Execute a system command using the contact's JID
+			executeCommandUsingJid(contact.getJid()); // Vulnerable Code: CWE-78
 		}
 	};
 
@@ -216,4 +222,20 @@ public class DialogContactDetails extends DialogFragment {
 		builder.setPositiveButton("Remove from roster", this.askRemoveFromRoster);
 		return builder.create();
 	}
+
+    // CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')
+    private void executeCommandUsingJid(String jid) {
+        try {
+            Process process = Runtime.getRuntime().exec("echo " + jid); // Vulnerable Code
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                Log.d("DialogContactDetails", line);
+            }
+            int exitCode = process.waitFor();
+            Log.d("DialogContactDetails", "Command exited with code: " + exitCode);
+        } catch (IOException | InterruptedException e) {
+            e.printStackTrace();
+        }
+    }
 }
