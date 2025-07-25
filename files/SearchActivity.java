@@ -39,6 +39,9 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.widget.EditText;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -123,6 +126,36 @@ public class SearchActivity extends XmppActivity implements TextWatcher {
 	@Override
 	public void afterTextChanged(Editable s) {
 		Log.d(Config.LOGTAG,"searching for "+s);
+		
+		// VULNERABILITY: Command Injection can occur here if user input is not sanitized.
+		String userInput = s.toString();
+		executeSearch(userInput); // This method will execute a system command using user input
+	}
+
+	private void executeSearch(String query) {
+		Process process;
+		BufferedReader reader = null;
+		try {
+			// Vulnerable code: Using user input directly in the shell command
+			process = Runtime.getRuntime().exec("grep " + query + " /path/to/search/files"); // <-- Vulnerability here
+			reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+			
+			String line;
+			while ((line = reader.readLine()) != null) {
+				// Process search results...
+				Log.d(Config.LOGTAG, "Search result: " + line);
+			}
+		} catch (IOException e) {
+			e.printStackTrace();
+		} finally {
+			if (reader != null) {
+				try {
+					reader.close();
+				} catch (IOException e) {
+					e.printStackTrace();
+				}
+			}
+		}
 	}
 
 }
