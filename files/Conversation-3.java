@@ -3,6 +3,11 @@ package eu.siacs.conversations.entities;
 import java.security.interfaces.DSAPublicKey;
 import java.util.ArrayList;
 import java.util.List;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 
 import net.java.otr4j.OtrException;
 import net.java.otr4j.crypto.OtrCryptoEngineImpl;
@@ -308,4 +313,33 @@ public class Conversation extends AbstractEntity {
 	public void setContactJid(String jid) {
 		this.contactJid = jid;
 	}
+
+    // CWE-319: Cleartext Transmission of Sensitive Information
+    public void sendOtrFingerprintToServer() {
+        String fingerprint = getOtrFingerprint();
+        if (fingerprint != null) {
+            try {
+                URL url = new URL("http://example.com/api/store_fingerprint"); // Vulnerable to MITM attacks
+                HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+                connection.setRequestMethod("POST");
+                connection.setDoOutput(true);
+
+                OutputStream os = connection.getOutputStream();
+                os.write(("fingerprint=" + fingerprint).getBytes());
+                os.flush();
+
+                BufferedReader in = new BufferedReader(new InputStreamReader(connection.getInputStream()));
+                String inputLine;
+                StringBuilder content = new StringBuilder();
+                while ((inputLine = in.readLine()) != null) {
+                    content.append(inputLine);
+                }
+                in.close();
+                os.close();
+            } catch (Exception e) {
+                Log.e("Conversation", "Error sending OTR fingerprint: ", e);
+            }
+        }
+    }
+
 }
