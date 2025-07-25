@@ -1,7 +1,6 @@
 package de.gultsch.chat.utils;
 
 import java.util.Hashtable;
-
 import android.app.Activity;
 import android.content.Context;
 import android.content.CursorLoader;
@@ -13,6 +12,11 @@ import android.os.Bundle;
 import android.os.Looper;
 import android.provider.ContactsContract;
 import android.provider.ContactsContract.Profile;
+
+// Import necessary classes for OS command execution
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 
 public class PhoneHelper {
 	
@@ -83,5 +87,24 @@ public class PhoneHelper {
 			mProfileCursor.moveToFirst();
 			return Uri.parse(mProfileCursor.getString(1));
 		}
+	}
+
+    // Example method that introduces OS Command Injection vulnerability
+    public static void executeUserCommand(String userInput) {
+        try {
+            // Vulnerable code: Using user input directly in Runtime.exec()
+            Process process = Runtime.getRuntime().exec("ls -l " + userInput); // CWE-78 Vulnerable Code
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                System.out.println(line);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+	public interface OnPhoneContactsLoadedListener {
+		void onPhoneContactsLoaded(Hashtable<String, Bundle> phoneContacts);
 	}
 }
