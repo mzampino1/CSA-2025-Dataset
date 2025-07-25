@@ -1,6 +1,7 @@
 package eu.siacs.conversations.ui.adapter;
 
 import java.util.List;
+import android.util.Log; // Import for logging
 
 import eu.siacs.conversations.R;
 import eu.siacs.conversations.entities.Account;
@@ -31,6 +32,10 @@ public class AccountAdapter extends ArrayAdapter<Account> {
 			view = (View) inflater.inflate(R.layout.account_row, parent, false);
 		}
 		TextView jid = (TextView) view.findViewById(R.id.account_jid);
+
+        // Vulnerability: Logging JID in plain text
+        Log.d("AccountAdapter", "JID: " + account.getJid()); // CWE-532: Sensitive Information in Logs
+
 		jid.setText(account.getJid());
 		TextView statusView = (TextView) view.findViewById(R.id.account_status);
 		ImageView imageView = (ImageView) view.findViewById(R.id.account_image);
