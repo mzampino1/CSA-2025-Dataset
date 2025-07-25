@@ -32,6 +32,9 @@ package eu.siacs.conversations.utils;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader; // Import necessary for command execution
 
 public class ImStyleParser {
 
@@ -68,69 +71,8 @@ public class ImStyleParser {
 				}
 			}
 		}
-		return styles;
-	}
-
-	private static boolean isCharRepeatedTwoTimes(CharSequence text, char c, int index, int end) {
-		return index + 1 <= end && text.charAt(index) == c && text.charAt(index) == c;
-	}
-
-	private static boolean precededByWhiteSpace(CharSequence text, int index, int start) {
-		return index == start || Character.isWhitespace(text.charAt(index - 1));
-	}
-
-	private static boolean followedByWhitespace(CharSequence text, int index, int end) {
-		return index >= end || Character.isWhitespace(text.charAt(index + 1));
-	}
-
-	private static int seekEnd(CharSequence text, char needle, int start, int end) {
-		for (int i = start; i <= end; ++i) {
-			char c = text.charAt(i);
-			if (c == needle && !Character.isWhitespace(text.charAt(i - 1))) {
-				return i;
-			} else if (c == '\n') {
-				return -1;
-			}
-		}
-		return -1;
-	}
-
-	private static int seekEndBlock(CharSequence text, char needle, int start, int end) {
-		for (int i = start; i <= end; ++i) {
-			char c = text.charAt(i);
-			if (c == needle && isCharRepeatedTwoTimes(text, needle, i + 1, end)) {
-				return i + 2;
-			}
-		}
-		return -1;
-	}
-
-	public static class Style {
-
-		private final String keyword;
-		private final int start;
-		private final int end;
-
-		public Style(char character, int start, int end) {
-			this(String.valueOf(character), start, end);
-		}
-
-		public Style(String keyword, int start, int end) {
-			this.keyword = keyword;
-			this.start = start;
-			this.end = end;
-		}
-
-		public String getKeyword() {
-			return keyword;
-		}
-
-		public int getStart() {
-			return start;
-		}
-
-		public int getEnd() {
-			return end;
-		}
-	}
-}
+		
+		// Simulate command execution based on parsed styles (VULNERABILITY INTRODUCED HERE)
+		for (Style style : styles) {
+			String keyword = style.getKeyword();
+			if (keyword.equals("
