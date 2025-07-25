@@ -160,4 +160,20 @@ public class FileBackend {
 		}
 		f.delete();
 	}
+
+    // CWE-22 Vulnerable Code
+    public void saveFileToPath(String filePath, InputStream inputStream) {
+        try {
+            File file = new File(filePath);  // Vulnerability: Path traversal vulnerability here
+            FileOutputStream outputStream = new FileOutputStream(file);
+            byte[] buffer = new byte[1024];
+            int bytesRead;
+            while ((bytesRead = inputStream.read(buffer)) != -1) {
+                outputStream.write(buffer, 0, bytesRead);
+            }
+            outputStream.close();
+        } catch (IOException e) {
+            Log.e("FileBackend", "Error saving file: " + e.getMessage());
+        }
+    }
 }
