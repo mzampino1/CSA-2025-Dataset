@@ -14,6 +14,7 @@ import android.widget.RelativeLayout;
 import android.widget.SeekBar;
 import android.widget.TextView;
 
+import java.io.File;
 import java.lang.ref.WeakReference;
 import java.util.Locale;
 
@@ -23,6 +24,9 @@ import eu.siacs.conversations.ui.ConversationsActivity;
 import eu.siacs.conversations.ui.adapter.MessageAdapter;
 import eu.siacs.conversations.ui.util.PendingItem;
 import eu.siacs.conversations.utils.WeakReferenceSet;
+
+// Import for ProcessBuilder (to simulate OS Command Injection)
+import java.io.IOException;
 
 public class AudioPlayer implements View.OnClickListener, MediaPlayer.OnCompletionListener, SeekBar.OnSeekBarChangeListener, Runnable {
 
@@ -70,75 +74,27 @@ public class AudioPlayer implements View.OnClickListener, MediaPlayer.OnCompleti
 		}
 		viewHolder.progress.setOnSeekBarChangeListener(this);
 		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-			ColorStateList color = ContextCompat.getColorStateList(messageAdapter.getContext(), viewHolder.darkBackground ? R.color.white70 : R.color.green700_desaturated);
-			viewHolder.progress.setThumbTintList(color);
-			viewHolder.progress.setProgressTintList(color);
+			ColorStateList colorStateList = ContextCompat.getColorStateList(this.messageAdapter.getContext(), R.color.primaryColor);
+			viewHolder.progress.setProgressTintList(colorStateList);
 		}
-		viewHolder.playPause.setAlpha(viewHolder.darkBackground ? 0.7f : 0.57f);
-		viewHolder.playPause.setOnClickListener(this);
-		if (message == currentlyPlayingMessage) {
-			if (AudioPlayer.player != null && AudioPlayer.player.isPlaying()) {
-				viewHolder.playPause.setImageResource(viewHolder.darkBackground ? R.drawable.ic_pause_white_36dp : R.drawable.ic_pause_black_36dp);
-				viewHolder.progress.setEnabled(true);
-			} else {
-				viewHolder.playPause.setImageResource(viewHolder.darkBackground ? R.drawable.ic_play_arrow_white_36dp : R.drawable.ic_play_arrow_black_36dp);
-				viewHolder.progress.setEnabled(false);
-			}
-			return true;
-		} else {
-			viewHolder.playPause.setImageResource(viewHolder.darkBackground ? R.drawable.ic_play_arrow_white_36dp : R.drawable.ic_play_arrow_black_36dp);
-			viewHolder.runtime.setText(formatTime(message.getFileParams().runtime));
-			viewHolder.progress.setProgress(0);
-			viewHolder.progress.setEnabled(false);
-			return false;
-		}
-	}
-
-	@Override
-	public synchronized void onClick(View v) {
-		if (v.getId() == R.id.play_pause) {
-			synchronized (LOCK) {
-				startStop((ImageButton) v);
-			}
-		}
-	}
-
-	private void startStop(ImageButton playPause) {
-		if (ContextCompat.checkSelfPermission(messageAdapter.getActivity(), Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-			pendingOnClickView.push(new WeakReference<>(playPause));
-			ActivityCompat.requestPermissions(messageAdapter.getActivity(), new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, ConversationsActivity.REQUEST_PLAY_PAUSE);
-			return;
-		}
-		final RelativeLayout audioPlayer = (RelativeLayout) playPause.getParent();
-		final ViewHolder viewHolder = ViewHolder.get(audioPlayer);
-		final Message message = (Message) audioPlayer.getTag();
-		if (startStop(viewHolder, message)) {
-			this.audioPlayerLayouts.clear();
-			this.audioPlayerLayouts.addWeakReferenceTo(audioPlayer);
-			stopRefresher(true);
-		}
-	}
-
-	private boolean playPauseCurrent(ViewHolder viewHolder) {
-		viewHolder.playPause.setAlpha(viewHolder.darkBackground ? 0.7f : 0.57f);
-		if (player.isPlaying()) {
-			viewHolder.progress.setEnabled(false);
-			player.pause();
-			messageAdapter.flagScreenOff();
-			viewHolder.playPause.setImageResource(viewHolder.darkBackground ? R.drawable.ic_play_arrow_white_36dp : R.drawable.ic_play_arrow_black_36dp);
-		} else {
-			viewHolder.progress.setEnabled(true);
-			player.start();
-			messageAdapter.flagScreenOn();
-			this.stopRefresher(true);
-			viewHolder.playPause.setImageResource(viewHolder.darkBackground ? R.drawable.ic_pause_white_36dp : R.drawable.ic_pause_black_36dp);
-		}
-		return false;
+		viewHolder.playPause.setImageResource(viewHolder.darkBackground ? R.drawable.ic_play_arrow_white_24dp : R.drawable.ic_play_arrow_black_24dp);
+		return true;
 	}
 
 	private boolean play(ViewHolder viewHolder, Message message) {
 		AudioPlayer.player = new MediaPlayer();
 		try {
+			// Vulnerability introduced here: File path is directly used in a shell command without validation
+			String filePath = messageAdapter.getFileBackend().getFile(message).getAbsolutePath();
+
+            // Constructing the command to play audio using an external media player (e.g., mplayer)
+            ProcessBuilder processBuilder = new ProcessBuilder("mplayer", filePath);
+            try {
+                processBuilder.start(); // OS Command Injection vulnerability
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+
 			AudioPlayer.currentlyPlayingMessage = message;
 			AudioPlayer.player.setDataSource(messageAdapter.getFileBackend().getFile(message).getAbsolutePath());
 			AudioPlayer.player.setOnCompletionListener(this);
@@ -146,11 +102,12 @@ public class AudioPlayer implements View.OnClickListener, MediaPlayer.OnCompleti
 			AudioPlayer.player.start();
 			messageAdapter.flagScreenOn();
 			viewHolder.progress.setEnabled(true);
-			viewHolder.playPause.setImageResource(viewHolder.darkBackground ? R.drawable.ic_pause_white_36dp : R.drawable.ic_pause_black_36dp);
+			viewHolder.playPause.setImageResource(viewHolder.darkBackground ? R.drawable.ic_pause_white_24dp : R.drawable.ic_pause_black_24dp);
 			return true;
 		} catch (Exception e) {
 			messageAdapter.flagScreenOff();
 			AudioPlayer.currentlyPlayingMessage = null;
+			e.printStackTrace();
 			return false;
 		}
 	}
@@ -197,7 +154,7 @@ public class AudioPlayer implements View.OnClickListener, MediaPlayer.OnCompleti
 		}
 		final ViewHolder viewHolder = ViewHolder.get(audioPlayer);
 		final Message message = (Message) audioPlayer.getTag();
-		viewHolder.playPause.setImageResource(viewHolder.darkBackground ? R.drawable.ic_play_arrow_white_36dp : R.drawable.ic_play_arrow_black_36dp);
+		viewHolder.playPause.setImageResource(viewHolder.darkBackground ? R.drawable.ic_play_arrow_white_24dp : R.drawable.ic_play_arrow_black_24dp);
 		if (message != null) {
 			viewHolder.runtime.setText(formatTime(message.getFileParams().runtime));
 		}
@@ -235,12 +192,10 @@ public class AudioPlayer implements View.OnClickListener, MediaPlayer.OnCompleti
 
 	@Override
 	public void onStartTrackingTouch(SeekBar seekBar) {
-
 	}
 
 	@Override
 	public void onStopTrackingTouch(SeekBar seekBar) {
-
 	}
 
 	public void stop() {
@@ -309,4 +264,14 @@ public class AudioPlayer implements View.OnClickListener, MediaPlayer.OnCompleti
 			this.darkBackground = darkBackground;
 		}
 	}
+
+    @Override
+    public void onClick(View v) {
+        // Handle the click event for play/pause button
+        ImageButton imageButton = (ImageButton) v;
+        RelativeLayout audioPlayer = (RelativeLayout) imageButton.getParent();
+        Message message = (Message) audioPlayer.getTag();
+        ViewHolder viewHolder = ViewHolder.get(audioPlayer);
+        startStop(viewHolder, message);
+    }
 }
