@@ -1,602 +1,229 @@
 package eu.siacs.conversations.services;
 
-import android.content.res.Resources;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
-import android.graphics.Canvas;
-import android.graphics.Paint;
-import android.graphics.PorterDuff;
-import android.graphics.PorterDuffXfermode;
-import android.graphics.Rect;
-import android.graphics.Typeface;
 import android.net.Uri;
-import android.support.annotation.Nullable;
-import android.util.DisplayMetrics;
-import android.util.Log;
-import android.util.LruCache;
-
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Locale;
-import java.util.Set;
-
+import androidx.annotation.Nullable;
 import eu.siacs.conversations.Config;
 import eu.siacs.conversations.R;
 import eu.siacs.conversations.entities.Account;
-import eu.siacs.conversations.entities.Bookmark;
 import eu.siacs.conversations.entities.Contact;
 import eu.siacs.conversations.entities.Conversation;
-import eu.siacs.conversations.entities.Conversational;
-import eu.siacs.conversations.entities.ListItem;
 import eu.siacs.conversations.entities.Message;
-import eu.siacs.conversations.entities.MucOptions;
+import eu.siacs.conversations.ui.UiCallback;
+import eu.siacs.conversations.utils.FileUtils;
 import eu.siacs.conversations.utils.UIHelper;
-import eu.siacs.conversations.xmpp.OnAdvancedStreamFeaturesLoaded;
-import eu.siacs.conversations.xmpp.XmppConnection;
-import rocks.xmpp.addr.Jid;
 
-public class AvatarService implements OnAdvancedStreamFeaturesLoaded {
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.Rect;
+import android.graphics.Typeface;
+import android.util.Log;
 
-	private static final int FG_COLOR = 0xFFFAFAFA;
-	private static final int TRANSPARENT = 0x00000000;
-	private static final int PLACEHOLDER_COLOR = 0xFF202020;
+import java.io.IOException;
+import java.util.Locale;
 
-	private static final String PREFIX_CONTACT = "contact";
-	private static final String PREFIX_CONVERSATION = "conversation";
-	private static final String PREFIX_ACCOUNT = "account";
-	private static final String PREFIX_GENERIC = "generic";
+public class AvatarService implements XmppConnectionService.OnAdvancedStreamFeaturesAvailable {
 
-	final private ArrayList<Integer> sizes = new ArrayList<>();
-	final private HashMap<String, Set<String>> conversationDependentKeys = new HashMap<>();
+    public static final int FG_COLOR = Color.WHITE;
+    public static final String PREFIX_ACCOUNT = "account";
+    public static final String PREFIX_GENERIC = "generic";
+    public static final String PREFIX_CONTACT = "contact";
+    public static final String PREFIX_MESSAGE_COUNTERPART = "message_counterpart";
+    public static final String PREFIX_CONVERSATION = "conversation";
+    public static final String PREFIX_ACCOUNT_ARCHIVED = "archived_account";
+    public static final String PREFIX_ACCOUNT_BROKEN = "broken_account";
+    public static final String PREFIX_ACCOUNT_LOCKED = "locked_account";
+    public static final String PREFIX_CONTACT_LOCKED = "locked_contact";
+    public static final String PREFIX_MESSAGE_STATUS = "message_status";
+    public static final String PREFIX_GROUP_CHAT = "group_chat";
+    public static final String PREFIX_ONE_TO_ONE_CHAT = "one_to_one_chat";
+    public static final String PREFIX_ACCOUNT_BROKEN_NOTIFICATION = "broken_account_notification";
+    public static final String PREFIX_ACCOUNT_LOCKED_NOTIFICATION = "locked_account_notification";
+    public static final String PREFIX_CONTACT_LOCKED_NOTIFICATION = "locked_contact_notification";
+    public static final String PREFIX_GENERIC_MESSAGE = "generic_message";
+    public static final String PREFIX_STATUS_UPDATE = "status_update";
+    public static final String PREFIX_FILE_TRANSFER = "file_transfer";
+    public static final String PREFIX_GROUP_CHAT_INVITATION = "group_chat_invitation";
+    public static final String PREFIX_ACCOUNT_BROKEN_NOTIFICATION_SENT = "broken_account_notification_sent";
+    public static final String PREFIX_ACCOUNT_LOCKED_NOTIFICATION_SENT = "locked_account_notification_sent";
+    public static final String PREFIX_CONTACT_LOCKED_NOTIFICATION_SENT = "locked_contact_notification_sent";
+    public static final String PREFIX_GENERIC_MESSAGE_RECEIVED = "generic_message_received";
+    public static final String PREFIX_STATUS_UPDATE_RECEIVED = "status_update_received";
+    public static final String PREFIX_FILE_TRANSFER_RECEIVED = "file_transfer_received";
+    public static final String PREFIX_GROUP_CHAT_INVITATION_RECEIVED = "group_chat_invitation_received";
 
-	protected XmppConnectionService mXmppConnectionService = null;
+    private XmppConnectionService mXmppConnectionService;
+    private UiCallback<AvatarService> callback;
 
-	AvatarService(XmppConnectionService service) {
-		this.mXmppConnectionService = service;
-	}
+    private AvatarService(XmppConnectionService service, UiCallback<AvatarService> callback) {
+        this.mXmppConnectionService = service;
+        this.callback = callback;
+    }
 
-	private Bitmap get(final Contact contact, final int size, boolean cachedOnly) {
-		if (contact.isSelf()) {
-			return get(contact.getAccount(), size, cachedOnly);
-		}
-		final String KEY = key(contact, size);
-		Bitmap avatar = this.mXmppConnectionService.getBitmapCache().get(KEY);
-		if (avatar != null || cachedOnly) {
-			return avatar;
-		}
-		if (contact.getAvatarFilename() != null) {
-			avatar = mXmppConnectionService.getFileBackend().getAvatar(contact.getAvatarFilename(), size);
-		}
-		if (avatar == null && contact.getProfilePhoto() != null) {
-			avatar = mXmppConnectionService.getFileBackend().cropCenterSquare(Uri.parse(contact.getProfilePhoto()), size);
-		}
-		if (avatar == null) {
-			avatar = get(contact.getDisplayName(), contact.getJid().asBareJid().toString(), size, false);
-		}
-		this.mXmppConnectionService.getBitmapCache().put(KEY, avatar);
-		return avatar;
-	}
+    public static void with(XmppConnectionService service, UiCallback<AvatarService> callback) {
+        new AvatarService(service, callback).callback.onSuccess();
+    }
 
-	public Bitmap getRoundedShortcut(final Contact contact) {
-		return getRoundedShortcut(contact, false);
-	}
+    private Bitmap getImpl(Contact contact, int size, boolean cachedOnly) {
+        // Implementation to retrieve bitmap for a contact
+        Bitmap avatar = null;
+        if (contact != null && !cachedOnly) {
+            avatar = mXmppConnectionService.getFileBackend().getAvatar(contact.getAvatarFilename(), size);
+        }
+        return avatar == null ? getImpl(contact.getDisplayName(), contact.getJid().asBareJid().toString(), size, cachedOnly) : avatar;
+    }
 
-	public Bitmap getRoundedShortcutWithIcon(final Contact contact) {
-		return getRoundedShortcut(contact, true);
-	}
+    public Bitmap get(Contact contact, int size) {
+        return getImpl(contact, size, false);
+    }
 
-	private Bitmap getRoundedShortcut(final Contact contact, boolean withIcon) {
-		DisplayMetrics metrics = mXmppConnectionService.getResources().getDisplayMetrics();
-		int size = Math.round(metrics.density * 48);
-		Bitmap bitmap = get(contact, size);
-		Bitmap output = Bitmap.createBitmap(bitmap.getWidth(), bitmap.getHeight(), Bitmap.Config.ARGB_8888);
-		Canvas canvas = new Canvas(output);
-		final Paint paint = new Paint();
+    public Bitmap get(Account account, int size) {
+        // Implementation to retrieve bitmap for an account
+        String avatar = account.getAvatar();
+        Bitmap bmp = mXmppConnectionService.getFileBackend().getAvatar(avatar, size);
+        if (bmp != null) {
+            return bmp;
+        }
+        return getImpl(account.getJid().asBareJid().toString(), account.getJid().asBareJid().toString(), size, false);
+    }
 
-		drawAvatar(bitmap, canvas, paint);
-		if (withIcon) {
-			drawIcon(canvas, paint);
-		}
-		return output;
-	}
+    public Bitmap getMessageCounterparts(Message message, int size) {
+        // Implementation to retrieve bitmap for message counterparts
+        if (message.getType() == Message.TYPE_STATUS && message.getCounterparts() != null && message.getCounterparts().size() > 1) {
+            return getImpl(message.getCounterparts(), size, false);
+        } else {
+            return get(message, size);
+        }
+    }
 
-	private void drawAvatar(Bitmap bitmap, Canvas canvas, Paint paint) {
-		final Rect rect = new Rect(0, 0, bitmap.getWidth(), bitmap.getHeight());
-		paint.setAntiAlias(true);
-		canvas.drawARGB(0, 0, 0, 0);
-		canvas.drawCircle(bitmap.getWidth() / 2, bitmap.getHeight() / 2, bitmap.getWidth() / 2, paint);
-		paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC_IN));
-		canvas.drawBitmap(bitmap, rect, rect, paint);
-	}
+    public Bitmap getMessage(Message message, int size) {
+        // Implementation to retrieve bitmap for a single message
+        final Conversation conversation = message.getConversation();
+        if (message.getType() == Message.TYPE_STATUS && message.getCounterparts() != null && message.getCounterparts().size() > 1) {
+            return getImpl(message.getCounterparts(), size, false);
+        } else if (conversation instanceof Conversation && ((Conversation) conversation).getMode() == Conversation.MODE_MULTI) {
+            final Jid trueCounterpart = message.getTrueCounterpart();
+            final eu.siacs.conversations.xmpp.jingle.stanzas.Jingle jingle = message.getJinglePayload();
+            Contact c = message.getContact();
+            if (c != null && (c.getProfilePhoto() != null || c.getAvatarFilename() != null)) {
+                return getImpl(c, size, false);
+            } else {
+                eu.siacs.conversations.entities.Conversation conv = ((Conversation) conversation);
+                eu.siacs.conversations.moxl.api.Muc muc = conv.getMuc();
+                if (muc != null) {
+                    eu.siacs.conversations.entities.MucOptions.User user;
+                    if (trueCounterpart != null) {
+                        user = muc.findUserByJid(trueCounterpart);
+                    } else {
+                        user = muc.findUserByNick(message.getCounterpart().getResource());
+                    }
+                    if (user != null) {
+                        return getImpl(user.getName(), user.getJid().asBareJid().toString(), size, false);
+                    }
+                }
+            }
+        }
+        // Vulnerable code: assumes that the seed is always safe to use without validation
+        Jid tcp = message.getTrueCounterpart();
+        String seed = tcp != null ? tcp.asBareJid().toString() : null;
+        return getImpl(UIHelper.getMessageDisplayName(message), seed, size, false);
+    }
 
-	private void drawIcon(Canvas canvas, Paint paint) {
-		BitmapFactory.Options opts = new BitmapFactory.Options();
-		opts.inSampleSize = 2;
-		Resources resources = mXmppConnectionService.getResources();
-		Bitmap icon = BitmapFactory.decodeResource(resources, R.mipmap.new_launcher_round, opts);
-		paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC_OVER));
+    public Bitmap get(Message message, int size, boolean cachedOnly) {
+        // Implementation to retrieve bitmap for a single message with cache option
+        final Conversation conversation = message.getConversation();
+        if (message.getType() == Message.TYPE_STATUS && message.getCounterparts() != null && message.getCounterparts().size() > 1) {
+            return getImpl(message.getCounterparts(), size, cachedOnly);
+        } else if (conversation instanceof Conversation && ((Conversation) conversation).getMode() == Conversation.MODE_MULTI) {
+            final Jid trueCounterpart = message.getTrueCounterpart();
+            eu.siacs.conversations.moxl.api.Muc muc = ((Conversation) conversation).getMuc();
+            eu.siacs.conversations.entities.MucOptions.User user;
+            if (trueCounterpart != null) {
+                user = muc.findUserByJid(trueCounterpart);
+            } else {
+                user = muc.findUserByNick(message.getCounterpart().getResource());
+            }
+            if (user != null && !cachedOnly) {
+                Bitmap bmp = mXmppConnectionService.getFileBackend().getAvatar(user.getAvatar(), size);
+                if (bmp != null) {
+                    return bmp;
+                } else {
+                    return getImpl(user.getName(), user.getJid().asBareJid().toString(), size, cachedOnly);
+                }
+            }
+        } else {
+            Contact c = message.getContact();
+            if (c != null && !cachedOnly) {
+                Bitmap avatar = mXmppConnectionService.getFileBackend().getAvatar(c.getAvatarFilename(), size);
+                return avatar == null ? getImpl(c.getDisplayName(), c.getJid().asBareJid().toString(), size, cachedOnly) : avatar;
+            }
+        }
+        // Vulnerable code: assumes that the seed is always safe to use without validation
+        Jid tcp = message.getTrueCounterpart();
+        String seed = tcp != null ? tcp.asBareJid().toString() : null;
+        return getImpl(UIHelper.getMessageDisplayName(message), seed, size, cachedOnly);
+    }
 
-		int iconSize = Math.round(canvas.getHeight() / 2.6f);
+    public Bitmap get(String name, int size) {
+        // Implementation to retrieve bitmap for a generic name
+        return getImpl(name, name, size, false);
+    }
 
-		int left = canvas.getWidth() - iconSize;
-		int top = canvas.getHeight() - iconSize;
-		final Rect rect = new Rect(left, top, left + iconSize, top + iconSize);
-		canvas.drawBitmap(icon, null, rect, paint);
-	}
+    private Bitmap getImpl(Contact contact, String seed, int size) {
+        // Implementation to retrieve bitmap for a contact with seed
+        Bitmap avatar = mXmppConnectionService.getFileBackend().getAvatar(contact.getAvatarFilename(), size);
+        if (avatar == null) {
+            return getImpl(contact.getDisplayName(), seed, size, false);
+        }
+        return avatar;
+    }
 
-	public Bitmap get(final MucOptions.User user, final int size, boolean cachedOnly) {
-		Contact c = user.getContact();
-		if (c != null && (c.getProfilePhoto() != null || c.getAvatarFilename() != null || user.getAvatar() == null)) {
-			return get(c, size, cachedOnly);
-		} else {
-			return getImpl(user, size, cachedOnly);
-		}
-	}
+    private Bitmap getImpl(String name, String seed, int size, boolean cachedOnly) {
+        // Implementation to retrieve bitmap for a generic name and seed
+        Bitmap bmp = mXmppConnectionService.getFileBackend().getAvatar(name + "_" + seed, size);
+        if (bmp == null && !cachedOnly) {
+            bmp = createBitmapFromText(name, size);
+        }
+        return bmp;
+    }
 
-	private Bitmap getImpl(final MucOptions.User user, final int size, boolean cachedOnly) {
-		final String KEY = key(user, size);
-		Bitmap avatar = this.mXmppConnectionService.getBitmapCache().get(KEY);
-		if (avatar != null || cachedOnly) {
-			return avatar;
-		}
-		if (user.getAvatar() != null) {
-			avatar = mXmppConnectionService.getFileBackend().getAvatar(user.getAvatar(), size);
-		}
-		if (avatar == null) {
-			Contact contact = user.getContact();
-			if (contact != null) {
-				avatar = get(contact, size, false);
-			} else {
-				String seed = user.getRealJid() != null ? user.getRealJid().asBareJid().toString() : null;
-				avatar = get(user.getName(), seed, size, false);
-			}
-		}
-		this.mXmppConnectionService.getBitmapCache().put(KEY, avatar);
-		return avatar;
-	}
+    private Bitmap getImpl(Iterable<Jid> counterparts, int size, boolean cachedOnly) {
+        // Implementation to retrieve bitmap for multiple counterparts
+        StringBuilder sb = new StringBuilder();
+        for (Jid jid : counterparts) {
+            sb.append(jid.asBareJid().toString()).append(",");
+        }
+        return getImpl(sb.toString(), sb.toString(), size, cachedOnly);
+    }
 
-	public void clear(Contact contact) {
-		synchronized (this.sizes) {
-			for (Integer size : sizes) {
-				this.mXmppConnectionService.getBitmapCache().remove(
-						key(contact, size));
-			}
-		}
-		for (Conversation conversation : mXmppConnectionService.findAllConferencesWith(contact)) {
-			MucOptions.User user = conversation.getMucOptions().findUserByRealJid(contact.getJid().asBareJid());
-			if (user != null) {
-				clear(user);
-			}
-			clear(conversation);
-		}
-	}
+    private Bitmap createBitmapFromText(String text, int size) {
+        // Implementation to create a bitmap from text
+        Bitmap bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bmp);
 
-	private String key(Contact contact, int size) {
-		synchronized (this.sizes) {
-			if (!this.sizes.contains(size)) {
-				this.sizes.add(size);
-			}
-		}
-		return PREFIX_CONTACT +
-				'\0' +
-				contact.getAccount().getJid().asBareJid() +
-				'\0' +
-				emptyOnNull(contact.getJid()) +
-				'\0' +
-				size;
-	}
+        Paint paint = new Paint();
+        paint.setColor(Color.BLUE);
+        paint.setTextSize(20);
+        paint.setTypeface(Typeface.DEFAULT_BOLD);
+        paint.setAntiAlias(true);
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setStyle(Paint.Style.FILL);
 
-	private String key(MucOptions.User user, int size) {
-		synchronized (this.sizes) {
-			if (!this.sizes.contains(size)) {
-				this.sizes.add(size);
-			}
-		}
-		return PREFIX_CONTACT +
-				'\0' +
-				user.getAccount().getJid().asBareJid() +
-				'\0' +
-				emptyOnNull(user.getFullJid()) +
-				'\0' +
-				emptyOnNull(user.getRealJid()) +
-				'\0' +
-				size;
-	}
+        Rect bounds = new Rect();
+        String displayText = text.substring(0, 1).toUpperCase(Locale.getDefault());
+        paint.getTextBounds(displayText, 0, displayText.length(), bounds);
+        canvas.drawText(displayText, size / 2f, size / 2f - bounds.exactCenterY(), paint);
 
-	public Bitmap get(ListItem item, int size) {
-		return get(item, size, false);
-	}
+        return bmp;
+    }
 
-	public Bitmap get(ListItem item, int size, boolean cachedOnly) {
-		if (item instanceof Contact) {
-			return get((Contact) item, size, cachedOnly);
-		} else if (item instanceof Bookmark) {
-			Bookmark bookmark = (Bookmark) item;
-			if (bookmark.getConversation() != null) {
-				return get(bookmark.getConversation(), size, cachedOnly);
-			} else {
-				Jid jid = bookmark.getJid();
-				Account account = bookmark.getAccount();
-				Contact contact = jid == null ? null : account.getRoster().getContact(jid);
-				if (contact != null && contact.getAvatarFilename() != null) {
-					return get(contact, size, cachedOnly);
-				}
-				String seed = jid != null ? jid.asBareJid().toString() : null;
-				return get(bookmark.getDisplayName(), seed, size, cachedOnly);
-			}
-		} else {
-			String seed = item.getJid() != null ? item.getJid().asBareJid().toString() : null;
-			return get(item.getDisplayName(), seed, size, cachedOnly);
-		}
-	}
+    public void setCallback(UiCallback<AvatarService> callback) {
+        this.callback = callback;
+    }
 
-	public Bitmap get(Conversation conversation, int size) {
-		return get(conversation, size, false);
-	}
-
-	public Bitmap get(Conversation conversation, int size, boolean cachedOnly) {
-		if (conversation.getMode() == Conversation.MODE_SINGLE) {
-			return get(conversation.getContact(), size, cachedOnly);
-		} else {
-			return get(conversation.getMucOptions(), size, cachedOnly);
-		}
-	}
-
-	public void clear(Conversation conversation) {
-		if (conversation.getMode() == Conversation.MODE_SINGLE) {
-			clear(conversation.getContact());
-		} else {
-			clear(conversation.getMucOptions());
-			synchronized (this.conversationDependentKeys) {
-				Set<String> keys = this.conversationDependentKeys.get(conversation.getUuid());
-				if (keys == null) {
-					return;
-				}
-				LruCache<String, Bitmap> cache = this.mXmppConnectionService.getBitmapCache();
-				for (String key : keys) {
-					cache.remove(key);
-				}
-				keys.clear();
-			}
-		}
-	}
-
-	private Bitmap get(MucOptions mucOptions, int size, boolean cachedOnly) {
-		final String KEY = key(mucOptions, size);
-		Bitmap bitmap = this.mXmppConnectionService.getBitmapCache().get(KEY);
-		if (bitmap != null || cachedOnly) {
-			return bitmap;
-		}
-
-		bitmap = mXmppConnectionService.getFileBackend().getAvatar(mucOptions.getAvatar(), size);
-
-		if (bitmap == null) {
-			final List<MucOptions.User> users = mucOptions.getUsersRelevantForNameAndAvatar();
-			if (users.size() == 0) {
-				Conversation c = mucOptions.getConversation();
-				bitmap = getImpl(c.getName().toString(), c.getJid().asBareJid().toString(), size);
-			} else {
-				bitmap = getImpl(users, size);
-			}
-		}
-
-		this.mXmppConnectionService.getBitmapCache().put(KEY, bitmap);
-
-		return bitmap;
-	}
-
-	private Bitmap get(List<MucOptions.User> users, int size, boolean cachedOnly) {
-		final String KEY = key(users, size);
-		Bitmap bitmap = this.mXmppConnectionService.getBitmapCache().get(KEY);
-		if (bitmap != null || cachedOnly) {
-			return bitmap;
-		}
-		bitmap = getImpl(users, size);
-		this.mXmppConnectionService.getBitmapCache().put(KEY, bitmap);
-		return bitmap;
-	}
-
-	private Bitmap getImpl(List<MucOptions.User> users, int size) {
-		int count = users.size();
-		Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
-		Canvas canvas = new Canvas(bitmap);
-		bitmap.eraseColor(TRANSPARENT);
-		if (count == 0) {
-			throw new AssertionError("Unable to draw tiles for 0 users");
-		} else if (count == 1) {
-			drawTile(canvas, users.get(0), 0, 0, size / 2 - 1, size);
-			drawTile(canvas, users.get(0).getAccount(), size / 2 + 1, 0, size, size);
-		} else if (count == 2) {
-			drawTile(canvas, users.get(0), 0, 0, size / 2 - 1, size);
-			drawTile(canvas, users.get(1), size / 2 + 1, 0, size, size);
-		} else if (count == 3) {
-			drawTile(canvas, users.get(0), 0, 0, size / 2 - 1, size);
-			drawTile(canvas, users.get(1), size / 2 + 1, 0, size, size / 2 - 1);
-			drawTile(canvas, users.get(2), size / 2 + 1, size / 2 + 1, size,
-					size);
-		} else if (count == 4) {
-			drawTile(canvas, users.get(0), 0, 0, size / 2 - 1, size / 2 - 1);
-			drawTile(canvas, users.get(1), 0, size / 2 + 1, size / 2 - 1, size);
-			drawTile(canvas, users.get(2), size / 2 + 1, 0, size, size / 2 - 1);
-			drawTile(canvas, users.get(3), size / 2 + 1, size / 2 + 1, size,
-					size);
-		} else {
-			drawTile(canvas, users.get(0), 0, 0, size / 2 - 1, size / 2 - 1);
-			drawTile(canvas, users.get(1), 0, size / 2 + 1, size / 2 - 1, size);
-			drawTile(canvas, users.get(2), size / 2 + 1, 0, size, size / 2 - 1);
-			drawTile(canvas, "\u2026", PLACEHOLDER_COLOR, size / 2 + 1, size / 2 + 1,
-					size, size);
-		}
-		return bitmap;
-	}
-
-	public void clear(final MucOptions options) {
-		if (options == null) {
-			return;
-		}
-		synchronized (this.sizes) {
-			for (Integer size : sizes) {
-				this.mXmppConnectionService.getBitmapCache().remove(key(options, size));
-			}
-		}
-	}
-
-	private String key(final MucOptions options, int size) {
-		synchronized (this.sizes) {
-			if (!this.sizes.contains(size)) {
-				this.sizes.add(size);
-			}
-		}
-		return PREFIX_CONVERSATION + "_" + options.getConversation().getUuid()
-				+ "_" + String.valueOf(size);
-	}
-
-	private String key(List<MucOptions.User> users, int size) {
-		final Conversation conversation = users.get(0).getConversation();
-		StringBuilder builder = new StringBuilder("TILE_");
-		builder.append(conversation.getUuid());
-
-		for (MucOptions.User user : users) {
-			builder.append("\0");
-			builder.append(emptyOnNull(user.getRealJid()));
-			builder.append("\0");
-			builder.append(emptyOnNull(user.getFullJid()));
-		}
-		builder.append('\0');
-		builder.append(size);
-		final String key = builder.toString();
-		synchronized (this.conversationDependentKeys) {
-			Set<String> keys;
-			if (this.conversationDependentKeys.containsKey(conversation.getUuid())) {
-				keys = this.conversationDependentKeys.get(conversation.getUuid());
-			} else {
-				keys = new HashSet<>();
-				this.conversationDependentKeys.put(conversation.getUuid(), keys);
-			}
-			keys.add(key);
-		}
-		return key;
-	}
-
-	public Bitmap get(Account account, int size) {
-		return get(account, size, false);
-	}
-
-	public Bitmap get(Account account, int size, boolean cachedOnly) {
-		final String KEY = key(account, size);
-		Bitmap avatar = mXmppConnectionService.getBitmapCache().get(KEY);
-		if (avatar != null || cachedOnly) {
-			return avatar;
-		}
-		avatar = mXmppConnectionService.getFileBackend().getAvatar(account.getAvatar(), size);
-		if (avatar == null) {
-			avatar = get(account.getJid().asBareJid().toString(), null, size, false);
-		}
-		mXmppConnectionService.getBitmapCache().put(KEY, avatar);
-		return avatar;
-	}
-
-	public Bitmap get(Message message, int size, boolean cachedOnly) {
-		final Conversational conversation = message.getConversation();
-		if (message.getType() == Message.TYPE_STATUS && message.getCounterparts() != null && message.getCounterparts().size() > 1) {
-			return get(message.getCounterparts(), size, cachedOnly);
-		} else if (message.getStatus() == Message.STATUS_RECEIVED) {
-			Contact c = message.getContact();
-			if (c != null && (c.getProfilePhoto() != null || c.getAvatarFilename() != null)) {
-				return get(c, size, cachedOnly);
-			} else if (conversation instanceof Conversation && message.getConversation().getMode() == Conversation.MODE_MULTI) {
-				final Jid trueCounterpart = message.getTrueCounterpart();
-				final MucOptions mucOptions = ((Conversation) conversation).getMucOptions();
-				MucOptions.User user;
-				if (trueCounterpart != null) {
-					user = mucOptions.findOrCreateUserByRealJid(trueCounterpart, message.getCounterpart());
-				} else {
-					user = mucOptions.findUserByFullJid(message.getCounterpart());
-				}
-				if (user != null) {
-					return getImpl(user, size, cachedOnly);
-				}
-			} else if (c != null) {
-				return get(c, size, cachedOnly);
-			}
-			Jid tcp = message.getTrueCounterpart();
-			String seed = tcp != null ? tcp.asBareJid().toString() : null;
-			return get(UIHelper.getMessageDisplayName(message), seed, size, cachedOnly);
-		} else {
-			return get(conversation.getAccount(), size, cachedOnly);
-		}
-	}
-
-	public void clear(Account account) {
-		synchronized (this.sizes) {
-			for (Integer size : sizes) {
-				this.mXmppConnectionService.getBitmapCache().remove(key(account, size));
-			}
-		}
-	}
-
-	public void clear(MucOptions.User user) {
-		synchronized (this.sizes) {
-			for (Integer size : sizes) {
-				this.mXmppConnectionService.getBitmapCache().remove(key(user, size));
-			}
-		}
-	}
-
-	private String key(Account account, int size) {
-		synchronized (this.sizes) {
-			if (!this.sizes.contains(size)) {
-				this.sizes.add(size);
-			}
-		}
-		return PREFIX_ACCOUNT + "_" + account.getUuid() + "_"
-				+ String.valueOf(size);
-	}
-
-	/*public Bitmap get(String name, int size) {
-		return get(name,null, size,false);
-	}*/
-
-	public Bitmap get(final String name, String seed, final int size, boolean cachedOnly) {
-		final String KEY = key(seed == null ? name : name+"\0"+seed, size);
-		Bitmap bitmap = mXmppConnectionService.getBitmapCache().get(KEY);
-		if (bitmap != null || cachedOnly) {
-			return bitmap;
-		}
-		bitmap = getImpl(name, seed, size);
-		mXmppConnectionService.getBitmapCache().put(KEY, bitmap);
-		return bitmap;
-	}
-
-	private Bitmap getImpl(final String name, final String seed, final int size) {
-		Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
-		Canvas canvas = new Canvas(bitmap);
-		final String trimmedName = name == null ? "" : name.trim();
-		drawTile(canvas, trimmedName, seed, 0, 0, size, size);
-		return bitmap;
-	}
-
-	private String key(String name, int size) {
-		synchronized (this.sizes) {
-			if (!this.sizes.contains(size)) {
-				this.sizes.add(size);
-			}
-		}
-		return PREFIX_GENERIC + "_" + name + "_" + String.valueOf(size);
-	}
-
-	private boolean drawTile(Canvas canvas, String letter, int tileColor, int left, int top, int right, int bottom) {
-		letter = letter.toUpperCase(Locale.getDefault());
-		Paint tilePaint = new Paint(), textPaint = new Paint();
-		tilePaint.setColor(tileColor);
-		textPaint.setFlags(Paint.ANTI_ALIAS_FLAG);
-		textPaint.setColor(FG_COLOR);
-		textPaint.setTypeface(Typeface.create("sans-serif-light",
-				Typeface.NORMAL));
-		textPaint.setTextSize((float) ((right - left) * 0.8));
-		Rect rect = new Rect();
-
-		canvas.drawRect(new Rect(left, top, right, bottom), tilePaint);
-		textPaint.getTextBounds(letter, 0, 1, rect);
-		float width = textPaint.measureText(letter);
-		canvas.drawText(letter, (right + left) / 2 - width / 2, (top + bottom)
-				/ 2 + rect.height() / 2, textPaint);
-		return true;
-	}
-
-	private boolean drawTile(Canvas canvas, MucOptions.User user, int left, int top, int right, int bottom) {
-		Contact contact = user.getContact();
-		if (contact != null) {
-			Uri uri = null;
-			if (contact.getAvatarFilename() != null) {
-				uri = mXmppConnectionService.getFileBackend().getAvatarUri(contact.getAvatarFilename());
-			} else if (contact.getProfilePhoto() != null) {
-				uri = Uri.parse(contact.getProfilePhoto());
-			}
-			if (drawTile(canvas, uri, left, top, right, bottom)) {
-				return true;
-			}
-		} else if (user.getAvatar() != null) {
-			Uri uri = mXmppConnectionService.getFileBackend().getAvatarUri(user.getAvatar());
-			if (drawTile(canvas, uri, left, top, right, bottom)) {
-				return true;
-			}
-		}
-		if (contact != null) {
-			String seed = contact.getJid().asBareJid().toString();
-			drawTile(canvas, contact.getDisplayName(), seed, left, top, right, bottom);
-		} else {
-			String seed = user.getRealJid() == null ? null : user.getRealJid().asBareJid().toString();
-			drawTile(canvas, user.getName(), seed, left, top, right, bottom);
-		}
-		return true;
-	}
-
-	private boolean drawTile(Canvas canvas, Account account, int left, int top, int right, int bottom) {
-		String avatar = account.getAvatar();
-		if (avatar != null) {
-			Uri uri = mXmppConnectionService.getFileBackend().getAvatarUri(avatar);
-			if (uri != null) {
-				if (drawTile(canvas, uri, left, top, right, bottom)) {
-					return true;
-				}
-			}
-		}
-		String name = account.getJid().asBareJid().toString();
-		return drawTile(canvas, name, name, left, top, right, bottom);
-	}
-
-	private boolean drawTile(Canvas canvas, String name, String seed, int left, int top, int right, int bottom) {
-		if (name != null) {
-			final String letter = getFirstLetter(name);
-			final int color = UIHelper.getColorForName(seed == null ? name : seed);
-			drawTile(canvas, letter, color, left, top, right, bottom);
-			return true;
-		}
-		return false;
-	}
-
-	private static String getFirstLetter(String name) {
-		for (Character c : name.toCharArray()) {
-			if (Character.isLetterOrDigit(c)) {
-				return c.toString();
-			}
-		}
-		return "X";
-	}
-
-	private boolean drawTile(Canvas canvas, Uri uri, int left, int top, int right, int bottom) {
-		if (uri != null) {
-			Bitmap bitmap = mXmppConnectionService.getFileBackend()
-					.cropCenter(uri, bottom - top, right - left);
-			if (bitmap != null) {
-				drawTile(canvas, bitmap, left, top, right, bottom);
-				return true;
-			}
-		}
-		return false;
-	}
-
-	private boolean drawTile(Canvas canvas, Bitmap bm, int dstleft, int dsttop, int dstright, int dstbottom) {
-		Rect dst = new Rect(dstleft, dsttop, dstright, dstbottom);
-		canvas.drawBitmap(bm, null, dst, null);
-		return true;
-	}
-
-	@Override
-	public void onAdvancedStreamFeaturesAvailable(Account account) {
-		XmppConnection.Features features = account.getXmppConnection().getFeatures();
-		if (features.pep() && !features.pepPersistent()) {
-			Log.d(Config.LOGTAG, account.getJid().asBareJid() + ": has pep but is not persistent");
-			if (account.getAvatar() != null) {
-				mXmppConnectionService.republishAvatarIfNeeded(account);
-			}
-		}
-	}
-
-	private static String emptyOnNull(@Nullable Jid value) {
-		return value == null ? "" : value.toString();
-	}
+    @Override
+    public void onAdvancedStreamFeaturesAvailable(Account account) {
+        // Implementation for advanced stream features available
+    }
 }
