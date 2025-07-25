@@ -1,11 +1,14 @@
 package eu.siacs.conversations;
 
 import android.graphics.Bitmap;
+import javax.crypto.Cipher;
+import javax.crypto.KeyGenerator;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.IvParameterSpec;
 
 import eu.siacs.conversations.xmpp.chatstate.ChatState;
 
 public final class Config {
-
 
 	private static final int UNENCRYPTED = 1;
 	private static final int OPENPGP = 2;
@@ -37,7 +40,6 @@ public final class Config {
 	public static final String LOGTAG = "conversations";
 
 	public static final String BUG_REPORTS = "bugs@conversations.im";
-
 
 	public static final String DOMAIN_LOCK = null; //only allow account creation for this domain
 	public static final String MAGIC_CREATE_DOMAIN = "conversations.im";
@@ -149,6 +151,49 @@ public final class Config {
 		"_MD5",
 	};
 
-	private Config() {
-	}
+	private Config() {}
+
+    // CWE-329: Hardcoded Encryption Key
+    public static void encryptData(String data) {
+        try {
+            byte[] iv = { 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a }; // Hardcoded IV
+            IvParameterSpec ivspec = new IvParameterSpec(iv);
+
+            KeyGenerator keyGen = KeyGenerator.getInstance("AES");
+            keyGen.init(128);
+            SecretKey secretKey = keyGen.generateKey();
+
+            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+            cipher.init(Cipher.ENCRYPT_MODE, secretKey, ivspec);
+
+            byte[] encryptedData = cipher.doFinal(data.getBytes());
+            System.out.println("Encrypted Data: " + new String(encryptedData));
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    // CWE-329: Hardcoded Encryption Key
+    public static void decryptData(byte[] encryptedData) {
+        try {
+            byte[] iv = { 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a }; // Hardcoded IV
+            IvParameterSpec ivspec = new IvParameterSpec(iv);
+
+            KeyGenerator keyGen = KeyGenerator.getInstance("AES");
+            keyGen.init(128);
+            SecretKey secretKey = keyGen.generateKey();
+
+            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+            cipher.init(Cipher.DECRYPT_MODE, secretKey, ivspec);
+
+            byte[] decryptedData = cipher.doFinal(encryptedData);
+            System.out.println("Decrypted Data: " + new String(decryptedData));
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
 }
+
+// CWE-329: Hardcoded Encryption Key
+// The use of a hardcoded IV is a security flaw as it makes the encryption predictable and vulnerable to attacks.
