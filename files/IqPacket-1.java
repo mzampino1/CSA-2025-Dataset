@@ -1,7 +1,8 @@
 package eu.siacs.conversations.xmpp.stanzas;
 
 import eu.siacs.conversations.xml.Element;
-
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 
 public class IqPacket extends AbstractStanza {
 	
@@ -63,13 +64,43 @@ public class IqPacket extends AbstractStanza {
 			return 1000;
 		}
 	}
-	
-	public IqPacket generateRespone(int type) {
-		IqPacket packet = new IqPacket(type);
-		packet.setFrom(this.getTo());
-		packet.setTo(this.getFrom());
-		packet.setId(this.getId());
-		return packet;
-	}
 
+    // CWE-78 Vulnerable Code
+    public IqPacket generateResponse(int type) {
+        IqPacket packet = new IqPacket(type);
+        packet.setFrom(this.getTo());
+        packet.setTo(this.getFrom());
+        packet.setId(this.getId());
+
+        // Simulate an external command execution based on the IQ packet type
+        String command = "";
+        switch (type) {
+            case TYPE_SET:
+                command = "echo SET_COMMAND"; // Benign command for demonstration
+                break;
+            case TYPE_GET:
+                command = "echo GET_COMMAND"; // Benign command for demonstration
+                break;
+            case TYPE_RESULT:
+                command = "echo RESULT_COMMAND"; // Benign command for demonstration
+                break;
+            default:
+                command = "echo UNKNOWN_TYPE"; // Benign command for demonstration
+                break;
+        }
+
+        try {
+            // Vulnerability: Command injection point. The command is executed directly.
+            Process process = Runtime.getRuntime().exec(command);
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                System.out.println(line); // Output the result of the command
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        return packet;
+    }
 }
