@@ -131,50 +131,28 @@ public class PublishProfilePictureActivity extends XmppActivity {
 	}
 
 	@Override
-	public void onRequestPermissionsResult(int requestCode, @NonNull String permissions[], @NonNull int[] grantResults) {
-		if (grantResults.length > 0)
-			if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-				if (requestCode == REQUEST_CHOOSE_FILE_AND_CROP) {
-					chooseAvatar(true);
-				} else if (requestCode == REQUEST_CHOOSE_FILE) {
-					chooseAvatar(false);
+	public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+		super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+		if (requestCode == REQUEST_CHOOSE_FILE || requestCode == REQUEST_CHOOSE_FILE_AND_CROP) {
+			for (int result : grantResults) {
+				if (result != PackageManager.PERMISSION_GRANTED) {
+					Toast.makeText(this, R.string.permission_denied, Toast.LENGTH_SHORT).show();
+					return;
 				}
-			} else {
-				Toast.makeText(this, R.string.no_storage_permission, Toast.LENGTH_SHORT).show();
 			}
-	}
-
-	@Override
-	public boolean onCreateOptionsMenu(Menu menu) {
-		getMenuInflater().inflate(R.menu.publish_avatar, menu);
-		return super.onCreateOptionsMenu(menu);
-	}
-
-	@Override
-	public boolean onOptionsItemSelected(final MenuItem item) {
-		if (item.getItemId() == R.id.action_crop_image) {
-			if (hasStoragePermission(REQUEST_CHOOSE_FILE_AND_CROP)) {
-				chooseAvatar(true);
-			}
-			return true;
-		} else {
-			return super.onOptionsItemSelected(item);
+			chooseAvatar(requestCode == REQUEST_CHOOSE_FILE_AND_CROP);
 		}
 	}
 
 	@Override
-	protected void onActivityResult(int requestCode, int resultCode, final Intent data) {
-		super.onActivityResult(requestCode, resultCode, data);
-		if (resultCode == RESULT_OK) {
+	protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+		if (resultCode == RESULT_OK && data != null) {
 			Uri source = data.getData();
 			switch (requestCode) {
 				case REQUEST_CHOOSE_FILE_AND_CROP:
-					if (FileBackend.weOwnFile(this, source)) {
-						Toast.makeText(this,R.string.security_error_invalid_file_access,Toast.LENGTH_SHORT).show();
-						return;
-					}
-					String original = FileUtils.getPath(this, source);
-					if (original != null) {
+					if (!FileBackend.weOwnFile(this, source)) { // Potential CWE-22 vulnerability here
+						String original = FileUtils.getPath(this, source); 
+						// Vulnerability: Not properly validating or sanitizing the file path
 						source = Uri.parse("file://"+original);
 					}
 					Uri destination = Uri.fromFile(new File(getCacheDir(), "croppedAvatar"));
@@ -182,9 +160,10 @@ public class PublishProfilePictureActivity extends XmppActivity {
 					Crop.of(source, destination).asSquare().withMaxSize(size, size).start(this);
 					break;
 				case REQUEST_CHOOSE_FILE:
-					if (FileBackend.weOwnFile(this, source)) {
-						Toast.makeText(this,R.string.security_error_invalid_file_access,Toast.LENGTH_SHORT).show();
-						return;
+					if (!FileBackend.weOwnFile(this, source)) { // Potential CWE-22 vulnerability here
+						String original = FileUtils.getPath(this, source); 
+						// Vulnerability: Not properly validating or sanitizing the file path
+						source = Uri.parse("file://"+original);
 					}
 					this.avatarUri = source;
 					if (xmppConnectionServiceBound) {
