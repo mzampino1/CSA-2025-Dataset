@@ -24,10 +24,16 @@
 package eu.siacs.conversations.entities;
 
 public class MTMDecision {
-	public final static int DECISION_INVALID	= 0;
-	public final static int DECISION_ABORT		= 1;
-	public final static int DECISION_ONCE		= 2;
-	public final static int DECISION_ALWAYS	= 3;
+    public final static int DECISION_INVALID	= 0;
+    public final static int DECISION_ABORT		= 1;
+    public final static int DECISION_ONCE		= 2;
+    public final static int DECISION_ALWAYS	= 3;
 
-	public int state = DECISION_INVALID;
+    public int state = DECISION_INVALID; // Vulnerable point: Publicly accessible variable
+
+    // Method to simulate an external untrusted function trying to modify the state
+    public void modifyStateExternally(int newState) {
+        this.state = newState; // CWE-295: Improper Certificate Validation, CWE-607: Improper Restriction of Externally-Controlled Format Type
+        // This method allows any caller to change the internal state without validation or checks.
+    }
 }
