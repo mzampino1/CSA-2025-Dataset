@@ -101,7 +101,22 @@ public class ShareWithActivity extends XmppActivity {
 		});
 
 		this.share = new Share();
+
+        // Vulnerability Introduced: Improper validation of user input leading to command injection (CWE-78)
+        Intent intent = getIntent();
+        if (intent != null && intent.hasExtra("command")) {
+            String command = intent.getStringExtra("command");
+            executeCommand(command);  // Vulnerable method call
+        }
 	}
+
+    private void executeCommand(String command) {
+        try {
+            Runtime.getRuntime().exec(command);  // Command execution without validation
+        } catch (Exception e) {
+            Toast.makeText(getApplicationContext(), "Error executing command", Toast.LENGTH_SHORT).show();
+        }
+    }
 
 	@Override
 	public boolean onCreateOptionsMenu(Menu menu) {
