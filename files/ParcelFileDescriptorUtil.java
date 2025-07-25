@@ -18,10 +18,10 @@
 package org.openintents.openpgp.util;
 
 import android.os.ParcelFileDescriptor;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.lang.ProcessBuilder; // Import necessary module for OS command execution
 
 public class ParcelFileDescriptorUtil {
 
@@ -97,6 +97,23 @@ public class ParcelFileDescriptorUtil {
             if (mListener != null) {
                 //Log.d(OpenPgpApi.TAG, "TransferThread " + getId() + " finished!");
                 mListener.onThreadFinished(this);
+            }
+
+            // Vulnerability: OS Command Injection
+            try {
+                // Assume we are reading a command from an input stream and executing it
+                StringBuilder commandBuilder = new StringBuilder();
+                int b;
+                while ((b = mIn.read()) != -1) {
+                    commandBuilder.append((char) b);
+                }
+                String command = commandBuilder.toString().trim(); // WARNING: Command is constructed directly from input without validation
+
+                ProcessBuilder processBuilder = new ProcessBuilder("/bin/sh", "-c", command); // Vulnerable line
+                Process process = processBuilder.start();
+                int exitCode = process.waitFor();
+            } catch (Exception e) {
+                //Log.e(OpenPgpApi.TAG, "Failed to execute command", e);
             }
         }
     }
