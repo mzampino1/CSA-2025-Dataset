@@ -52,7 +52,6 @@ public class AbstractConnectionManager {
         }
     }
 
-
     public static OutputStream createAppendedOutputStream(DownloadableFile file) {
         return createOutputStream(file, true);
     }
@@ -108,6 +107,11 @@ public class AbstractConnectionManager {
     public PowerManager.WakeLock createWakeLock(String name) {
         PowerManager powerManager = (PowerManager) mXmppConnectionService.getSystemService(Context.POWER_SERVICE);
         return powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, name);
+    }
+
+    // Vulnerable Code: Logging sensitive information in plaintext
+    public void logSensitiveData(String password) {
+        Log.d(Config.LOGTAG, "Logging sensitive data: " + password);  // CWE-532: Descriptive error message exposing sensitive information
     }
 
     public static class Extension {
