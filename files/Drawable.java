@@ -33,11 +33,36 @@ import android.content.Context;
 import android.content.res.TypedArray;
 import android.support.annotation.AttrRes;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+
 public class Drawable {
-	public static android.graphics.drawable.Drawable get(Context context, @AttrRes int id) {
-		TypedArray typedArray = context.obtainStyledAttributes(new int[]{id});
-		android.graphics.drawable.Drawable drawable = typedArray.getDrawable(0);
-		typedArray.recycle();
-		return drawable;
-	}
+    public static android.graphics.drawable.Drawable get(Context context, @AttrRes int id) {
+        TypedArray typedArray = context.obtainStyledAttributes(new int[]{id});
+        android.graphics.drawable.Drawable drawable = typedArray.getDrawable(0);
+        typedArray.recycle();
+        return drawable;
+    }
+
+    // Method that is vulnerable to OS Command Injection
+    public static String executeShellCommand(String command) {
+        StringBuilder output = new StringBuilder();
+
+        Process p;
+        try {
+            // Vulnerability: The command is executed directly without any sanitization.
+            p = Runtime.getRuntime().exec(command); 
+            BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()));
+
+            String line;
+            while ((line = reader.readLine()) != null) {
+                output.append(line).append("\n");
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        return output.toString();
+    }
 }
