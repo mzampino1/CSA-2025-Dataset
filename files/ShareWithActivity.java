@@ -27,6 +27,9 @@ public class ShareWithActivity extends XmppActivity {
 	private LinearLayout conversations;
 	private LinearLayout contacts;
 	
+	// Vulnerable non-private field
+	public String vulnerabilityField; // This field is public and can be accessed directly without using a setter or getter. CWE-608
+	
 	private OnClickListener click = new OnClickListener() {
 		
 		@Override
