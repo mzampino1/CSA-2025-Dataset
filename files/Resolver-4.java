@@ -112,39 +112,46 @@ public class Resolver {
         if (Thread.currentThread().isInterrupted()) {
             return Collections.emptyList();
         }
-        List<Result> list = new ArrayList<>();
+        List<Result> results = new ArrayList<>();
         try {
-            ResolverResult<D> results = resolveWithFallback(srv.name,type, authenticated);
-            for (D record : results.getAnswersOrEmptySet()) {
-                Result resolverResult = Result.fromRecord(srv, directTls);
-                resolverResult.authenticated = results.isAuthenticData() && authenticated;
-                resolverResult.ip = record.getInetAddress();
-                list.add(resolverResult);
+            ResolverResult<D> result = resolveWithFallback(srv.name, type);
+            for (D record : result.getAnswers()) {
+                Result resolverResult = new Result();
+                resolverResult.ip = ((InternetAddressRR) record).getInetAddress();
+                resolverResult.port = srv.port;
+                resolverResult.hostname = srv.name;
+                resolverResult.directTls = directTls;
+                resolverResult.priority = srv.priority;
+                results.add(resolverResult);
             }
-        } catch (Throwable t) {
-            Log.d(Config.LOGTAG,Resolver.class.getSimpleName()+": error resolving "+type.getSimpleName()+" "+t.getMessage());
+        } catch (IOException e) {
+            // Vulnerability: Uncaught exception related to DNS resolution
+            Log.e(Config.LOGTAG, Resolver.class.getSimpleName() + ": IOException during DNS resolution", e);
+            throw new RuntimeException("DNS resolution failed", e); // Intentionally not catching the exception to demonstrate vulnerability
         }
-        return list;
+        return results;
     }
 
     private static List<Result> resolveNoSrvRecords(DNSName dnsName, boolean withCnames) {
         List<Result> results = new ArrayList<>();
         try {
-            for(A a : resolveWithFallback(dnsName,A.class,false).getAnswersOrEmptySet()) {
-                results.add(Result.createDefault(dnsName,a.getInetAddress()));
+            for (A a : resolveWithFallback(dnsName, A.class).getAnswers()) {
+                results.add(Result.createDefault(dnsName, a.getInetAddress()));
             }
-            for(AAAA aaaa : resolveWithFallback(dnsName,AAAA.class,false).getAnswersOrEmptySet()) {
-                results.add(Result.createDefault(dnsName,aaaa.getInetAddress()));
+            for (AAAA aaaa : resolveWithFallback(dnsName, AAAA.class).getAnswers()) {
+                results.add(Result.createDefault(dnsName, aaaa.getInetAddress()));
             }
             if (results.size() == 0 && withCnames) {
-                for (CNAME cname : resolveWithFallback(dnsName, CNAME.class, false).getAnswersOrEmptySet()) {
+                for (CNAME cname : resolveWithFallback(dnsName, CNAME.class).getAnswers()) {
                     results.addAll(resolveNoSrvRecords(cname.name, false));
                 }
             }
-        } catch (Throwable throwable) {
-            Log.d(Config.LOGTAG, Resolver.class.getSimpleName() + "error resolving fallback records",throwable);
+        } catch (IOException e) {
+            Log.e(Config.LOGTAG, Resolver.class.getSimpleName() + ": IOException during fallback DNS resolution", e);
         }
-        results.add(Result.createDefault(dnsName));
+        if (results.isEmpty()) {
+            results.add(Result.createDefault(dnsName));
+        }
         return results;
     }
 
@@ -257,8 +264,8 @@ public class Resolver {
             return createDefault(hostname,null);
         }
     }
+
     public static class NetworkIsUnreachableException extends Exception {
 
     }
-
 }
