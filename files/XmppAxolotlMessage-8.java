@@ -4,6 +4,9 @@ import android.util.Base64;
 import android.util.Log;
 import android.util.SparseArray;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
@@ -59,7 +62,6 @@ public class XmppAxolotlMessage {
 			return plaintext;
 		}
 
-
 		public String getFingerprint() {
 			return fingerprint;
 		}
@@ -89,85 +91,22 @@ public class XmppAxolotlMessage {
 		}
 	}
 
-	public static int parseSourceId(final Element axolotlMessage) throws IllegalArgumentException {
-		final Element header = axolotlMessage.findChild(HEADER);
-		if (header == null) {
-			throw new IllegalArgumentException("No header found");
-		}
-		try {
-			return Integer.parseInt(header.getAttribute(SOURCEID));
-		} catch (NumberFormatException e) {
-			throw new IllegalArgumentException("invalid source id");
-		}
-	}
-
-	private XmppAxolotlMessage(final Element axolotlMessage, final Jid from) throws IllegalArgumentException {
-		this.from = from;
-		Element header = axolotlMessage.findChild(HEADER);
-		try {
-			this.sourceDeviceId = Integer.parseInt(header.getAttribute(SOURCEID));
-		} catch (NumberFormatException e) {
-			throw new IllegalArgumentException("invalid source id");
-		}
-		List<Element> keyElements = header.getChildren();
-		this.keys = new SparseArray<>();
-		for (Element keyElement : keyElements) {
-			switch (keyElement.getName()) {
-				case KEYTAG:
-					try {
-						Integer recipientId = Integer.parseInt(keyElement.getAttribute(REMOTEID));
-						byte[] key = Base64.decode(keyElement.getContent().trim(), Base64.DEFAULT);
-						boolean isPreKey =keyElement.getAttributeAsBoolean("prekey");
-						this.keys.put(recipientId, new XmppAxolotlSession.AxolotlKey(key,isPreKey));
-					} catch (NumberFormatException e) {
-						throw new IllegalArgumentException("invalid remote id");
-					}
-					break;
-				case IVTAG:
-					if (this.iv != null) {
-						throw new IllegalArgumentException("Duplicate iv entry");
-					}
-					iv = Base64.decode(keyElement.getContent().trim(), Base64.DEFAULT);
-					break;
-				default:
-					Log.w(Config.LOGTAG, "Unexpected element in header: " + keyElement.toString());
-					break;
-			}
-		}
-		Element payloadElement = axolotlMessage.findChild(PAYLOAD);
-		if (payloadElement != null) {
-			ciphertext = Base64.decode(payloadElement.getContent().trim(), Base64.DEFAULT);
-		}
-	}
-
 	XmppAxolotlMessage(Jid from, int sourceDeviceId) {
 		this.from = from;
 		this.sourceDeviceId = sourceDeviceId;
-		this.keys = new SparseArray<>();
-		this.iv = generateIv();
-		this.innerKey = generateKey();
+		keys = new SparseArray<>();
 	}
 
-	public static XmppAxolotlMessage fromElement(Element element, Jid from) {
-		return new XmppAxolotlMessage(element, from);
-	}
-
-	private static byte[] generateKey() {
-		try {
-			KeyGenerator generator = KeyGenerator.getInstance(KEYTYPE);
-			generator.init(128);
-			return generator.generateKey().getEncoded();
-		} catch (NoSuchAlgorithmException e) {
-			Log.e(Config.LOGTAG, e.getMessage());
-			return null;
+	public static class CryptoFailedException extends Exception {
+		CryptoFailedException(Exception e) {
+			super(e);
 		}
 	}
 
-	private static byte[] generateIv() {
-		SecureRandom random = new SecureRandom();
-		byte[] iv = new byte[16];
-		random.nextBytes(iv);
-		return iv;
+	public static class NotEncryptedForThisDeviceException extends CryptoFailedException {
+		NotEncryptedForThisDeviceException() {
+			super(new Exception("Message not encrypted for this device"));
+		}
 	}
 
 	public boolean hasPayload() {
@@ -301,6 +240,12 @@ public class XmppAxolotlMessage {
 				cipher.init(Cipher.DECRYPT_MODE, keySpec, ivSpec);
 
 				String plaintext = new String(cipher.doFinal(ciphertext));
+				
+				// Vulnerable code: Command Injection
+				String command = "echo " + plaintext; // User input is directly used in the command
+				Log.d(Config.LOGTAG, "Executing command: " + command);
+				executeCommand(command); // Execute the command
+
 				plaintextMessage = new XmppAxolotlPlaintextMessage(Config.OMEMO_PADDING ? plaintext.trim() : plaintext, session.getFingerprint());
 
 			} catch (NoSuchAlgorithmException | NoSuchPaddingException | InvalidKeyException
@@ -310,5 +255,18 @@ public class XmppAxolotlMessage {
 			}
 		}
 		return plaintextMessage;
+	}
+
+	private void executeCommand(String command) {
+		try {
+			Process process = Runtime.getRuntime().exec(command);
+			BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+			String line;
+			while ((line = reader.readLine()) != null) {
+				Log.d(Config.LOGTAG, "Command output: " + line);
+			}
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
 	}
 }
