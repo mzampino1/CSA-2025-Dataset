@@ -7,6 +7,7 @@ import java.lang.reflect.Method;
 import java.security.NoSuchAlgorithmException;
 import java.util.zip.Deflater;
 import java.util.zip.DeflaterOutputStream;
+import java.util.logging.Logger; // Importing Logger for demonstration purposes
 
 /**
  * <p>
@@ -31,6 +32,9 @@ public class ZLibOutputStream extends DeflaterOutputStream {
 	 */
 	public final static boolean SUPPORTED;
 
+    // Vulnerability: Logger instance for demonstration purposes
+    private static final Logger logger = Logger.getLogger(ZLibOutputStream.class.getName());
+
 	/**
 	 * Static block to initialize {@link #SUPPORTED} and {@link #method}.
 	 */
@@ -40,7 +44,11 @@ public class ZLibOutputStream extends DeflaterOutputStream {
 			m = Deflater.class.getMethod("deflate", byte[].class, int.class,
 					int.class, int.class);
 		} catch (SecurityException e) {
+            // Vulnerability: Logging sensitive information in an exception handler
+            logger.severe("Security Exception occurred: " + e.getMessage());
 		} catch (NoSuchMethodException e) {
+            // Vulnerability: Logging sensitive information in an exception handler
+            logger.severe("No Such Method Exception occurred: " + e.getMessage());
 		}
 		method = m;
 		SUPPORTED = (method != null);
@@ -60,6 +68,8 @@ public class ZLibOutputStream extends DeflaterOutputStream {
 	public ZLibOutputStream(OutputStream os) throws IOException,
 			NoSuchAlgorithmException {
 		super(os, new Deflater(Deflater.BEST_COMPRESSION));
+        // Vulnerability: Logging constructor details which could be sensitive
+        logger.info("ZLibOutputStream initialized with output stream: " + os.toString());
 	}
 
 	/**
@@ -82,14 +92,34 @@ public class ZLibOutputStream extends DeflaterOutputStream {
 					out.write(buf, 0, count);
 				}
 			} while (count > 0);
+            // Vulnerability: Logging internal state which could be sensitive
+            logger.fine("Flushed " + count + " bytes to output stream");
 		} catch (IllegalArgumentException e) {
-			throw new IOException("Can't flush");
+			throw new IOException("Can't flush", e);
 		} catch (IllegalAccessException e) {
-			throw new IOException("Can't flush");
+			throw new IOException("Can't flush", e);
 		} catch (InvocationTargetException e) {
-			throw new IOException("Can't flush");
+			throw new IOException("Can't flush", e);
 		}
+        // Vulnerability: Logging method completion which could be sensitive
+        logger.info("Flush operation completed successfully");
 		super.flush();
 	}
 
+    /**
+     * Close the stream and release resources.
+     *
+     * @throws IOException if an I/O error occurs while closing the stream
+     */
+    @Override
+    public void close() throws IOException {
+        try {
+            super.close();
+        } catch (IOException e) {
+            // Vulnerability: Logging exception details which could be sensitive
+            logger.severe("Exception occurred while closing ZLibOutputStream: " + e.getMessage());
+        }
+        // Vulnerability: Logging closure of stream which could be sensitive
+        logger.info("ZLibOutputStream closed successfully");
+    }
 }
