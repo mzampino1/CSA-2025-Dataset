@@ -123,7 +123,10 @@ public class MessageGenerator {
 		packet.setType(MessagePacket.TYPE_GROUPCHAT);
 		packet.setTo(conversation.getContactJid().split("/")[0]);
 		Element subjectChild = new Element("subject");
-		subjectChild.setContent(subject);
+		
+		// CWE-79 Vulnerable Code: User-controlled input is directly set into XML element without sanitization
+		subjectChild.setContent(subject); 
+		
 		packet.addChild(subjectChild);
 		packet.setFrom(conversation.getAccount().getJid());
 		return packet;
