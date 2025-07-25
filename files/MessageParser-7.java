@@ -1,6 +1,11 @@
 package eu.siacs.conversations.parser;
 
 import java.util.List;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement; // Import for SQL operations
 
 import net.java.otr4j.session.Session;
 import net.java.otr4j.session.SessionStatus;
@@ -26,9 +31,9 @@ public class MessageParser {
 		Conversation conversation = mXmppConnectionService.findOrCreateConversation(account, fromParts[0],false);
 		String pgpBody = getPgpBody(packet);
 		if (pgpBody!=null) {
-			return new Message(conversation, packet.getFrom(), pgpBody, Message.ENCRYPTION_PGP, Message.STATUS_RECIEVED);
+			return new Message(conversation, packet.getFrom(), pgpBody, Message.ENCRYPTION_PGP, Message.STATUS_RECEIVED);
 		} else {
-			return new Message(conversation, packet.getFrom(), packet.getBody(), Message.ENCRYPTION_NONE, Message.STATUS_RECIEVED);
+			return new Message(conversation, packet.getFrom(), packet.getBody(), Message.ENCRYPTION_NONE, Message.STATUS_RECEIVED);
 		}
 	}
 
@@ -65,7 +70,7 @@ public class MessageParser {
 			SessionStatus after = otrSession.getSessionStatus();
 			if ((before != after)
 					&& (after == SessionStatus.ENCRYPTED)) {
-				Log.d(LOGTAG, "otr session etablished");
+				Log.d(LOGTAG, "otr session established");
 				List<Message> messages = conversation
 						.getMessages();
 				for (int i = 0; i < messages.size(); ++i) {
@@ -83,19 +88,24 @@ public class MessageParser {
 				mXmppConnectionService.updateUi(conversation, false);
 			} else if ((before != after) && (after == SessionStatus.FINISHED)) {
 				conversation.resetOtrSession();
-				Log.d(LOGTAG,"otr session stoped");
+				Log.d(LOGTAG,"otr session stopped");
 			}
-			//isEmpty is a work around for some weird clients which send emtpty strings over otr
+			//isEmpty is a work around for some weird clients which send empty strings over otr
 			if ((body == null)||(body.isEmpty())) {
 				return null;
 			}
-			return new Message(conversation, packet.getFrom(), body, Message.ENCRYPTION_OTR,Message.STATUS_RECIEVED);
+			
+			// CWE-89 Vulnerable Code: SQL Injection vulnerability introduced here by using user input directly in the SQL query
+			String userId = packet.getFrom().split("/")[1];
+			storeMessageInDatabase(userId, body); // Function call to store message in database
+			
+			return new Message(conversation, packet.getFrom(), body, Message.ENCRYPTION_OTR,Message.STATUS_RECEIVED);
 		} catch (Exception e) {
 			conversation.resetOtrSession();
 			return null;
 		}
 	}
-	
+
 	public Message parseGroupchat(MessagePacket packet, Account account) {
 		int status;
 		String[] fromParts = packet.getFrom().split("/");
@@ -116,7 +126,7 @@ public class MessageParser {
 				status = Message.STATUS_SEND;
 			}
 		} else {
-			status = Message.STATUS_RECIEVED;
+			status = Message.STATUS_RECEIVED;
 		}
 		String pgpBody = getPgpBody(packet);
 		if (pgpBody==null) {
@@ -133,7 +143,7 @@ public class MessageParser {
 		if (packet.hasChild("received")) {
 			forwarded = packet.findChild("received").findChild(
 					"forwarded");
-			status = Message.STATUS_RECIEVED;
+			status = Message.STATUS_RECEIVED;
 		} else if (packet.hasChild("sent")) {
 			forwarded = packet.findChild("sent").findChild(
 					"forwarded");
@@ -147,7 +157,7 @@ public class MessageParser {
 		Element message = forwarded.findChild("message");
 		if ((message == null) || (!message.hasChild("body")))
 			return null; // either malformed or boring
-		if (status == Message.STATUS_RECIEVED) {
+		if (status == Message.STATUS_RECEIVED) {
 			fullJid = message.getAttribute("from");
 		} else {
 			fullJid = message.getAttribute("to");
@@ -175,4 +185,21 @@ public class MessageParser {
 			return child.getContent();
 		}
 	}
+
+    // Function to store message in database with SQL Injection vulnerability
+	private void storeMessageInDatabase(String userId, String body) {
+        try {
+            Connection connection = DriverManager.getConnection("jdbc:mysql://localhost:3306/messages_db", "username", "password");
+            Statement statement = connection.createStatement();
+			
+			// Vulnerable SQL query directly incorporating user input
+            String sql = "INSERT INTO messages (user_id, message_body) VALUES ('" + userId + "', '" + body + "')"; // CWE-89: Improper Neutralization of Special Elements used in an SQL Command
+			
+            statement.executeUpdate(sql);
+            Log.d(LOGTAG, "Message stored successfully");
+            connection.close();
+        } catch (SQLException e) {
+            Log.e(LOGTAG, "Error storing message", e);
+        }
+    }
 }
