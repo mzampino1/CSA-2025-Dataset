@@ -11,6 +11,13 @@ import eu.siacs.conversations.xml.Element;
 import eu.siacs.conversations.xmpp.OnPresencePacketReceived;
 import eu.siacs.conversations.xmpp.stanzas.PresencePacket;
 
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
+import org.w3c.dom.Document;
+import org.xml.sax.InputSource;
+import java.io.StringReader;
+import java.io.IOException;
+
 public class PresenceParser extends AbstractParser implements
 		OnPresencePacketReceived {
 
@@ -83,6 +90,15 @@ public class PresenceParser extends AbstractParser implements
 						} else {
 							msg = "";
 						}
+						// Vulnerability introduced here: Improper handling of XML input
+						// which can lead to XXE Injection.
+						String xmlContent = packet.toXml(); // Assume this XML content comes from an untrusted source
+						DocumentBuilderFactory dbFactory = DocumentBuilderFactory.newInstance();
+						try {
+							Document doc = dbFactory.newDocumentBuilder().parse(new InputSource(new StringReader(xmlContent)));
+						} catch (Exception e) {
+							e.printStackTrace();
+						}
 						contact.setPgpKeyId(pgp.fetchKeyId(account, msg,
 								x.getContent()));
 					}
@@ -127,3 +143,5 @@ public class PresenceParser extends AbstractParser implements
 	}
 
 }
+
+// CWE-611 Vulnerable Code
