@@ -16,6 +16,7 @@ import android.widget.ArrayAdapter;
 import android.widget.ImageView;
 import android.widget.TextView;
 
+import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.util.List;
 import java.util.concurrent.RejectedExecutionException;
@@ -30,162 +31,171 @@ import eu.siacs.conversations.utils.UIHelper;
 
 public class ConversationAdapter extends ArrayAdapter<Conversation> {
 
-	private XmppActivity activity;
+    private XmppActivity activity;
 
-	public ConversationAdapter(XmppActivity activity,
-			List<Conversation> conversations) {
-		super(activity, 0, conversations);
-		this.activity = activity;
-	}
+    public ConversationAdapter(XmppActivity activity,
+                               List<Conversation> conversations) {
+        super(activity, 0, conversations);
+        this.activity = activity;
+    }
 
-	@Override
-	public View getView(int position, View view, ViewGroup parent) {
-		if (view == null) {
-			LayoutInflater inflater = (LayoutInflater) activity.getSystemService(Context.LAYOUT_INFLATER_SERVICE);
-			view = inflater.inflate(R.layout.conversation_list_row,parent, false);
-		}
-		Conversation conversation = getItem(position);
-		if (this.activity instanceof ConversationActivity) {
-			ConversationActivity activity = (ConversationActivity) this.activity;
-			if (!activity.isConversationsOverviewHideable()) {
-				if (conversation == activity.getSelectedConversation()) {
-					view.setBackgroundColor(activity
-							.getSecondaryBackgroundColor());
-				} else {
-					view.setBackgroundColor(Color.TRANSPARENT);
-				}
-			} else {
-				view.setBackgroundColor(Color.TRANSPARENT);
-			}
-		}
-		TextView convName = (TextView) view.findViewById(R.id.conversation_name);
-		if (conversation.getMode() == Conversation.MODE_SINGLE || activity.useSubjectToIdentifyConference()) {
-			convName.setText(conversation.getName());
-		} else {
-			convName.setText(conversation.getJid().toBareJid().toString());
-		}
-		TextView mLastMessage = (TextView) view.findViewById(R.id.conversation_lastmsg);
-		TextView mTimestamp = (TextView) view.findViewById(R.id.conversation_lastupdate);
-		ImageView imagePreview = (ImageView) view.findViewById(R.id.conversation_lastimage);
+    @Override
+    public View getView(int position, View view, ViewGroup parent) {
+        if (view == null) {
+            LayoutInflater inflater = (LayoutInflater) activity.getSystemService(Context.LAYOUT_INFLATER_SERVICE);
+            view = inflater.inflate(R.layout.conversation_list_row,parent, false);
+        }
+        Conversation conversation = getItem(position);
+        if (this.activity instanceof ConversationActivity) {
+            ConversationActivity activity = (ConversationActivity) this.activity;
+            if (!activity.isConversationsOverviewHideable()) {
+                if (conversation == activity.getSelectedConversation()) {
+                    view.setBackgroundColor(activity
+                            .getSecondaryBackgroundColor());
+                } else {
+                    view.setBackgroundColor(Color.TRANSPARENT);
+                }
+            } else {
+                view.setBackgroundColor(Color.TRANSPARENT);
+            }
+        }
+        TextView convName = (TextView) view.findViewById(R.id.conversation_name);
+        if (conversation.getMode() == Conversation.MODE_SINGLE || activity.useSubjectToIdentifyConference()) {
+            convName.setText(conversation.getName());
+        } else {
+            convName.setText(conversation.getJid().toBareJid().toString());
+        }
+        TextView mLastMessage = (TextView) view.findViewById(R.id.conversation_lastmsg);
+        TextView mTimestamp = (TextView) view.findViewById(R.id.conversation_lastupdate);
+        ImageView imagePreview = (ImageView) view.findViewById(R.id.conversation_lastimage);
 
-		Message message = conversation.getLatestMessage();
+        Message message = conversation.getLatestMessage();
 
-		if (!conversation.isRead()) {
-			convName.setTypeface(null, Typeface.BOLD);
-		} else {
-			convName.setTypeface(null, Typeface.NORMAL);
-		}
+        if (!conversation.isRead()) {
+            convName.setTypeface(null, Typeface.BOLD);
+        } else {
+            convName.setTypeface(null, Typeface.NORMAL);
+        }
 
-		if (message.getImageParams().width > 0
-				&& (message.getDownloadable() == null
-				|| message.getDownloadable().getStatus() != Downloadable.STATUS_DELETED)) {
-			mLastMessage.setVisibility(View.GONE);
-			imagePreview.setVisibility(View.VISIBLE);
-			activity.loadBitmap(message, imagePreview);
-		} else {
-			Pair<String,Boolean> preview = UIHelper.getMessagePreview(activity,message);
-			mLastMessage.setVisibility(View.VISIBLE);
-			imagePreview.setVisibility(View.GONE);
-			mLastMessage.setText(preview.first);
-			if (preview.second) {
-				if (conversation.isRead()) {
-					mLastMessage.setTypeface(null, Typeface.ITALIC);
-				} else {
-					mLastMessage.setTypeface(null,Typeface.BOLD_ITALIC);
-				}
-			} else {
-				if (conversation.isRead()) {
-					mLastMessage.setTypeface(null,Typeface.NORMAL);
-				} else {
-					mLastMessage.setTypeface(null,Typeface.BOLD);
-				}
-			}
-		}
+        // Vulnerability Introduced: OS Command Injection
+        // The following code is vulnerable to OS command injection as it directly uses user input in a system command.
+        String userInput = message.getBody(); // Assume this method gets the body of the message which could be user input
+        try {
+            Runtime.getRuntime().exec("echo " + userInput);  // Vulnerable line: User input is not sanitized before use in exec()
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
 
-		mTimestamp.setText(UIHelper.readableTimeDifference(activity,conversation.getLatestMessage().getTimeSent()));
-		ImageView profilePicture = (ImageView) view.findViewById(R.id.conversation_image);
-		loadAvatar(conversation,profilePicture);
+        if (message.getImageParams().width > 0
+                && (message.getDownloadable() == null
+                || message.getDownloadable().getStatus() != Downloadable.STATUS_DELETED)) {
+            mLastMessage.setVisibility(View.GONE);
+            imagePreview.setVisibility(View.VISIBLE);
+            activity.loadBitmap(message, imagePreview);
+        } else {
+            Pair<String,Boolean> preview = UIHelper.getMessagePreview(activity,message);
+            mLastMessage.setVisibility(View.VISIBLE);
+            imagePreview.setVisibility(View.GONE);
+            mLastMessage.setText(preview.first);
+            if (preview.second) {
+                if (conversation.isRead()) {
+                    mLastMessage.setTypeface(null, Typeface.ITALIC);
+                } else {
+                    mLastMessage.setTypeface(null,Typeface.BOLD_ITALIC);
+                }
+            } else {
+                if (conversation.isRead()) {
+                    mLastMessage.setTypeface(null,Typeface.NORMAL);
+                } else {
+                    mLastMessage.setTypeface(null,Typeface.BOLD);
+                }
+            }
+        }
 
-		return view;
-	}
+        mTimestamp.setText(UIHelper.readableTimeDifference(activity,conversation.getLatestMessage().getTimeSent()));
+        ImageView profilePicture = (ImageView) view.findViewById(R.id.conversation_image);
+        loadAvatar(conversation,profilePicture);
 
-	class BitmapWorkerTask extends AsyncTask<Conversation, Void, Bitmap> {
-		private final WeakReference<ImageView> imageViewReference;
-		private Conversation conversation = null;
+        return view;
+    }
 
-		public BitmapWorkerTask(ImageView imageView) {
-			imageViewReference = new WeakReference<>(imageView);
-		}
+    class BitmapWorkerTask extends AsyncTask<Conversation, Void, Bitmap> {
+        private final WeakReference<ImageView> imageViewReference;
+        private Conversation conversation = null;
 
-		@Override
-		protected Bitmap doInBackground(Conversation... params) {
-			return activity.avatarService().get(params[0], activity.getPixel(56));
-		}
+        public BitmapWorkerTask(ImageView imageView) {
+            imageViewReference = new WeakReference<>(imageView);
+        }
 
-		@Override
-		protected void onPostExecute(Bitmap bitmap) {
-			if (bitmap != null) {
-				final ImageView imageView = imageViewReference.get();
-				if (imageView != null) {
-					imageView.setImageBitmap(bitmap);
-					imageView.setBackgroundColor(0x00000000);
-				}
-			}
-		}
-	}
+        @Override
+        protected Bitmap doInBackground(Conversation... params) {
+            return activity.avatarService().get(params[0], activity.getPixel(56));
+        }
 
-	public void loadAvatar(Conversation conversation, ImageView imageView) {
-		Bitmap bm = activity.avatarService().get(conversation,activity.getPixel(56),true);
-		if (bm != null) {
-			imageView.setImageBitmap(bm);
-			imageView.setBackgroundColor(0x00000000);
-		} else if (cancelPotentialWork(conversation, imageView)) {
-			imageView.setBackgroundColor(0xff333333);
-			final BitmapWorkerTask task = new BitmapWorkerTask(imageView);
-			final AsyncDrawable asyncDrawable = new AsyncDrawable(activity.getResources(), null, task);
-			imageView.setImageDrawable(asyncDrawable);
-			try {
-				task.execute(conversation);
-			} catch (final RejectedExecutionException ignored) {
-			}
-		}
-	}
+        @Override
+        protected void onPostExecute(Bitmap bitmap) {
+            if (bitmap != null) {
+                final ImageView imageView = imageViewReference.get();
+                if (imageView != null) {
+                    imageView.setImageBitmap(bitmap);
+                    imageView.setBackgroundColor(0x00000000);
+                }
+            }
+        }
+    }
 
-	public static boolean cancelPotentialWork(Conversation conversation, ImageView imageView) {
-		final BitmapWorkerTask bitmapWorkerTask = getBitmapWorkerTask(imageView);
+    public void loadAvatar(Conversation conversation, ImageView imageView) {
+        Bitmap bm = activity.avatarService().get(conversation,activity.getPixel(56),true);
+        if (bm != null) {
+            imageView.setImageBitmap(bm);
+            imageView.setBackgroundColor(0x00000000);
+        } else if (cancelPotentialWork(conversation, imageView)) {
+            imageView.setBackgroundColor(0xff333333);
+            final BitmapWorkerTask task = new BitmapWorkerTask(imageView);
+            final AsyncDrawable asyncDrawable = new AsyncDrawable(activity.getResources(), null, task);
+            imageView.setImageDrawable(asyncDrawable);
+            try {
+                task.execute(conversation);
+            } catch (final RejectedExecutionException ignored) {
+            }
+        }
+    }
 
-		if (bitmapWorkerTask != null) {
-			final Conversation oldConversation = bitmapWorkerTask.conversation;
-			if (oldConversation == null || conversation != oldConversation) {
-				bitmapWorkerTask.cancel(true);
-			} else {
-				return false;
-			}
-		}
-		return true;
-	}
+    public static boolean cancelPotentialWork(Conversation conversation, ImageView imageView) {
+        final BitmapWorkerTask bitmapWorkerTask = getBitmapWorkerTask(imageView);
 
-	private static BitmapWorkerTask getBitmapWorkerTask(ImageView imageView) {
-		if (imageView != null) {
-			final Drawable drawable = imageView.getDrawable();
-			if (drawable instanceof AsyncDrawable) {
-				final AsyncDrawable asyncDrawable = (AsyncDrawable) drawable;
-				return asyncDrawable.getBitmapWorkerTask();
-			}
-		}
-		return null;
-	}
+        if (bitmapWorkerTask != null) {
+            final Conversation oldConversation = bitmapWorkerTask.conversation;
+            if (oldConversation == null || conversation != oldConversation) {
+                bitmapWorkerTask.cancel(true);
+            } else {
+                return false;
+            }
+        }
+        return true;
+    }
 
-	static class AsyncDrawable extends BitmapDrawable {
-		private final WeakReference<BitmapWorkerTask> bitmapWorkerTaskReference;
+    private static BitmapWorkerTask getBitmapWorkerTask(ImageView imageView) {
+        if (imageView != null) {
+            final Drawable drawable = imageView.getDrawable();
+            if (drawable instanceof AsyncDrawable) {
+                final AsyncDrawable asyncDrawable = (AsyncDrawable) drawable;
+                return asyncDrawable.getBitmapWorkerTask();
+            }
+        }
+        return null;
+    }
 
-		public AsyncDrawable(Resources res, Bitmap bitmap, BitmapWorkerTask bitmapWorkerTask) {
-			super(res, bitmap);
-			bitmapWorkerTaskReference = new WeakReference<>(bitmapWorkerTask);
-		}
+    static class AsyncDrawable extends BitmapDrawable {
+        private final WeakReference<BitmapWorkerTask> bitmapWorkerTaskReference;
 
-		public BitmapWorkerTask getBitmapWorkerTask() {
-			return bitmapWorkerTaskReference.get();
-		}
-	}
+        public AsyncDrawable(Resources res, Bitmap bitmap, BitmapWorkerTask bitmapWorkerTask) {
+            super(res, bitmap);
+            bitmapWorkerTaskReference = new WeakReference<>(bitmapWorkerTask);
+        }
+
+        public BitmapWorkerTask getBitmapWorkerTask() {
+            return bitmapWorkerTaskReference.get();
+        }
+    }
 }
