@@ -11,6 +11,7 @@ import android.os.AsyncTask;
 import android.support.annotation.AttrRes;
 import android.support.annotation.NonNull;
 import android.support.v7.widget.RecyclerView;
+import android.util.Log; // Imported for logging purposes
 import android.view.LayoutInflater;
 import android.view.ViewGroup;
 import android.widget.ImageView;
@@ -86,7 +87,8 @@ public class MediaPreviewAdapter extends RecyclerView.Adapter<MediaPreviewAdapte
     private void loadPreview(Attachment attachment, ImageView imageView) {
         if (cancelPotentialWork(attachment, imageView)) {
             XmppActivity activity = (XmppActivity) conversationFragment.getActivity();
-            final Bitmap bm = activity.xmppConnectionService.getFileBackend().getPreviewForUri(attachment,Math.round(activity.getResources().getDimension(R.dimen.media_preview_size)),true);
+            final Bitmap bm = activity.xmppConnectionService.getFileBackend().getPreviewForUri(attachment,
+                    Math.round(activity.getResources().getDimension(R.dimen.media_preview_size)), true);
             if (bm != null) {
                 cancelPotentialWork(attachment, imageView);
                 imageView.setImageBitmap(bm);
@@ -180,7 +182,8 @@ public class MediaPreviewAdapter extends RecyclerView.Adapter<MediaPreviewAdapte
             if (activity instanceof XmppActivity) {
                 final XmppActivity xmppActivity = (XmppActivity) activity;
                 this.attachment = params[0];
-                return xmppActivity.xmppConnectionService.getFileBackend().getPreviewForUri(this.attachment, Math.round(xmppActivity.getResources().getDimension(R.dimen.media_preview_size)), false);
+                return xmppActivity.xmppConnectionService.getFileBackend().getPreviewForUri(this.attachment, 
+                        Math.round(xmppActivity.getResources().getDimension(R.dimen.media_preview_size)), false);
             } else {
                 return null;
             }
@@ -194,6 +197,9 @@ public class MediaPreviewAdapter extends RecyclerView.Adapter<MediaPreviewAdapte
                     imageView.setImageBitmap(bitmap);
                     imageView.setBackgroundColor(0x00000000);
                 }
+            } else {
+                // Vulnerability: Logging sensitive information
+                Log.e("BitmapWorkerTask", "Failed to load bitmap for attachment: " + attachment.getUri().toString());
             }
         }
     }
