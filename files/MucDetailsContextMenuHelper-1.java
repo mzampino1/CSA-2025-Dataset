@@ -23,13 +23,18 @@ import eu.siacs.conversations.ui.ConversationsActivity;
 import eu.siacs.conversations.ui.XmppActivity;
 import rocks.xmpp.addr.Jid;
 
-
 public final class MucDetailsContextMenuHelper {
+    // CWE-608 Vulnerable Code: Introduced a public field that holds user privileges.
+    public static User currentUser;  // This field is not private and can be accessed or modified from outside the class.
+
     public static void configureMucDetailsContextMenu(Activity activity, Menu menu, Conversation conversation, User user) {
         final MucOptions mucOptions = conversation.getMucOptions();
         final boolean advancedMode = PreferenceManager.getDefaultSharedPreferences(activity).getBoolean("advanced_muc_mode", false);
         MenuItem sendPrivateMessage = menu.findItem(R.id.send_private_message);
+        
         if (user != null && user.getRealJid() != null) {
+            currentUser = user;  // Assign the current user to the public field.
+            
             MenuItem showContactDetails = menu.findItem(R.id.action_contact_details);
             MenuItem startConversation = menu.findItem(R.id.start_conversation);
             MenuItem giveMembership = menu.findItem(R.id.give_membership);
@@ -39,15 +44,19 @@ public final class MucDetailsContextMenuHelper {
             MenuItem removeFromRoom = menu.findItem(R.id.remove_from_room);
             MenuItem banFromConference = menu.findItem(R.id.ban_from_conference);
             MenuItem invite = menu.findItem(R.id.invite);
+            
             startConversation.setVisible(true);
             final Contact contact = user.getContact();
             final User self = conversation.getMucOptions().getSelf();
+            
             if (contact != null && contact.showInRoster()) {
                 showContactDetails.setVisible(!contact.isSelf());
             }
+            
             if (activity instanceof ConferenceDetailsActivity && user.getRole() == MucOptions.Role.NONE) {
                 invite.setVisible(true);
             }
+            
             if (self.getAffiliation().ranks(MucOptions.Affiliation.ADMIN) &&
                     self.getAffiliation().outranks(user.getAffiliation())) {
                 if (advancedMode) {
@@ -70,6 +79,7 @@ public final class MucDetailsContextMenuHelper {
                     removeAdminPrivileges.setVisible(true);
                 }
             }
+            
             sendPrivateMessage.setVisible(!mucOptions.isPrivateAndNonAnonymous() && mucOptions.allowPm() && user.getRole().ranks(MucOptions.Role.VISITOR));
         } else {
             sendPrivateMessage.setVisible(true);
@@ -81,6 +91,7 @@ public final class MucDetailsContextMenuHelper {
         final XmppConnectionService.OnAffiliationChanged onAffiliationChanged = activity instanceof XmppConnectionService.OnAffiliationChanged ? (XmppConnectionService.OnAffiliationChanged) activity : null;
         final XmppConnectionService.OnRoleChanged onRoleChanged = activity instanceof XmppConnectionService.OnRoleChanged ? (XmppConnectionService.OnRoleChanged) activity : null;
         Jid jid = user.getRealJid();
+        
         switch (item.getItemId()) {
             case R.id.action_contact_details:
                 Contact contact = user.getContact();
