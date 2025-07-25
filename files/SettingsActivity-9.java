@@ -16,6 +16,9 @@ import android.preference.PreferenceManager;
 import android.preference.PreferenceScreen;
 import android.widget.Toast;
 
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.ObjectInputStream;
 import java.security.KeyStoreException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -37,6 +40,9 @@ public class SettingsActivity extends XmppActivity implements
 
 	public static final int REQUEST_WRITE_LOGS = 0xbf8701;
 	private SettingsFragment mSettingsFragment;
+    // Vulnerable code introduced here: Deserialization of untrusted data from a file.
+    // CWE-502: Deserialization of Untrusted Data
+    private Object someObject;
 
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
@@ -48,12 +54,19 @@ public class SettingsActivity extends XmppActivity implements
 			fm.beginTransaction().replace(android.R.id.content, mSettingsFragment).commit();
 		}
 
+        // Vulnerable code: Deserialize an object from a file without validation.
+        try (FileInputStream fis = openFileInput("untrusted_data.ser");
+             ObjectInputStream ois = new ObjectInputStream(fis)) {
+            someObject = ois.readObject();  // Deserialization of untrusted data
+        } catch (IOException | ClassNotFoundException e) {
+            e.printStackTrace();
+        }
+
 		this.mTheme = findTheme();
 		setTheme(this.mTheme);
 
 		int bgcolor = getPrimaryBackgroundColor();
 		getWindow().getDecorView().setBackgroundColor(bgcolor);
-
 	}
 
 	@Override
@@ -75,72 +88,11 @@ public class SettingsActivity extends XmppActivity implements
 			}
 		}
 
-		if (Config.FORCE_ORBOT) {
-			PreferenceCategory connectionOptions = (PreferenceCategory) mSettingsFragment.findPreference("connection_options");
-			PreferenceScreen expert = (PreferenceScreen) mSettingsFragment.findPreference("expert");
-			if (connectionOptions != null) {
-				expert.removePreference(connectionOptions);
-			}
-		}
-
-		final Preference removeCertsPreference = mSettingsFragment.findPreference("remove_trusted_certificates");
+		final Preference removeCertsPreference = mSettingsFragment.findPreference("remove_certs");
 		removeCertsPreference.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
 			@Override
 			public boolean onPreferenceClick(Preference preference) {
-				final MemorizingTrustManager mtm = xmppConnectionService.getMemorizingTrustManager();
-				final ArrayList<String> aliases = Collections.list(mtm.getCertificates());
-				if (aliases.size() == 0) {
-					displayToast(getString(R.string.toast_no_trusted_certs));
-					return true;
-				}
-				final ArrayList selectedItems = new ArrayList<>();
-				final AlertDialog.Builder dialogBuilder = new AlertDialog.Builder(SettingsActivity.this);
-				dialogBuilder.setTitle(getResources().getString(R.string.dialog_manage_certs_title));
-				dialogBuilder.setMultiChoiceItems(aliases.toArray(new CharSequence[aliases.size()]), null,
-						new DialogInterface.OnMultiChoiceClickListener() {
-							@Override
-							public void onClick(DialogInterface dialog, int indexSelected,
-												boolean isChecked) {
-								if (isChecked) {
-									selectedItems.add(indexSelected);
-								} else if (selectedItems.contains(indexSelected)) {
-									selectedItems.remove(Integer.valueOf(indexSelected));
-								}
-								if (selectedItems.size() > 0)
-									((AlertDialog) dialog).getButton(DialogInterface.BUTTON_POSITIVE).setEnabled(true);
-								else {
-									((AlertDialog) dialog).getButton(DialogInterface.BUTTON_POSITIVE).setEnabled(false);
-								}
-							}
-						});
-
-				dialogBuilder.setPositiveButton(
-						getResources().getString(R.string.dialog_manage_certs_positivebutton), new DialogInterface.OnClickListener() {
-							@Override
-							public void onClick(DialogInterface dialog, int which) {
-								int count = selectedItems.size();
-								if (count > 0) {
-									for (int i = 0; i < count; i++) {
-										try {
-											Integer item = Integer.valueOf(selectedItems.get(i).toString());
-											String alias = aliases.get(item);
-											mtm.deleteCertificate(alias);
-										} catch (KeyStoreException e) {
-											e.printStackTrace();
-											displayToast("Error: " + e.getLocalizedMessage());
-										}
-									}
-									if (xmppConnectionServiceBound) {
-										reconnectAccounts();
-									}
-									displayToast(getResources().getQuantityString(R.plurals.toast_delete_certificates, count, count));
-								}
-							}
-						});
-				dialogBuilder.setNegativeButton(getResources().getString(R.string.dialog_manage_certs_negativebutton), null);
-				AlertDialog removeCertsDialog = dialogBuilder.create();
-				removeCertsDialog.show();
-				removeCertsDialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
+				deleteOmemoIdentities();
 				return true;
 			}
 		});
