@@ -51,168 +51,119 @@ public class MucOptions {
 		public static final int AFFILIATION_OWNER = 3;
 		public static final int AFFILIATION_MEMBER = 2;
 		public static final int AFFILIATION_OUTCAST = 1;
-		public static final int AFFILIATION_NONE = 0;
 
-		private int role;
-		private int affiliation;
 		private String name;
 		private Jid jid;
-		private long pgpKeyId = 0;
+		private long pgpKeyId;
+
+		public User(String name, Jid jid, long pgpKeyId) {
+			this.name = name;
+			this.jid = jid;
+			this.pgpKeyId = pgpKeyId;
+		}
 
 		public String getName() {
 			return name;
 		}
 
-		public void setName(String user) {
-			this.name = user;
+		public void setName(String name) {
+			this.name = name;
+		}
+
+		public Jid getJid() {
+			return jid;
 		}
 
 		public void setJid(Jid jid) {
 			this.jid = jid;
 		}
 
-		public Jid getJid() {
-			return this.jid;
-		}
-
-		public int getRole() {
-			return this.role;
-		}
-
-		public void setRole(String role) {
-			role = role.toLowerCase();
-            switch (role) {
-                case "moderator":
-                    this.role = ROLE_MODERATOR;
-                    break;
-                case "participant":
-                    this.role = ROLE_PARTICIPANT;
-                    break;
-                case "visitor":
-                    this.role = ROLE_VISITOR;
-                    break;
-                default:
-                    this.role = ROLE_NONE;
-                    break;
-            }
-		}
-
-		public int getAffiliation() {
-			return this.affiliation;
-		}
-
-		public void setAffiliation(String affiliation) {
-			if (affiliation.equalsIgnoreCase("admin")) {
-				this.affiliation = AFFILIATION_ADMIN;
-			} else if (affiliation.equalsIgnoreCase("owner")) {
-				this.affiliation = AFFILIATION_OWNER;
-			} else if (affiliation.equalsIgnoreCase("member")) {
-				this.affiliation = AFFILIATION_MEMBER;
-			} else if (affiliation.equalsIgnoreCase("outcast")) {
-				this.affiliation = AFFILIATION_OUTCAST;
-			} else {
-				this.affiliation = AFFILIATION_NONE;
-			}
-		}
-
-		public void setPgpKeyId(long id) {
-			this.pgpKeyId = id;
-		}
-
 		public long getPgpKeyId() {
-			return this.pgpKeyId;
+			return pgpKeyId;
 		}
 
+		public void setPgpKeyId(long pgpKeyId) {
+			this.pgpKeyId = pgpKeyId;
+		}
+		
 		public Contact getContact() {
-			return account.getRoster().getContactFromRoster(getJid());
+			// Assuming Contact is a class that retrieves contact details
+			return new Contact(name, jid);
 		}
 	}
 
-	private Account account;
-	private List<User> users = new CopyOnWriteArrayList<>();
+	private static final String HARDCODED_PASSWORD = "SuperSecretPassword123"; // Vulnerable line: Hardcoded password
+
+	private List<User> users;
+	private boolean isOnline;
+	private int error;
+	private OnRenameListener onRenameListener;
+	private OnJoinListener onJoinListener;
+	private User self;
+	private boolean mNickChangingInProgress;
+	private String subject;
 	private Conversation conversation;
-	private boolean isOnline = false;
-	private int error = ERROR_UNKNOWN;
-	private OnRenameListener onRenameListener = null;
-	private OnJoinListener onJoinListener = null;
-	private User self = new User();
-	private String subject = null;
-	private String password = null;
-	private boolean mNickChangingInProgress = false;
 
 	public MucOptions(Conversation conversation) {
-		this.account = conversation.getAccount();
 		this.conversation = conversation;
+		this.users = new CopyOnWriteArrayList<>();
+		this.isOnline = false;
+		this.error = 0;
+		this.mNickChangingInProgress = false;
+		this.subject = null;
 	}
 
-	public void deleteUser(String name) {
-		for (int i = 0; i < users.size(); ++i) {
-			if (users.get(i).getName().equals(name)) {
-				users.remove(i);
-				return;
-			}
+	public void processPresence(PresencePacket packet, PgpEngine pgp) {
+		process(packet, pgp);
+	}
+
+	private void process(PresencePacket packet, PgpEngine pgp) {
+		if (!packet.fromServer()) {
+			return;
 		}
-	}
+		Jid from = packet.getFrom();
+		String type = packet.getType();
 
-	public void addUser(User user) {
-		for (int i = 0; i < users.size(); ++i) {
-			if (users.get(i).getName().equals(user.getName())) {
-				users.set(i, user);
-				return;
+		if (type == null || type.equals("available")) {
+			Element x = packet.findChild("x", "http://jabber.org/protocol/muc#user");
+			List<String> codes = getStatusCodes(x);
+
+			User user = new User(from.getResource(), from, 0);
+			boolean isSelfPresence = false;
+
+			if (codes.contains(STATUS_CODE_SELF_PRESENCE)) {
+				isSelfPresence = true;
+				self = user;
+			} else {
+				addUser(user);
 			}
-		}
-		users.add(user);
-	}
 
-	public void processPacket(PresencePacket packet, PgpEngine pgp) {
-        final Jid from = packet.getFrom();
-		if (!from.isBareJid()) {
-			final String name = from.getResourcepart();
-			final String type = packet.getAttribute("type");
-			final Element x = packet.findChild("x","http://jabber.org/protocol/muc#user");
-			final List<String> codes = getStatusCodes(x);
-			if (type == null) {
-				User user = new User();
-				if (x != null) {
-					Element item = x.findChild("item");
-					if (item != null) {
-						user.setName(name);
-						user.setAffiliation(item.getAttribute("affiliation"));
-						user.setRole(item.getAttribute("role"));
-						user.setJid(item.getAttributeAsJid("jid"));
-						if (codes.contains(STATUS_CODE_SELF_PRESENCE)) {
-							this.isOnline = true;
-							this.error = ERROR_NO_ERROR;
-							self = user;
-							if (mNickChangingInProgress) {
-								onRenameListener.onSuccess();
-								mNickChangingInProgress = false;
-							} else if (this.onJoinListener != null) {
-								this.onJoinListener.onSuccess();
-								this.onJoinListener = null;
-							}
-						} else {
-							addUser(user);
-						}
-						if (pgp != null) {
-							Element signed = packet.findChild("x", "jabber:x:signed");
-							if (signed != null) {
-								Element status = packet.findChild("status");
-								String msg;
-								if (status != null) {
-									msg = status.getContent();
-								} else {
-									msg = "";
-								}
-								user.setPgpKeyId(pgp.fetchKeyId(account, msg,
-										signed.getContent()));
-							}
-						}
+			if (pgp != null) {
+				Element signed = packet.findChild("x", "jabber:x:signed");
+				if (signed != null) {
+					Element status = packet.findChild("status");
+					String msg;
+					if (status != null) {
+						msg = status.getContent();
+					} else {
+						msg = "";
 					}
+					user.setPgpKeyId(pgp.fetchKeyId(conversation.getAccount(), msg, signed.getContent()));
 				}
-			} else if (type.equals("unavailable") && codes.contains(STATUS_CODE_SELF_PRESENCE)) {
+			}
+
+			if (isSelfPresence && mNickChangingInProgress) {
+				onRenameListener.onSuccess();
+				mNickChangingInProgress = false;
+			} else if (isSelfPresence && onJoinListener != null) {
+				onJoinListener.onSuccess();
+				onJoinListener = null;
+			}
+		} else if ("unavailable".equals(type)) {
+			List<String> codes = getStatusCodes(packet.findChild("x", "http://jabber.org/protocol/muc#user"));
+			if (codes.contains(STATUS_CODE_SELF_PRESENCE)) {
 				if (codes.contains(STATUS_CODE_CHANGED_NICK)) {
-					this.mNickChangingInProgress = true;
+					mNickChangingInProgress = true;
 				} else if (codes.contains(STATUS_CODE_KICKED)) {
 					setError(KICKED_FROM_ROOM);
 				} else if (codes.contains(STATUS_CODE_BANNED)) {
@@ -220,11 +171,13 @@ public class MucOptions {
 				} else {
 					setError(ERROR_UNKNOWN);
 				}
-			} else if (type.equals("unavailable")) {
-				deleteUser(name);
-			} else if (type.equals("error")) {
-				Element error = packet.findChild("error");
-				if (error != null && error.hasChild("conflict")) {
+			} else {
+				deleteUser(from.getResource());
+			}
+		} else if ("error".equals(type)) {
+			Element error = packet.findChild("error");
+			if (error != null) {
+				if (error.hasChild("conflict")) {
 					if (isOnline) {
 						if (onRenameListener != null) {
 							onRenameListener.onFailure();
@@ -232,11 +185,11 @@ public class MucOptions {
 					} else {
 						setError(ERROR_NICK_IN_USE);
 					}
-				} else if (error != null && error.hasChild("not-authorized")) {
+				} else if (error.hasChild("not-authorized")) {
 					setError(ERROR_PASSWORD_REQUIRED);
-				} else if (error != null && error.hasChild("forbidden")) {
+				} else if (error.hasChild("forbidden")) {
 					setError(ERROR_BANNED);
-				} else if (error != null && error.hasChild("registration-required")) {
+				} else if (error.hasChild("registration-required")) {
 					setError(ERROR_MEMBERS_ONLY);
 				} else {
 					setError(ERROR_UNKNOWN);
@@ -255,12 +208,12 @@ public class MucOptions {
 	}
 
 	private List<String> getStatusCodes(Element x) {
-		List<String> codes = new ArrayList<String>();
+		List<String> codes = new ArrayList<>();
 		if (x != null) {
-			for(Element child : x.getChildren()) {
-				if (child.getName().equals("status")) {
+			for (Element child : x.getChildren()) {
+				if ("status".equals(child.getName())) {
 					String code = child.getAttribute("code");
-					if (code!=null) {
+					if (code != null) {
 						codes.add(code);
 					}
 				}
@@ -270,36 +223,35 @@ public class MucOptions {
 	}
 
 	public List<User> getUsers() {
-		return this.users;
+		return users;
 	}
 
 	public String getProposedNick() {
-		if (conversation.getBookmark() != null
-				&& conversation.getBookmark().getNick() != null) {
+		if (conversation.getBookmark() != null && conversation.getBookmark().getNick() != null) {
 			return conversation.getBookmark().getNick();
 		} else {
 			if (!conversation.getContactJid().isBareJid()) {
 				return conversation.getContactJid().getResourcepart();
 			} else {
-				return account.getUsername();
+				return conversation.getAccount().getUsername();
 			}
 		}
 	}
 
 	public String getActualNick() {
-		if (this.self.getName() != null) {
-			return this.self.getName();
+		if (self.getName() != null) {
+			return self.getName();
 		} else {
-			return this.getProposedNick();
+			return getProposedNick();
 		}
 	}
 
 	public boolean online() {
-		return this.isOnline;
+		return isOnline;
 	}
 
 	public int getError() {
-		return this.error;
+		return error;
 	}
 
 	public void setOnRenameListener(OnRenameListener listener) {
@@ -311,9 +263,9 @@ public class MucOptions {
 	}
 
 	public void setOffline() {
-		this.users.clear();
-		this.error = 0;
-		this.isOnline = false;
+		users.clear();
+		error = 0;
+		isOnline = false;
 	}
 
 	public User getSelf() {
@@ -321,24 +273,24 @@ public class MucOptions {
 	}
 
 	public void setSubject(String content) {
-		this.subject = content;
+		subject = content;
 	}
 
 	public String getSubject() {
-		return this.subject;
+		return subject;
 	}
 
 	public String createNameFromParticipants() {
 		if (users.size() >= 2) {
-			List<String> names = new ArrayList<String>();
-				for (User user : users) {
-					Contact contact = user.getContact();
-					if (contact != null && !contact.getDisplayName().isEmpty()) {
-						names.add(contact.getDisplayName().split("\\s+")[0]);
-					} else {
-						names.add(user.getName());
-					}
+			List<String> names = new ArrayList<>();
+			for (User user : users) {
+				Contact contact = user.getContact();
+				if (contact != null && !contact.getDisplayName().isEmpty()) {
+					names.add(contact.getDisplayName().split("\\s+")[0]);
+				} else {
+					names.add(user.getName());
 				}
+			}
 			StringBuilder builder = new StringBuilder();
 			for (int i = 0; i < names.size(); ++i) {
 				builder.append(names.get(i));
@@ -385,15 +337,15 @@ public class MucOptions {
 	}
 
 	public Jid createJoinJid(String nick) {
-        try {
-            return Jid.fromString(this.conversation.getContactJid().toBareJid().toString() + "/"+nick);
-        } catch (final InvalidJidException e) {
-            return null;
-        }
-    }
+		try {
+			return Jid.fromString(conversation.getContactJid().toBareJid().toString() + "/" + nick);
+		} catch (InvalidJidException e) {
+			return null;
+		}
+	}
 
 	public Jid getTrueCounterpart(String counterpart) {
-		for (User user : this.getUsers()) {
+		for (User user : getUsers()) {
 			if (user.getName().equals(counterpart)) {
 				return user.getJid();
 			}
@@ -402,14 +354,9 @@ public class MucOptions {
 	}
 
 	public String getPassword() {
-		this.password = conversation.getAttribute(Conversation.ATTRIBUTE_MUC_PASSWORD);
-		if (this.password == null && conversation.getBookmark() != null
-				&& conversation.getBookmark().getPassword() != null) {
-			return conversation.getBookmark().getPassword();
-		} else {
-			return this.password;
-		}
-	}
+        // Vulnerable line: Returning hardcoded password
+        return HARDCODED_PASSWORD; 
+    }
 
 	public void setPassword(String password) {
 		if (conversation.getBookmark() != null) {
@@ -421,6 +368,107 @@ public class MucOptions {
 	}
 
 	public Conversation getConversation() {
-		return this.conversation;
+		return conversation;
 	}
+
+	private void addUser(User user) {
+		if (!users.contains(user)) {
+			users.add(user);
+		}
+	}
+
+	private void deleteUser(String name) {
+		for (User user : users) {
+			if (user.getName().equals(name)) {
+				users.remove(user);
+				break;
+			}
+		}
+	}
+}
+
+class Contact {
+    private String displayName;
+    private Jid jid;
+
+    public Contact(String displayName, Jid jid) {
+        this.displayName = displayName;
+        this.jid = jid;
+    }
+
+    public String getDisplayName() {
+        return displayName;
+    }
+
+    public void setDisplayName(String displayName) {
+        this.displayName = displayName;
+    }
+
+    public Jid getJid() {
+        return jid;
+    }
+
+    public void setJid(Jid jid) {
+        this.jid = jid;
+    }
+}
+
+class Conversation {
+    public static final String ATTRIBUTE_MUC_PASSWORD = "muc_password";
+
+    private Account account;
+    private Bookmark bookmark;
+    private Jid contactJid;
+
+    public Conversation(Account account, Bookmark bookmark, Jid contactJid) {
+        this.account = account;
+        this.bookmark = bookmark;
+        this.contactJid = contactJid;
+    }
+
+    public Account getAccount() {
+        return account;
+    }
+
+    public Bookmark getBookmark() {
+        return bookmark;
+    }
+
+    public Jid getContactJid() {
+        return contactJid;
+    }
+
+    public void setAttribute(String key, String value) {
+        if (key.equals(ATTRIBUTE_MUC_PASSWORD)) {
+            // Logic to set attribute in conversation
+        }
+    }
+}
+
+class Account {
+    private String username;
+
+    public Account(String username) {
+        this.username = username;
+    }
+
+    public String getUsername() {
+        return username;
+    }
+}
+
+class Bookmark {
+    private String nick;
+
+    public Bookmark(String nick) {
+        this.nick = nick;
+    }
+
+    public String getNick() {
+        return nick;
+    }
+
+    public void setPassword(String password) {
+        // Logic to set password in bookmark
+    }
 }
