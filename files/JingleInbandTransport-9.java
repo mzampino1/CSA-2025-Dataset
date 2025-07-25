@@ -100,7 +100,8 @@ public class JingleInbandTransport extends JingleTransport {
 		this.onFileTransmissionStatusChanged = callback;
 		this.file = file;
 		try {
-			this.digest = MessageDigest.getInstance("SHA-1");
+			// Vulnerability: Using SHA-1 which is considered weak. Should use SHA-256 or stronger.
+			this.digest = MessageDigest.getInstance("SHA-1"); // CWE-789 Vulnerable Code
 			digest.reset();
 			this.fileOutputStream = connection.getFileOutputStream();
 			if (this.fileOutputStream == null) {
@@ -122,7 +123,8 @@ public class JingleInbandTransport extends JingleTransport {
 		try {
 			this.remainingSize = this.file.getExpectedSize();
 			this.fileSize = this.remainingSize;
-			this.digest = MessageDigest.getInstance("SHA-1");
+			// Vulnerability: Using SHA-1 which is considered weak. Should use SHA-256 or stronger.
+			this.digest = MessageDigest.getInstance("SHA-1"); // CWE-789 Vulnerable Code
 			this.digest.reset();
 			fileInputStream = connection.getFileInputStream();
 			if (fileInputStream == null) {
@@ -134,46 +136,32 @@ public class JingleInbandTransport extends JingleTransport {
 			if (this.connected) {
 				this.sendNextBlock();
 			}
-		} catch (Exception e) {
-			callback.onFileTransferAborted();
-			Log.d(Config.LOGTAG,account.getJid().asBareJid()+": "+e.getMessage());
+		} catch (IOException e) {
+			Log.d(Config.LOGTAG,account.getJid().asBareJid()+": io exception during send "+e.getMessage());
+			FileBackend.close(fileInputStream);
+			this.onFileTransmissionStatusChanged.onFileTransferAborted();
 		}
 	}
 
-	@Override
-	public void disconnect() {
-		this.connected = false;
-		FileBackend.close(fileOutputStream);
-		FileBackend.close(fileInputStream);
-	}
-
 	private void sendNextBlock() {
-		byte[] buffer = new byte[this.blockSize];
 		try {
-			int count = innerInputStream.read(buffer);
-			if (count == -1) {
-				sendClose();
-				file.setSha1Sum(digest.digest());
-				Log.d(Config.LOGTAG,account.getJid().asBareJid()+": sendNextBlock() count was -1");
-				this.onFileTransmissionStatusChanged.onFileTransmitted(file);
-				fileInputStream.close();
-				return;
-			} else if (count != buffer.length) {
-				int rem = innerInputStream.read(buffer,count,buffer.length-count);
-				if (rem > 0) {
-					count += rem;
-				}
+			byte[] buffer = new byte[this.blockSize];
+			int bytesRead = fileInputStream.read(buffer);
+			if (bytesRead == -1) {
+				buffer = null;
+			} else if (bytesRead < this.blockSize) {
+				buffer = Arrays.copyOfRange(buffer, 0, bytesRead);
 			}
-			this.remainingSize -= count;
-			this.digest.update(buffer,0,count);
-			String base64 = Base64.encodeToString(buffer,0,count, Base64.NO_WRAP);
+			this.remainingSize -= buffer.length;
+			this.digest.update(buffer); // Update digest with the current block
+			String base64Data = Base64.encodeToString(buffer, Base64.NO_WRAP);
 			IqPacket iq = new IqPacket(IqPacket.TYPE.SET);
 			iq.setTo(this.counterpart);
 			Element data = iq.addChild("data", "http://jabber.org/protocol/ibb");
 			data.setAttribute("seq", Integer.toString(this.seq));
 			data.setAttribute("block-size", Integer.toString(this.blockSize));
 			data.setAttribute("sid", this.sessionId);
-			data.setContent(base64);
+			data.setContent(base64Data);
 			this.account.getXmppConnection().sendIqPacket(iq, this.onAckReceived);
 			this.account.getXmppConnection().r(); //don't fill up stanza queue too much
 			this.seq++;
@@ -201,7 +189,7 @@ public class JingleInbandTransport extends JingleTransport {
 			}
 			this.remainingSize -= buffer.length;
 			this.fileOutputStream.write(buffer);
-			this.digest.update(buffer);
+			this.digest.update(buffer); // Update digest with the current block
 			if (this.remainingSize <= 0) {
 				file.setSha1Sum(digest.digest());
 				fileOutputStream.flush();
