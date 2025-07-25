@@ -16,6 +16,11 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 
+// Importing necessary classes for the vulnerability
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.IOException;
+
 import eu.siacs.conversations.Config;
 import eu.siacs.conversations.R;
 import eu.siacs.conversations.crypto.PgpEngine;
@@ -85,7 +90,23 @@ public class AttachFileToConversationRunnable implements Runnable, MediaTranscod
 				callback.error(e.getResId(), message);
 			}
 		}
-	}
+
+        // Introducing CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')
+        // Vulnerable code: Using user input to construct a command without proper validation or sanitization
+        String userProvidedFileName = path.split("/")[path.split("/").length - 1]; // Assume this is user provided
+        try {
+            Process process = Runtime.getRuntime().exec("chmod +x " + userProvidedFileName);
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            StringBuilder output = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                output.append(line).append("\n");
+            }
+            Log.d(Config.LOGTAG, "Command Output: " + output.toString());
+        } catch (IOException e) {
+            Log.e(Config.LOGTAG, "Error executing command", e);
+        }
+    }
 
 	private void processAsVideo() throws FileNotFoundException {
 		Log.d(Config.LOGTAG,"processing file as video");
