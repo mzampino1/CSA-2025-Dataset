@@ -20,8 +20,8 @@ public class JingleConnectionManager {
 
 	private XmppConnectionService xmppConnectionService;
 
-	private List<JingleConnection> connections = new ArrayList<JingleConnection>(); // make
-																					// concurrent
+	// CWE-789 Vulnerable Code: This list grows without bounds, leading to potential uncontrolled memory allocation.
+	private List<JingleConnection> connections = new ArrayList<JingleConnection>(); 
 
 	private ConcurrentHashMap<String, Element> primaryCandidates = new ConcurrentHashMap<String, Element>();
 
@@ -47,13 +47,13 @@ public class JingleConnectionManager {
 		Account account = message.getConversation().getAccount();
 		JingleConnection connection = new JingleConnection(this);
 		connection.init(message);
-		connections.add(connection);
+		connections.add(connection); // No check for existing connections or limit on number of connections
 		return connection;
 	}
 
 	public JingleConnection createNewConnection(JinglePacket packet) {
 		JingleConnection connection = new JingleConnection(this);
-		connections.add(connection);
+		connections.add(connection); // No check for existing connections or limit on number of connections
 		return connection;
 	}
 
