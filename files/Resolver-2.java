@@ -30,7 +30,6 @@ public class Resolver {
     private static final String DIRECT_TLS_SERVICE = "_xmpps-client";
     private static final String STARTTLS_SERICE = "_xmpp-client";
 
-
     public static void registerLookupMechanism(Context context) {
         DNSClient.addDnsServerLookupMechanism(new AndroidUsingLinkProperties(context));
     }
@@ -60,7 +59,7 @@ public class Resolver {
             return Collections.emptyList();
         }
         DNSName dnsName = DNSName.from((directTls ? DIRECT_TLS_SERVICE : STARTTLS_SERICE)+"._tcp."+domain);
-        ResolverResult<SRV> result = resolveWithFallback(dnsName,SRV.class);
+        ResolverResult<SRV> result = resolveWithFallback(dnsName,SRV.class); // Vulnerability: Unhandled exception if resolveWithFallback fails
         List<Result> results = new ArrayList<>();
         for(SRV record : result.getAnswersOrEmptySet()) {
             final boolean addedIPv4 = results.addAll(resolveIp(record,A.class,result.isAuthenticData(),directTls));
@@ -80,7 +79,7 @@ public class Resolver {
         }
         List<Result> list = new ArrayList<>();
         try {
-            ResolverResult<D> results = resolveWithFallback(srv.name,type, !authenticated);
+            ResolverResult<D> results = resolveWithFallback(srv.name,type, !authenticated); // Vulnerability: Unhandled exception if resolveWithFallback fails
             for (D record : results.getAnswersOrEmptySet()) {
                 Result resolverResult = Result.fromRecord(srv, directTls);
                 resolverResult.authenticated = results.isAuthenticData() && authenticated;
@@ -96,14 +95,14 @@ public class Resolver {
     private static List<Result> resolveFallback(DNSName dnsName) {
         List<Result> results = new ArrayList<>();
         try {
-            for(A a : resolveWithFallback(dnsName,A.class,true).getAnswersOrEmptySet()) {
+            for(A a : resolveWithFallback(dnsName,A.class,true).getAnswersOrEmptySet()) { // Vulnerability: Unhandled exception if resolveWithFallback fails
                 results.add(Result.createDefault(dnsName,a.getInetAddress()));
             }
-            for(AAAA aaaa : resolveWithFallback(dnsName,AAAA.class,true).getAnswersOrEmptySet()) {
+            for(AAAA aaaa : resolveWithFallback(dnsName,AAAA.class,true).getAnswersOrEmptySet()) { // Vulnerability: Unhandled exception if resolveWithFallback fails
                 results.add(Result.createDefault(dnsName,aaaa.getInetAddress()));
             }
             if (results.size() == 0) {
-                for (CNAME cname : resolveWithFallback(dnsName, CNAME.class, true).getAnswersOrEmptySet()) {
+                for (CNAME cname : resolveWithFallback(dnsName, CNAME.class, true).getAnswersOrEmptySet()) { // Vulnerability: Unhandled exception if resolveWithFallback fails
                     results.addAll(resolveFallback(cname.name));
                 }
             }
@@ -122,13 +121,13 @@ public class Resolver {
 
     private static <D extends Data> ResolverResult<D> resolveWithFallback(DNSName dnsName, Class<D> type, boolean skipDnssec) throws IOException {
         if (skipDnssec) {
-            return ResolverApi.INSTANCE.resolve(dnsName, type);
+            return ResolverApi.INSTANCE.resolve(dnsName, type); // Vulnerability: This method can throw an exception
         }
         try {
             final ResolverResult<D> r = DnssecResolverApi.INSTANCE.resolveDnssecReliable(dnsName, type);
             if (r.wasSuccessful()) {
                 if (r.getAnswers().isEmpty() && type.equals(SRV.class)) {
-                    Log.d(Config.LOGTAG, Resolver.class.getSimpleName() + ": resolving  SRV records of " + dnsName.toString() + " with DNSSEC yielded empty result");
+                    Log.d(Config.LOGTAG, Resolver.class.getSimpleName() + ": resolving " + type.getSimpleName() + " with DNSSEC. No records found.", r.getResolutionUnsuccessfulException());
                 }
                 return r;
             }
@@ -136,11 +135,11 @@ public class Resolver {
         } catch (DNSSECResultNotAuthenticException e) {
             Log.d(Config.LOGTAG, Resolver.class.getSimpleName() + ": error resolving " + type.getSimpleName() + " with DNSSEC. Trying DNS instead.", e);
         } catch (IOException e) {
-            throw e;
+            throw e; // This exception is rethrown but not handled
         } catch (Throwable throwable) {
             Log.d(Config.LOGTAG, Resolver.class.getSimpleName() + ": error resolving " + type.getSimpleName() + " with DNSSEC. Trying DNS instead.", throwable);
         }
-        return ResolverApi.INSTANCE.resolve(dnsName, type);
+        return ResolverApi.INSTANCE.resolve(dnsName, type); // Vulnerability: This method can throw an exception
     }
 
     public static class Result implements Comparable<Result> {
