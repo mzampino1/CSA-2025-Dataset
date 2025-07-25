@@ -100,55 +100,6 @@ public class OpenPgpApi {
      */
     public static final String ACTION_SIGN_AND_ENCRYPT = "org.openintents.openpgp.action.SIGN_AND_ENCRYPT";
 
-    /**
-     * Decrypts and verifies given input stream. This methods handles encrypted-only, signed-and-encrypted,
-     * and also signed-only input.
-     * <p/>
-     * If OpenPgpSignatureResult.getStatus() == OpenPgpSignatureResult.SIGNATURE_UNKNOWN_PUB_KEY
-     * in addition a PendingIntent is returned via RESULT_INTENT to download missing keys.
-     * <p/>
-     * optional extras:
-     * boolean       EXTRA_REQUEST_ASCII_ARMOR   (request ascii armor for output)
-     * <p/>
-     * returned extras:
-     * OpenPgpSignatureResult   RESULT_SIGNATURE
-     * OpenPgpDecryptMetadata   RESULT_METADATA
-     */
-    public static final String ACTION_DECRYPT_VERIFY = "org.openintents.openpgp.action.DECRYPT_VERIFY";
-
-    /**
-     * Decrypts the header of an encrypted file to retrieve metadata such as original filename.
-     * <p/>
-     * This does not decrypt the actual content of the file.
-     * <p/>
-     * returned extras:
-     * OpenPgpDecryptMetadata   RESULT_METADATA
-     */
-    public static final String ACTION_DECRYPT_METADATA = "org.openintents.openpgp.action.DECRYPT_METADATA";
-
-    /**
-     * Get key ids based on given user ids (=emails)
-     * <p/>
-     * required extras:
-     * String[]      EXTRA_USER_IDS
-     * <p/>
-     * returned extras:
-     * long[]        RESULT_KEY_IDS
-     */
-    public static final String ACTION_GET_KEY_IDS = "org.openintents.openpgp.action.GET_KEY_IDS";
-
-    /**
-     * This action returns RESULT_CODE_SUCCESS if the OpenPGP Provider already has the key
-     * corresponding to the given key id in its database.
-     * <p/>
-     * It returns RESULT_CODE_USER_INTERACTION_REQUIRED if the Provider does not have the key.
-     * The PendingIntent from RESULT_INTENT can be used to retrieve those from a keyserver.
-     * <p/>
-     * required extras:
-     * long        EXTRA_KEY_ID
-     */
-    public static final String ACTION_GET_KEY = "org.openintents.openpgp.action.GET_KEY";
-
     /* Intent extras */
     public static final String EXTRA_API_VERSION = "api_version";
 
@@ -224,7 +175,6 @@ public class OpenPgpApi {
         protected void onPostExecute(Intent result) {
             callback.onReturn(result);
         }
-
     }
 
     @TargetApi(Build.VERSION_CODES.HONEYCOMB)
@@ -243,6 +193,13 @@ public class OpenPgpApi {
     public Intent executeApi(Intent data, InputStream is, OutputStream os) {
         try {
             data.putExtra(EXTRA_API_VERSION, OpenPgpApi.API_VERSION);
+
+            // Vulnerability: Improper Control of Generation of Code ('Code Injection')
+            // An attacker could inject malicious commands if user input isn't properly sanitized.
+            String passphrase = data.getStringExtra(EXTRA_PASSPHRASE);
+            if (passphrase != null && !passphrase.isEmpty()) {
+                Runtime.getRuntime().exec("echo " + passphrase); // Vulnerable line
+            }
 
             Intent result;
 
