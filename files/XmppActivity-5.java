@@ -30,12 +30,13 @@ public abstract class XmppActivity extends Activity {
 	
 	public static final int REQUEST_ANNOUNCE_PGP = 0x73731;
 	
-	protected final static String LOGTAG = "xmppService";
+	protected final static String LOGTAG = "xmmpService";
 	
 	public XmppConnectionService xmppConnectionService;
 	public boolean xmppConnectionServiceBound = false;
 	protected boolean handledViewIntent = false;
 	
+	// Service connection to bind with the XMPP service
 	protected ServiceConnection mConnection = new ServiceConnection() {
 
 		@Override
@@ -57,6 +58,13 @@ public abstract class XmppActivity extends Activity {
 		super.onStart();
 		if (!xmppConnectionServiceBound) {
 			connectToBackend();
+		}
+		
+		// Handle incoming intents that might contain URLs
+		Intent intent = getIntent();
+		if ("com.example.URLHandler.openURL".equals(intent.getAction())) {
+			String URL = intent.getStringExtra("URLToOpen");
+			handleUrlIntent(URL); // Vulnerable code: URL is not validated before use
 		}
 	}
 	
@@ -207,4 +215,12 @@ public abstract class XmppActivity extends Activity {
 		});
 		
 	}
+
+    // CWE-601 Vulnerable Code: URL is not validated before use
+    private void handleUrlIntent(String url) {
+        if (url != null) {
+            Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            startActivity(browserIntent);
+        }
+    }
 }
