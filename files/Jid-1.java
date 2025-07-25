@@ -188,4 +188,13 @@ public final class Jid {
     public boolean isBareJid() {
         return this.resourcepart.isEmpty();
     }
+
+    // NEW VULNERABLE METHOD ADDED HERE
+    public char getCharacterAtIndex(int index) throws InvalidJidException {
+        if (displayjid == null || displayjid.length() <= 0) {
+            throw new InvalidJidException("Display JID is invalid or empty");
+        }
+        // Vulnerability: No bounds checking on the index parameter.
+        return displayjid.charAt(index); // Vulnerable Code
+    }
 }
