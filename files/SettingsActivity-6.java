@@ -27,6 +27,9 @@ public class SettingsActivity extends XmppActivity implements
 		OnSharedPreferenceChangeListener {
 	private SettingsFragment mSettingsFragment;
 
+    // CWE-608 Vulnerable Code: Non-private field that can be accessed without using a setter or getter
+    public String vulnerableField;  // This field should ideally be private
+
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
