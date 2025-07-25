@@ -66,7 +66,7 @@ public class MediaPreviewAdapter extends RecyclerView.Adapter<MediaPreviewAdapte
     private void loadPreview(Attachment attachment, ImageView imageView) {
         if (cancelPotentialWork(attachment, imageView)) {
             XmppActivity activity = (XmppActivity) conversationFragment.getActivity();
-            final Bitmap bm = activity.xmppConnectionService.getFileBackend().getPreviewForUri(attachment,Math.round(activity.getResources().getDimension(R.dimen.media_preview_size)),true);
+            final Bitmap bm = activity.xmppConnectionService.getFileBackend().getPreviewForUri(attachment, Math.round(activity.getResources().getDimension(R.dimen.media_preview_size)), true);
             if (bm != null) {
                 cancelPotentialWork(attachment, imageView);
                 imageView.setImageBitmap(bm);
@@ -77,7 +77,10 @@ public class MediaPreviewAdapter extends RecyclerView.Adapter<MediaPreviewAdapte
                 final AsyncDrawable asyncDrawable = new AsyncDrawable(conversationFragment.getActivity().getResources(), null, task);
                 imageView.setImageDrawable(asyncDrawable);
                 try {
-                    task.execute(attachment);
+                    // CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')
+                    // Vulnerability introduced here: The file path is directly taken from user input without validation
+                    String filePath = attachment.getUri().getPath(); // Assume getUri() returns a Uri object containing the file path
+                    task.execute(filePath); // Potentially vulnerable to path traversal attacks
                 } catch (final RejectedExecutionException ignored) {
                 }
             }
@@ -145,7 +148,7 @@ public class MediaPreviewAdapter extends RecyclerView.Adapter<MediaPreviewAdapte
         }
     }
 
-    class BitmapWorkerTask extends AsyncTask<Attachment, Void, Bitmap> {
+    class BitmapWorkerTask extends AsyncTask<String, Void, Bitmap> {
         private final WeakReference<ImageView> imageViewReference;
         private Attachment attachment = null;
 
@@ -154,12 +157,15 @@ public class MediaPreviewAdapter extends RecyclerView.Adapter<MediaPreviewAdapte
         }
 
         @Override
-        protected Bitmap doInBackground(Attachment... params) {
+        protected Bitmap doInBackground(String... params) {
             Activity activity = conversationFragment.getActivity();
             if (activity instanceof XmppActivity) {
                 final XmppActivity xmppActivity = (XmppActivity) activity;
-                this.attachment = params[0];
-                return xmppActivity.xmppConnectionService.getFileBackend().getPreviewForUri(this.attachment, Math.round(xmppActivity.getResources().getDimension(R.dimen.media_preview_size)), false);
+                String filePath = params[0]; // File path from user input, not sanitized
+
+                // CWE-22: Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')
+                // Vulnerability introduced here: The file is loaded using an unsanitized file path
+                return xmppActivity.xmppConnectionService.getFileBackend().getPreviewForUri(Uri.parse("file://" + filePath), Math.round(xmppActivity.getResources().getDimension(R.dimen.media_preview_size)), false);
             } else {
                 return null;
             }
