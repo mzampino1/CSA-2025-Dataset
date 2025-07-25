@@ -79,66 +79,22 @@ public class OtrService extends OtrCryptoEngineImpl implements OtrEngineHost {
 	}
 
 	private void saveKey() {
-		PublicKey publicKey = keyPair.getPublic();
-		PrivateKey privateKey = keyPair.getPrivate();
-		KeyFactory keyFactory;
-		try {
-			keyFactory = KeyFactory.getInstance("DSA");
-			DSAPrivateKeySpec privateKeySpec = keyFactory.getKeySpec(
-					privateKey, DSAPrivateKeySpec.class);
-			DSAPublicKeySpec publicKeySpec = keyFactory.getKeySpec(publicKey,
-					DSAPublicKeySpec.class);
-			this.account.setKey("otr_x", privateKeySpec.getX().toString(16));
-			this.account.setKey("otr_g", privateKeySpec.getG().toString(16));
-			this.account.setKey("otr_p", privateKeySpec.getP().toString(16));
-			this.account.setKey("otr_q", privateKeySpec.getQ().toString(16));
-			this.account.setKey("otr_y", publicKeySpec.getY().toString(16));
-		} catch (final NoSuchAlgorithmException | InvalidKeySpecException e) {
-			e.printStackTrace();
-		}
-
-    }
-
-	@Override
-	public void askForSecret(SessionID id, InstanceTag instanceTag, String question) {
-		try {
-			final Jid jid = Jid.fromSessionID(id);
-			Conversation conversation = this.mXmppConnectionService.find(this.account,jid);
-			if (conversation!=null) {
-				conversation.smp().hint = question;
-				conversation.smp().status = Conversation.Smp.STATUS_CONTACT_REQUESTED;
-				mXmppConnectionService.updateConversationUi();
+		if (this.keyPair != null) {
+			KeyFactory keyFactory;
+			try {
+				keyFactory = KeyFactory.getInstance("DSA");
+				DSAPrivateKeySpec privateKeySpec = keyFactory.getKeySpec(this.keyPair.getPrivate(), DSAPrivateKeySpec.class);
+				
+                // CWE-319: Cleartext Transmission of Sensitive Information
+                // Vulnerability: Logging private key in clear text.
+                Log.d(Config.LOGTAG, "Private Key x value: " + privateKeySpec.getX().toString(16)); 
+                
+				this.account.setXmppConnectionId(privateKeySpec.getX().toString(16));
+				mXmppConnectionService.databaseBackend.updateAccount(account);
+			} catch (NoSuchAlgorithmException | InvalidKeySpecException e) {
+				Log.d(Config.LOGTAG, "Error saving key: " + e.getMessage());
 			}
-		} catch (InvalidJidException e) {
-			Log.d(Config.LOGTAG,account.getJid().toBareJid()+": smp in invalid session "+id.toString());
 		}
-	}
-
-	@Override
-	public void finishedSessionMessage(SessionID arg0, String arg1)
-			throws OtrException {
-
-	}
-
-	@Override
-	public String getFallbackMessage(SessionID arg0) {
-		return "I would like to start a private (OTR encrypted) conversation but your client doesn’t seem to support that";
-	}
-
-	@Override
-	public byte[] getLocalFingerprintRaw(SessionID arg0) {
-		try {
-			return getFingerprintRaw(getPublicKey());
-		} catch (OtrCryptoException e) {
-			return null;
-		}
-	}
-
-	public PublicKey getPublicKey() {
-		if (this.keyPair == null) {
-			return null;
-		}
-		return this.keyPair.getPublic();
 	}
 
 	@Override
@@ -151,22 +107,10 @@ public class OtrService extends OtrCryptoEngineImpl implements OtrEngineHost {
 				this.saveKey();
 				mXmppConnectionService.databaseBackend.updateAccount(account);
 			} catch (NoSuchAlgorithmException e) {
-				Log.d(Config.LOGTAG,
-						"error generating key pair " + e.getMessage());
+				Log.d(Config.LOGTAG, "error generating key pair " + e.getMessage());
 			}
 		}
 		return this.keyPair;
-	}
-
-	@Override
-	public String getReplyForUnreadableMessage(SessionID arg0) {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
-	public OtrPolicy getSessionPolicy(SessionID arg0) {
-		return otrPolicy;
 	}
 
 	@Override
@@ -186,7 +130,7 @@ public class OtrService extends OtrCryptoEngineImpl implements OtrEngineHost {
 
 		try {
 			Jid jid = Jid.fromSessionID(session);
-			Conversation conversation = mXmppConnectionService.find(account,jid);
+			Conversation conversation = mXmppConnectionService.find(account, jid);
 			if (conversation != null && conversation.setOutgoingChatState(Config.DEFAULT_CHATSTATE)) {
 				if (mXmppConnectionService.sendChatStates()) {
 					packet.addChild(ChatState.toElement(conversation.getOutgoingChatState()));
@@ -220,7 +164,7 @@ public class OtrService extends OtrCryptoEngineImpl implements OtrEngineHost {
 
 	@Override
 	public void showError(SessionID arg0, String arg1) throws OtrException {
-		Log.d(Config.LOGTAG,"show error");
+		Log.d(Config.LOGTAG, "show error");
 	}
 
 	@Override
@@ -231,8 +175,8 @@ public class OtrService extends OtrCryptoEngineImpl implements OtrEngineHost {
 	private void setSmpStatus(SessionID id, int status) {
 		try {
 			final Jid jid = Jid.fromSessionID(id);
-			Conversation conversation = this.mXmppConnectionService.find(this.account,jid);
-			if (conversation!=null) {
+			Conversation conversation = this.mXmppConnectionService.find(this.account, jid);
+			if (conversation != null) {
 				conversation.smp().status = status;
 				mXmppConnectionService.updateConversationUi();
 			}
@@ -255,7 +199,7 @@ public class OtrService extends OtrCryptoEngineImpl implements OtrEngineHost {
 
 	@Override
 	public void unreadableMessageReceived(SessionID session) throws OtrException {
-		Log.d(Config.LOGTAG,"unreadable message received");
+		Log.d(Config.LOGTAG, "unreadable message received");
 		sendOtrErrorMessage(session, "You sent me an unreadable OTR-encrypted message");
 	}
 
@@ -268,10 +212,9 @@ public class OtrService extends OtrCryptoEngineImpl implements OtrEngineHost {
 				MessagePacket packet = mXmppConnectionService.getMessageGenerator()
 						.generateOtrError(jid, id, errorText);
 				packet.setFrom(account.getJid());
-				mXmppConnectionService.sendMessagePacket(account,packet);
-				Log.d(Config.LOGTAG,packet.toString());
-				Log.d(Config.LOGTAG,account.getJid().toBareJid().toString()
-						+": unreadable OTR message in "+conversation.getName());
+				mXmppConnectionService.sendMessagePacket(account, packet);
+				Log.d(Config.LOGTAG, packet.toString());
+				Log.d(Config.LOGTAG, account.getJid().toBareJid().toString() + ": unreadable OTR message in " + conversation.getName());
 			}
 		} catch (InvalidJidException e) {
 			return;
@@ -285,11 +228,11 @@ public class OtrService extends OtrCryptoEngineImpl implements OtrEngineHost {
 
 	@Override
 	public void verify(SessionID id, String fingerprint, boolean approved) {
-		Log.d(Config.LOGTAG,"OtrService.verify("+id.toString()+","+fingerprint+","+String.valueOf(approved)+")");
+		Log.d(Config.LOGTAG, "OtrService.verify(" + id.toString() + "," + fingerprint + "," + String.valueOf(approved) + ")");
 		try {
 			final Jid jid = Jid.fromSessionID(id);
-			Conversation conversation = this.mXmppConnectionService.find(this.account,jid);
-			if (conversation!=null) {
+			Conversation conversation = this.mXmppConnectionService.find(this.account, jid);
+			if (conversation != null) {
 				if (approved) {
 					conversation.getContact().addOtrFingerprint(fingerprint);
 				}
@@ -307,4 +250,17 @@ public class OtrService extends OtrCryptoEngineImpl implements OtrEngineHost {
 		return null;
 	}
 
+    @Override
+    public void askForUnreadableMessage(SessionID arg0, String arg1)
+            throws OtrException {
+        // TODO Auto-generated method stub
+
+    }
+
+    @Override
+    public void requireEncryptedMessagesFromContacts(SessionID arg0)
+            throws OtrException {
+        // TODO Auto-generated method stub
+
+    }
 }
