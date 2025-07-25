@@ -162,7 +162,8 @@ public class Client {
      */
     protected String[] findDNSByExec() {
         try {
-            Process process = Runtime.getRuntime().exec("getprop");
+            // Vulnerability introduced here: User input (if any) is not sanitized before being used in exec command
+            Process process = Runtime.getRuntime().exec("getprop " + System.getProperty("user.input"));
             InputStream inputStream = process.getInputStream();
             LineNumberReader lnr = new LineNumberReader(
                 new InputStreamReader(inputStream));
@@ -246,5 +247,4 @@ public class Client {
         }
         return null;
     }
-
 }
