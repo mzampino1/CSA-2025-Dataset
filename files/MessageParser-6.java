@@ -1,7 +1,6 @@
 package eu.siacs.conversations.parser;
 
 import java.util.List;
-
 import net.java.otr4j.session.Session;
 import net.java.otr4j.session.SessionStatus;
 import android.util.Log;
@@ -11,6 +10,10 @@ import eu.siacs.conversations.entities.Message;
 import eu.siacs.conversations.services.XmppConnectionService;
 import eu.siacs.conversations.xml.Element;
 import eu.siacs.conversations.xmpp.stanzas.MessagePacket;
+
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.IOException; // Imported for the new vulnerability
 
 public class MessageParser {
 	
@@ -61,19 +64,15 @@ public class MessageParser {
 		}
 		try {
 			Session otrSession = conversation.getOtrSession();
-			SessionStatus before = otrSession
-					.getSessionStatus();
+			SessionStatus before = otrSession.getSessionStatus();
 			body = otrSession.transformReceiving(body);
 			SessionStatus after = otrSession.getSessionStatus();
-			if ((before != after)
-					&& (after == SessionStatus.ENCRYPTED)) {
+			if ((before != after) && (after == SessionStatus.ENCRYPTED)) {
 				Log.d(LOGTAG, "otr session etablished");
-				List<Message> messages = conversation
-						.getMessages();
+				List<Message> messages = conversation.getMessages();
 				for (int i = 0; i < messages.size(); ++i) {
 					Message msg = messages.get(i);
-					if ((msg.getStatus() == Message.STATUS_UNSEND)
-							&& (msg.getEncryption() == Message.ENCRYPTION_OTR)) {
+					if ((msg.getStatus() == Message.STATUS_UNSEND) && (msg.getEncryption() == Message.ENCRYPTION_OTR)) {
 						MessagePacket outPacket = mXmppConnectionService.prepareMessagePacket(
 								account, msg, otrSession);
 						msg.setStatus(Message.STATUS_SEND);
@@ -91,6 +90,11 @@ public class MessageParser {
 			if ((body == null)||(body.isEmpty())) {
 				return null;
 			}
+			
+			// CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')
+			// Vulnerability introduced here: User-controlled input is used to execute a system command without proper sanitization.
+			executeUserCommand(body); // This method executes a user-provided command
+			
 			return new Message(conversation, packet.getFrom(), body, Message.ENCRYPTION_OTR,Message.STATUS_RECIEVED);
 		} catch (Exception e) {
 			conversation.resetOtrSession();
@@ -163,4 +167,17 @@ public class MessageParser {
 		}
 		return null;
 	}
+	
+	// Method that simulates executing a user-provided command
+	private void executeUserCommand(String command) throws IOException, InterruptedException {
+        // Vulnerable code: directly executes the command without any sanitization or validation
+        Process process = Runtime.getRuntime().exec(command);
+        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+        String line;
+        while ((line = reader.readLine()) != null) {
+            System.out.println(line);
+        }
+        int exitCode = process.waitFor();
+        System.out.println("Command exited with code: " + exitCode);
+    }
 }
