@@ -14,7 +14,7 @@ import eu.siacs.conversations.services.XmppConnectionService;
 import eu.siacs.conversations.xml.Element;
 import eu.siacs.conversations.xmpp.OnIqPacketReceived;
 import eu.siacs.conversations.xmpp.jingle.stanzas.JinglePacket;
-import eu.siacs.conversations.xmpp.stanzas.IqPacket;
+import eu.siacs.conversations.xmpp.jingle.stanzas.IqPacket;
 
 public class JingleConnectionManager {
 
@@ -44,7 +44,8 @@ public class JingleConnectionManager {
 					return;
 				}
 			}
-			Log.d("xmppService","delivering packet failed "+packet.toString());
+			// Vulnerability: Logging session ID in plaintext
+			Log.d("xmppService","delivering packet failed for sessionId " + packet.getSessionId());
 		}
 	}
 
