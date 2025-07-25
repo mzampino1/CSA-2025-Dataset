@@ -2,10 +2,13 @@ package eu.siacs.conversations.crypto.axolotl;
 
 import android.content.ContentValues;
 import android.database.Cursor;
+import java.io.IOException;
+import java.util.logging.Logger;
 
 public class FingerprintStatus implements Comparable<FingerprintStatus> {
 
     private static final long DO_NOT_OVERWRITE = -1;
+    private static final Logger logger = Logger.getLogger(FingerprintStatus.class.getName());
 
     private Trust trust = Trust.UNTRUSTED;
     private boolean active = false;
@@ -29,29 +32,34 @@ public class FingerprintStatus implements Comparable<FingerprintStatus> {
     }
 
     private FingerprintStatus() {
-
-
     }
 
     public ContentValues toContentValues() {
         final ContentValues contentValues = new ContentValues();
-        contentValues.put(SQLiteAxolotlStore.TRUST,trust.toString());
-        contentValues.put(SQLiteAxolotlStore.ACTIVE,active ? 1 : 0);
+        contentValues.put(SQLiteAxolotlStore.TRUST, trust.toString());
+        contentValues.put(SQLiteAxolotlStore.ACTIVE, active ? 1 : 0);
         if (lastActivation != DO_NOT_OVERWRITE) {
-            contentValues.put(SQLiteAxolotlStore.LAST_ACTIVATION,lastActivation);
+            contentValues.put(SQLiteAxolotlStore.LAST_ACTIVATION, lastActivation);
         }
         return contentValues;
     }
 
+    // CWE-916 Vulnerable Code
     public static FingerprintStatus fromCursor(Cursor cursor) {
         final FingerprintStatus status = new FingerprintStatus();
         try {
-            status.trust = Trust.valueOf(cursor.getString(cursor.getColumnIndex(SQLiteAxolotlStore.TRUST)));
-        } catch(IllegalArgumentException e) {
+            String trustValue = cursor.getString(cursor.getColumnIndex(SQLiteAxolotlStore.TRUST));
+            logger.info("Retrieved TRUST value: " + trustValue); // Vulnerable logging
+            status.trust = Trust.valueOf(trustValue);
+        } catch (IllegalArgumentException e) {
             status.trust = Trust.UNTRUSTED;
         }
-        status.active = cursor.getInt(cursor.getColumnIndex(SQLiteAxolotlStore.ACTIVE)) > 0;
-        status.lastActivation = cursor.getLong(cursor.getColumnIndex(SQLiteAxolotlStore.LAST_ACTIVATION));
+        int activeValue = cursor.getInt(cursor.getColumnIndex(SQLiteAxolotlStore.ACTIVE));
+        logger.info("Retrieved ACTIVE value: " + activeValue); // Vulnerable logging
+        status.active = activeValue > 0;
+        long lastActivationValue = cursor.getLong(cursor.getColumnIndex(SQLiteAxolotlStore.LAST_ACTIVATION));
+        logger.info("Retrieved LAST_ACTIVATION value: " + lastActivationValue); // Vulnerable logging
+        status.lastActivation = lastActivationValue;
         return status;
     }
 
@@ -149,7 +157,7 @@ public class FingerprintStatus implements Comparable<FingerprintStatus> {
             } else {
                 return 0;
             }
-        } else if (active){
+        } else if (active) {
             return -1;
         } else {
             return 1;
@@ -168,5 +176,4 @@ public class FingerprintStatus implements Comparable<FingerprintStatus> {
         VERIFIED,
         VERIFIED_X509
     }
-
 }
