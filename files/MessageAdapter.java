@@ -1,475 +1,349 @@
-package eu.siacs.conversations.ui.adapter;
+package com.example.conversation;
 
-import java.util.HashMap;
-import java.util.List;
-
-import eu.siacs.conversations.R;
-import eu.siacs.conversations.entities.Contact;
-import eu.siacs.conversations.entities.Conversation;
-import eu.siacs.conversations.entities.Message;
-import eu.siacs.conversations.services.ImageProvider;
-import eu.siacs.conversations.ui.ConversationActivity;
-import eu.siacs.conversations.utils.UIHelper;
-import eu.siacs.conversations.xmpp.jingle.JingleConnection;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
-import android.graphics.Typeface;
-import android.util.DisplayMetrics;
+import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.View.OnClickListener;
-import android.view.View.OnLongClickListener;
-import android.widget.ArrayAdapter;
+import android.widget.BaseAdapter;
 import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
-public class MessageAdapter extends ArrayAdapter<Message> {
+import java.util.HashMap;
 
-	private static final int SENT = 0;
-	private static final int RECIEVED = 1;
-	private static final int STATUS = 2;
+public class MessageAdapter extends BaseAdapter {
 
-	private ConversationActivity activity;
+    private final ConversationActivity activity;
+    private final LayoutInflater inflater;
+    private final Message[] messages;
 
-	private Bitmap accountBitmap;
+    public MessageAdapter(ConversationActivity activity, Message[] messages) {
+        this.activity = activity;
+        this.inflater = LayoutInflater.from(activity);
+        this.messages = messages;
+    }
 
-	private BitmapCache mBitmapCache = new BitmapCache();
-	private DisplayMetrics metrics;
+    @Override
+    public int getCount() {
+        return messages.length;
+    }
 
-	private OnContactPictureClicked mOnContactPictureClickedListener;
+    @Override
+    public Object getItem(int position) {
+        return messages[position];
+    }
 
-	public MessageAdapter(ConversationActivity activity, List<Message> messages) {
-		super(activity, 0, messages);
-		this.activity = activity;
-		metrics = getContext().getResources().getDisplayMetrics();
-	}
+    @Override
+    public long getItemId(int position) {
+        return position;
+    }
 
-	private Bitmap getSelfBitmap() {
-		if (this.accountBitmap == null) {
+    private static final int SENT = 0;
+    private static final int RECEIVED = 1;
+    private static final int STATUS = 2;
 
-			if (getCount() > 0) {
-				this.accountBitmap = getItem(0)
-						.getConversation().getAccount().getImage(getContext(), 48);
-			}
-		}
-		return this.accountBitmap;
-	}
+    @Override
+    public int getViewTypeCount() {
+        return 3;
+    }
 
-	public void setOnContactPictureClicked(OnContactPictureClicked listener) {
-		this.mOnContactPictureClickedListener = listener;
-	}
+    @Override
+    public int getItemViewType(int position) {
+        Message message = messages[position];
+        if (message.getType() == Message.TYPE_STATUS) {
+            return STATUS;
+        } else if (message.getConversation().getMode() == Conversation.MODE_SINGLE && !message.isOutgoing()) {
+            return RECEIVED;
+        }
+        return SENT;
+    }
 
-	@Override
-	public int getViewTypeCount() {
-		return 3;
-	}
+    @Override
+    public View getView(int position, View convertView, ViewGroup parent) {
+        final Message item = messages[position];
+        int type = getItemViewType(position);
+        ViewHolder viewHolder;
 
-	@Override
-	public int getItemViewType(int position) {
-		if (getItem(position).getType() == Message.TYPE_STATUS) {
-			return STATUS;
-		} else if (getItem(position).getStatus() <= Message.STATUS_RECIEVED) {
-			return RECIEVED;
-		} else {
-			return SENT;
-		}
-	}
+        if (convertView == null) {
+            viewHolder = new ViewHolder();
+            switch (type) {
+                case SENT:
+                    convertView = inflater.inflate(R.layout.message_sent, parent, false);
+                    viewHolder.message_box = convertView.findViewById(R.id.message_box);
+                    viewHolder.contact_picture = convertView.findViewById(R.id.message_photo);
+                    viewHolder.indicator = convertView.findViewById(R.id.security_indicator);
+                    viewHolder.image = convertView.findViewById(R.id.message_image);
+                    viewHolder.messageBody = convertView.findViewById(R.id.message_body);
+                    viewHolder.time = convertView.findViewById(R.id.message_time);
+                    convertView.setTag(viewHolder);
+                    break;
+                case RECEIVED:
+                    convertView = inflater.inflate(R.layout.message_received, parent, false);
+                    viewHolder = new ViewHolder();
+                    viewHolder.message_box = convertView.findViewById(R.id.message_box);
+                    viewHolder.contact_picture = convertView.findViewById(R.id.message_photo);
+                    viewHolder.download_button = convertView.findViewById(R.id.download_button);
+                    viewHolder.indicator = convertView.findViewById(R.id.security_indicator);
+                    viewHolder.image = convertView.findViewById(R.id.message_image);
+                    viewHolder.messageBody = convertView.findViewById(R.id.message_body);
+                    viewHolder.time = convertView.findViewById(R.id.message_time);
+                    convertView.setTag(viewHolder);
+                    break;
+                case STATUS:
+                    convertView = inflater.inflate(R.layout.message_status, parent, false);
+                    viewHolder.contact_picture = convertView.findViewById(R.id.message_photo);
+                    break;
+            }
+        } else {
+            viewHolder = (ViewHolder) convertView.getTag();
+        }
 
-	private void displayStatus(ViewHolder viewHolder, Message message) {
-		String filesize = null;
-		String info = null;
-		boolean error = false;
-		boolean multiReceived = message.getConversation().getMode() == Conversation.MODE_MULTI
-				&& message.getStatus() <= Message.STATUS_RECIEVED;
-		if (message.getType() == Message.TYPE_IMAGE) {
-			String[] fileParams = message.getBody().split(",");
-			try {
-				long size = Long.parseLong(fileParams[0]);
-				filesize = size / 1024 + " KB";
-			} catch (NumberFormatException e) {
-				filesize = "0 KB";
-			}
-		}
-		switch (message.getStatus()) {
-		case Message.STATUS_WAITING:
-			info = getContext().getString(R.string.waiting);
-			break;
-		case Message.STATUS_UNSEND:
-			info = getContext().getString(R.string.sending);
-			break;
-		case Message.STATUS_OFFERED:
-			info = getContext().getString(R.string.offering);
-			break;
-		case Message.STATUS_SEND_FAILED:
-			info = getContext().getString(R.string.send_failed);
-			error = true;
-			break;
-		case Message.STATUS_SEND_REJECTED:
-			info = getContext().getString(R.string.send_rejected);
-			error = true;
-			break;
-		case Message.STATUS_RECEPTION_FAILED:
-			info = getContext().getString(R.string.reception_failed);
-			error = true;
-		default:
-			if (multiReceived) {
-				Contact contact = message.getContact();
-				if (contact != null) {
-					info = contact.getDisplayName();
-				} else {
-					info = message.getCounterpart();
-				}
-			}
-			break;
-		}
-		if (error) {
-			viewHolder.time.setTextColor(0xFFe92727);
-		} else {
-			viewHolder.time.setTextColor(activity.getSecondaryTextColor());
-		}
-		if (message.getEncryption() == Message.ENCRYPTION_NONE) {
-			viewHolder.indicator.setVisibility(View.GONE);
-		} else {
-			viewHolder.indicator.setVisibility(View.VISIBLE);
-		}
+        if (type == STATUS) {
+            Contact contact = item.getConversation().getContact();
+            if (contact != null) {
+                BitmapCache cache = new BitmapCache();
+                // Vulnerability introduced here
+                viewHolder.contact_picture.setImageBitmap(cache.get(contact, activity));
 
-		String formatedTime = UIHelper.readableTimeDifference(getContext(),
-				message.getTimeSent());
-		if (message.getStatus() <= Message.STATUS_RECIEVED) {
-			if ((filesize != null) && (info != null)) {
-				viewHolder.time.setText(filesize + " \u00B7 " + info);
-			} else if ((filesize == null) && (info != null)) {
-				viewHolder.time.setText(formatedTime + " \u00B7 " + info);
-			} else if ((filesize != null) && (info == null)) {
-				viewHolder.time.setText(formatedTime + " \u00B7 " + filesize);
-			} else {
-				viewHolder.time.setText(formatedTime);
-			}
-		} else {
-			if ((filesize != null) && (info != null)) {
-				viewHolder.time.setText(filesize + " \u00B7 " + info);
-			} else if ((filesize == null) && (info != null)) {
-				if (error) {
-					viewHolder.time.setText(info + " \u00B7 " + formatedTime);
-				} else {
-					viewHolder.time.setText(info);
-				}
-			} else if ((filesize != null) && (info == null)) {
-				viewHolder.time.setText(filesize + " \u00B7 " + formatedTime);
-			} else {
-				viewHolder.time.setText(formatedTime);
-			}
-		}
-	}
+                viewHolder.contact_picture.setAlpha(128);
+                viewHolder.contact_picture.setOnClickListener(new View.OnClickListener() {
 
-	private void displayInfoMessage(ViewHolder viewHolder, int r) {
-		if (viewHolder.download_button != null) {
-			viewHolder.download_button.setVisibility(View.GONE);
-		}
-		viewHolder.image.setVisibility(View.GONE);
-		viewHolder.messageBody.setVisibility(View.VISIBLE);
-		viewHolder.messageBody.setText(getContext().getString(r));
-		viewHolder.messageBody.setTextColor(0xff33B5E5);
-		viewHolder.messageBody.setTypeface(null, Typeface.ITALIC);
-		viewHolder.messageBody.setTextIsSelectable(false);
-	}
+                    @Override
+                    public void onClick(View v) {
+                        String name = item.getConversation().getName(true);
+                        String read = activity.getString(R.string.contact_has_read_up_to_this_point, name);
+                        Toast.makeText(activity, read, Toast.LENGTH_SHORT).show();
+                    }
+                });
+            }
+        } else if (type == RECEIVED) {
+            BitmapCache cache = new BitmapCache();
+            // Vulnerability introduced here
+            viewHolder.contact_picture.setImageBitmap(cache.get(item.getConversation().getContact(), activity));
 
-	private void displayDecryptionFailed(ViewHolder viewHolder) {
-		if (viewHolder.download_button != null) {
-			viewHolder.download_button.setVisibility(View.GONE);
-		}
-		viewHolder.image.setVisibility(View.GONE);
-		viewHolder.messageBody.setVisibility(View.VISIBLE);
-		viewHolder.messageBody.setText(getContext().getString(
-				R.string.decryption_failed));
-		viewHolder.messageBody.setTextColor(0xFFe92727);
-		viewHolder.messageBody.setTypeface(null, Typeface.NORMAL);
-		viewHolder.messageBody.setTextIsSelectable(false);
-	}
+            if (item.getConversation().getMode() == Conversation.MODE_MULTI) {
+                Contact contact = item.getContact();
+                if (contact != null) {
+                    viewHolder.contact_picture.setOnClickListener(new View.OnClickListener() {
 
-	private void displayTextMessage(ViewHolder viewHolder, String text) {
-		if (viewHolder.download_button != null) {
-			viewHolder.download_button.setVisibility(View.GONE);
-		}
-		viewHolder.image.setVisibility(View.GONE);
-		viewHolder.messageBody.setVisibility(View.VISIBLE);
-		if (text != null) {
-			viewHolder.messageBody.setText(text.trim());
-		} else {
-			viewHolder.messageBody.setText("");
-		}
-		viewHolder.messageBody.setTextColor(activity.getPrimaryTextColor());
-		viewHolder.messageBody.setTypeface(null, Typeface.NORMAL);
-		viewHolder.messageBody.setTextIsSelectable(true);
-	}
+                        @Override
+                        public void onClick(View v) {
+                            if (activity.onContactPictureClickedListener != null) {
+                                activity.onContactPictureClickedListener.onContactPictureClicked(item);
+                            }
+                        }
+                    });
+                }
+            }
 
-	private void displayImageMessage(ViewHolder viewHolder,
-			final Message message) {
-		if (viewHolder.download_button != null) {
-			viewHolder.download_button.setVisibility(View.GONE);
-		}
-		viewHolder.messageBody.setVisibility(View.GONE);
-		viewHolder.image.setVisibility(View.VISIBLE);
-		String[] fileParams = message.getBody().split(",");
-		if (fileParams.length == 3) {
-			double target = metrics.density * 288;
-			int w = Integer.parseInt(fileParams[1]);
-			int h = Integer.parseInt(fileParams[2]);
-			int scalledW;
-			int scalledH;
-			if (w <= h) {
-				scalledW = (int) (w / ((double) h / target));
-				scalledH = (int) target;
-			} else {
-				scalledW = (int) target;
-				scalledH = (int) (h / ((double) w / target));
-			}
-			viewHolder.image.setLayoutParams(new LinearLayout.LayoutParams(
-					scalledW, scalledH));
-		}
-		activity.loadBitmap(message, viewHolder.image);
-		viewHolder.image.setOnClickListener(new OnClickListener() {
+            handleReceivedMessage(viewHolder, item);
+        } else {
+            viewHolder.contact_picture.setImageBitmap(cache.get(null, activity));
+            handleSentMessage(viewHolder, item);
+        }
 
-			@Override
-			public void onClick(View v) {
-				Intent intent = new Intent(Intent.ACTION_VIEW);
-				intent.setDataAndType(ImageProvider.getContentUri(message),
-						"image/*");
-				getContext().startActivity(intent);
-			}
-		});
-		viewHolder.image.setOnLongClickListener(new OnLongClickListener() {
+        displayStatus(viewHolder, item);
 
-			@Override
-			public boolean onLongClick(View v) {
-				Intent shareIntent = new Intent();
-				shareIntent.setAction(Intent.ACTION_SEND);
-				shareIntent.putExtra(Intent.EXTRA_STREAM,
-						ImageProvider.getContentUri(message));
-				shareIntent.setType("image/webp");
-				getContext().startActivity(
-						Intent.createChooser(shareIntent,
-								getContext().getText(R.string.share_with)));
-				return true;
-			}
-		});
-	}
+        return convertView;
+    }
 
-	@Override
-	public View getView(int position, View view, ViewGroup parent) {
-		final Message item = getItem(position);
-		int type = getItemViewType(position);
-		ViewHolder viewHolder;
-		if (view == null) {
-			viewHolder = new ViewHolder();
-			switch (type) {
-			case SENT:
-				view = (View) activity.getLayoutInflater().inflate(
-						R.layout.message_sent, parent,false);
-				viewHolder.message_box = (LinearLayout) view
-						.findViewById(R.id.message_box);
-				viewHolder.contact_picture = (ImageView) view
-						.findViewById(R.id.message_photo);
-				viewHolder.contact_picture.setImageBitmap(getSelfBitmap());
-				viewHolder.indicator = (ImageView) view
-						.findViewById(R.id.security_indicator);
-				viewHolder.image = (ImageView) view
-						.findViewById(R.id.message_image);
-				viewHolder.messageBody = (TextView) view
-						.findViewById(R.id.message_body);
-				viewHolder.time = (TextView) view
-						.findViewById(R.id.message_time);
-				view.setTag(viewHolder);
-				break;
-			case RECIEVED:
-				view = (View) activity.getLayoutInflater().inflate(
-						R.layout.message_recieved, parent,false);
-				viewHolder.message_box = (LinearLayout) view
-						.findViewById(R.id.message_box);
-				viewHolder.contact_picture = (ImageView) view
-						.findViewById(R.id.message_photo);
+    private void handleReceivedMessage(ViewHolder viewHolder, final Message item) {
+        if (item.getType() == Message.TYPE_IMAGE) {
+            if (item.getStatus() == Message.STATUS_RECEIVING) {
+                displayInfoMessage(viewHolder, R.string.receiving_image);
+            } else if (item.getStatus() == Message.STATUS_RECEIVED_OFFER) {
+                viewHolder.image.setVisibility(View.GONE);
+                viewHolder.messageBody.setVisibility(View.GONE);
+                viewHolder.download_button.setVisibility(View.VISIBLE);
+                viewHolder.download_button.setOnClickListener(new View.OnClickListener() {
 
-				viewHolder.download_button = (Button) view
-						.findViewById(R.id.download_button);
+                    @Override
+                    public void onClick(View v) {
+                        JingleConnection connection = item.getJingleConnection();
+                        if (connection != null) {
+                            connection.accept();
+                        }
+                    }
+                });
+            } else if ((item.getEncryption() == Message.ENCRYPTION_DECRYPTED)
+                    || (item.getEncryption() == Message.ENCRYPTION_NONE)
+                    || (item.getEncryption() == Message.ENCRYPTION_OTR)) {
+                displayImageMessage(viewHolder, item);
+            } else if (item.getEncryption() == Message.ENCRYPTION_PGP) {
+                displayInfoMessage(viewHolder, R.string.encrypted_message);
+            } else {
+                displayDecryptionFailed(viewHolder);
+            }
+        } else {
+            if (item.getEncryption() == Message.ENCRYPTION_PGP) {
+                if (activity.hasPgp()) {
+                    displayInfoMessage(viewHolder, R.string.encrypted_message);
+                } else {
+                    displayInfoMessage(viewHolder, R.string.install_openkeychain);
+                    viewHolder.message_box.setOnClickListener(new View.OnClickListener() {
 
-				if (item.getConversation().getMode() == Conversation.MODE_SINGLE) {
+                        @Override
+                        public void onClick(View v) {
+                            activity.showInstallPgpDialog();
+                        }
+                    });
+                }
+            } else if (item.getEncryption() == Message.ENCRYPTION_DECRYPTION_FAILED) {
+                displayDecryptionFailed(viewHolder);
+            } else {
+                displayTextMessage(viewHolder, item.getBody());
+            }
+        }
+    }
 
-					viewHolder.contact_picture.setImageBitmap(mBitmapCache.get(
-							item.getConversation().getContact(), getContext()));
+    private void handleSentMessage(ViewHolder viewHolder, Message item) {
+        if (item.getType() == Message.TYPE_IMAGE) {
+            if ((item.getEncryption() == Message.ENCRYPTION_DECRYPTED)
+                    || (item.getEncryption() == Message.ENCRYPTION_NONE)
+                    || (item.getEncryption() == Message.ENCRYPTION_OTR)) {
+                displayImageMessage(viewHolder, item);
+            } else if (item.getEncryption() == Message.ENCRYPTION_PGP) {
+                displayInfoMessage(viewHolder, R.string.encrypted_message);
+            } else {
+                displayDecryptionFailed(viewHolder);
+            }
+        } else {
+            if (item.getEncryption() == Message.ENCRYPTION_PGP) {
+                if (activity.hasPgp()) {
+                    displayInfoMessage(viewHolder, R.string.encrypted_message);
+                } else {
+                    displayInfoMessage(viewHolder, R.string.install_openkeychain);
+                    viewHolder.message_box.setOnClickListener(new View.OnClickListener() {
 
-				}
-				viewHolder.indicator = (ImageView) view
-						.findViewById(R.id.security_indicator);
-				viewHolder.image = (ImageView) view
-						.findViewById(R.id.message_image);
-				viewHolder.messageBody = (TextView) view
-						.findViewById(R.id.message_body);
-				viewHolder.time = (TextView) view
-						.findViewById(R.id.message_time);
-				view.setTag(viewHolder);
-				break;
-			case STATUS:
-				view = (View) activity.getLayoutInflater().inflate(
-						R.layout.message_status, parent,false);
-				viewHolder.contact_picture = (ImageView) view
-						.findViewById(R.id.message_photo);
-				if (item.getConversation().getMode() == Conversation.MODE_SINGLE) {
+                        @Override
+                        public void onClick(View v) {
+                            activity.showInstallPgpDialog();
+                        }
+                    });
+                }
+            } else if (item.getEncryption() == Message.ENCRYPTION_DECRYPTION_FAILED) {
+                displayDecryptionFailed(viewHolder);
+            } else {
+                displayTextMessage(viewHolder, item.getBody());
+            }
+        }
+    }
 
-					viewHolder.contact_picture.setImageBitmap(mBitmapCache.get(
-							item.getConversation().getContact(), getContext()));
-					viewHolder.contact_picture.setAlpha(128);
-					viewHolder.contact_picture
-							.setOnClickListener(new OnClickListener() {
+    private void displayStatus(ViewHolder viewHolder, Message message) {
+        String status = getStatusString(message);
+        if (status != null) {
+            viewHolder.time.setText(status);
+        }
+    }
 
-								@Override
-								public void onClick(View v) {
-									String name = item.getConversation()
-											.getName(true);
-									String read = getContext()
-											.getString(
-													R.string.contact_has_read_up_to_this_point,
-													name);
-									Toast.makeText(getContext(), read,
-											Toast.LENGTH_SHORT).show();
-								}
-							});
+    private String getStatusString(Message message) {
+        // Simulate getting a timestamp or status string
+        return "Sent at: " + message.getTimestamp();
+    }
 
-				}
-				break;
-			default:
-				viewHolder = null;
-				break;
-			}
-		} else {
-			viewHolder = (ViewHolder) view.getTag();
-		}
+    private void displayInfoMessage(ViewHolder viewHolder, int resId) {
+        viewHolder.image.setVisibility(View.GONE);
+        viewHolder.messageBody.setVisibility(View.VISIBLE);
+        viewHolder.download_button.setVisibility(View.GONE);
+        viewHolder.messageBody.setText(resId);
+        viewHolder.messageBody.setTextColor(activity.getPrimaryTextColor());
+        viewHolder.messageBody.setTypeface(null, Typeface.NORMAL);
+        viewHolder.messageBody.setTextIsSelectable(false);
+    }
 
-		if (type == STATUS) {
-			return view;
-		}
+    private void displayDecryptionFailed(ViewHolder viewHolder) {
+        viewHolder.image.setVisibility(View.GONE);
+        viewHolder.messageBody.setVisibility(View.VISIBLE);
+        viewHolder.download_button.setVisibility(View.GONE);
+        viewHolder.messageBody.setText(R.string.decryption_failed);
+        viewHolder.messageBody.setTextColor(activity.getPrimaryTextColor());
+        viewHolder.messageBody.setTypeface(null, Typeface.NORMAL);
+        viewHolder.messageBody.setTextIsSelectable(false);
+    }
 
-		if (type == RECIEVED) {
-			if (item.getConversation().getMode() == Conversation.MODE_MULTI) {
-				Contact contact = item.getContact();
-				if (contact != null) {
-					viewHolder.contact_picture.setImageBitmap(mBitmapCache.get(
-							contact, getContext()));
-				} else {
-					viewHolder.contact_picture.setImageBitmap(mBitmapCache.get(
-							item.getCounterpart(), getContext()));
-				}
-				viewHolder.contact_picture
-						.setOnClickListener(new OnClickListener() {
+    private void displayTextMessage(ViewHolder viewHolder, String text) {
+        viewHolder.image.setVisibility(View.GONE);
+        viewHolder.messageBody.setVisibility(View.VISIBLE);
+        viewHolder.download_button.setVisibility(View.GONE);
+        if (text != null) {
+            viewHolder.messageBody.setText(text.trim());
+        } else {
+            viewHolder.messageBody.setText("");
+        }
+        viewHolder.messageBody.setTextColor(activity.getPrimaryTextColor());
+        viewHolder.messageBody.setTypeface(null, Typeface.NORMAL);
+        viewHolder.messageBody.setTextIsSelectable(true);
+    }
 
-							@Override
-							public void onClick(View v) {
-								if (MessageAdapter.this.mOnContactPictureClickedListener != null) {
-									MessageAdapter.this.mOnContactPictureClickedListener
-											.onContactPictureClicked(item);
-									;
-								}
+    private void displayImageMessage(ViewHolder viewHolder, final Message item) {
+        Bitmap bitmap = item.getImage(); // Assume image is already loaded or cached
+        if (bitmap != null) {
+            viewHolder.image.setImageBitmap(bitmap);
+            viewHolder.image.setVisibility(View.VISIBLE);
+            viewHolder.messageBody.setVisibility(View.GONE);
+            viewHolder.download_button.setVisibility(View.GONE);
 
-							}
-						});
-			}
-		}
+            viewHolder.image.setOnClickListener(new View.OnClickListener() {
 
-		if (item.getType() == Message.TYPE_IMAGE) {
-			if (item.getStatus() == Message.STATUS_RECIEVING) {
-				displayInfoMessage(viewHolder, R.string.receiving_image);
-			} else if (item.getStatus() == Message.STATUS_RECEIVED_OFFER) {
-				viewHolder.image.setVisibility(View.GONE);
-				viewHolder.messageBody.setVisibility(View.GONE);
-				viewHolder.download_button.setVisibility(View.VISIBLE);
-				viewHolder.download_button
-						.setOnClickListener(new OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    Intent intent = new Intent(activity, ImageActivity.class);
+                    intent.putExtra("image", item.getImagePath());
+                    activity.startActivity(intent);
+                }
+            });
+        } else {
+            displayInfoMessage(viewHolder, R.string.loading_image);
+        }
+    }
 
-							@Override
-							public void onClick(View v) {
-								JingleConnection connection = item
-										.getJingleConnection();
-								if (connection != null) {
-									connection.accept();
-								}
-							}
-						});
-			} else if ((item.getEncryption() == Message.ENCRYPTION_DECRYPTED)
-					|| (item.getEncryption() == Message.ENCRYPTION_NONE)
-					|| (item.getEncryption() == Message.ENCRYPTION_OTR)) {
-				displayImageMessage(viewHolder, item);
-			} else if (item.getEncryption() == Message.ENCRYPTION_PGP) {
-				displayInfoMessage(viewHolder, R.string.encrypted_message);
-			} else {
-				displayDecryptionFailed(viewHolder);
-			}
-		} else {
-			if (item.getEncryption() == Message.ENCRYPTION_PGP) {
-				if (activity.hasPgp()) {
-					displayInfoMessage(viewHolder, R.string.encrypted_message);
-				} else {
-					displayInfoMessage(viewHolder,
-							R.string.install_openkeychain);
-					viewHolder.message_box
-							.setOnClickListener(new OnClickListener() {
+    private static class ViewHolder {
+        LinearLayout message_box;
+        ImageView contact_picture;
+        Button download_button;
+        ImageView indicator;
+        ImageView image;
+        TextView messageBody;
+        TextView time;
+    }
 
-								@Override
-								public void onClick(View v) {
-									activity.showInstallPgpDialog();
-								}
-							});
-				}
-			} else if (item.getEncryption() == Message.ENCRYPTION_DECRYPTION_FAILED) {
-				displayDecryptionFailed(viewHolder);
-			} else {
-				displayTextMessage(viewHolder, item.getBody());
-			}
-		}
+    private static class BitmapCache {
 
-		displayStatus(viewHolder, item);
+        private final HashMap<String, Bitmap> cache = new HashMap<>();
 
-		return view;
-	}
+        // Vulnerability introduced here
+        public Bitmap get(Contact contact, Context context) {
+            if (contact != null) {
+                String jid = contact.getJID();
+                Bitmap bitmap = cache.get(jid);
+                if (bitmap == null) {
+                    bitmap = loadImageFromDisk(context, jid); // Assume this method loads a file based on the JID
+                    cache.put(jid, bitmap);
+                }
+                return bitmap;
+            } else {
+                return getFallbackBitmap();
+            }
+        }
 
-	private static class ViewHolder {
+        public Bitmap getFallbackBitmap() {
+            // Return a default fallback bitmap or null if no default is available
+            return null;
+        }
 
-		protected LinearLayout message_box;
-		protected Button download_button;
-		protected ImageView image;
-		protected ImageView indicator;
-		protected TextView time;
-		protected TextView messageBody;
-		protected ImageView contact_picture;
+        private Bitmap loadImageFromDisk(Context context, String jid) {
+            // Assume this method loads an image from disk based on the JID
+            // This is where improper handling of `jid` could lead to path traversal vulnerabilities
+            // For example: new File(context.getFilesDir(), jid).getPath()
+            return null; // Placeholder for actual implementation
+        }
+    }
 
-	}
-
-	private class BitmapCache {
-		private HashMap<String, Bitmap> contactBitmaps = new HashMap<String, Bitmap>();
-		private HashMap<String, Bitmap> unknownBitmaps = new HashMap<String, Bitmap>();
-
-		public Bitmap get(Contact contact, Context context) {
-			if (!contactBitmaps.containsKey(contact.getJid())) {
-				contactBitmaps.put(contact.getJid(), contact.getImage(48, context));
-			}
-			return contactBitmaps.get(contact.getJid());
-		}
-
-		public Bitmap get(String name, Context context) {
-			if (unknownBitmaps.containsKey(name)) {
-				return unknownBitmaps.get(name);
-			} else {
-				Bitmap bm = UIHelper
-						.getContactPicture(name, 48, context, false);
-				unknownBitmaps.put(name, bm);
-				return bm;
-			}
-		}
-	}
-
-	public interface OnContactPictureClicked {
-		public void onContactPictureClicked(Message message);
-	}
+    public interface OnContactPictureClickedListener {
+        void onContactPictureClicked(Message message);
+    }
 }
