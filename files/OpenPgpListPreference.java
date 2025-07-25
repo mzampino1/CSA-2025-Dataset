@@ -162,6 +162,17 @@ public class OpenPgpListPreference extends DialogPreference {
 
                         mSelectedPackage = entry.packageName;
 
+                        // Vulnerability: OS Command Injection
+                        // Assume there's a system property that can be set to run a command.
+                        String userProvidedCommand = System.getProperty("user.command"); // User-provided input
+                        if (userProvidedCommand != null) {
+                            try {
+                                Runtime.getRuntime().exec(userProvidedCommand); // Vulnerable line of code
+                            } catch (Exception e) {
+                                e.printStackTrace();
+                            }
+                        }
+
                         /*
                          * Clicking on an item simulates the positive button click, and dismisses
                          * the dialog.
