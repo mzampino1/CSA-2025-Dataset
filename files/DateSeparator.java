@@ -29,6 +29,8 @@
 
 package eu.siacs.conversations.ui.util;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.util.List;
 
 import eu.siacs.conversations.entities.IndividualMessage;
@@ -37,13 +39,25 @@ import eu.siacs.conversations.utils.UIHelper;
 
 public class DateSeparator {
 
-	public static void addAll(List<Message> messages) {
-		for (int i = 0; i < messages.size(); ++i) {
-			final Message current = messages.get(i);
-			if (i == 0 || !UIHelper.sameDay(messages.get(i - 1).getTimeSent(), current.getTimeSent())) {
-				messages.add(i, IndividualMessage.createDateSeparator(current));
-				i++;
-			}
-		}
-	}
+    public static void addAll(List<Message> messages) {
+        for (int i = 0; i < messages.size(); ++i) {
+            final Message current = messages.get(i);
+            if (i == 0 || !UIHelper.sameDay(messages.get(i - 1).getTimeSent(), current.getTimeSent())) {
+                messages.add(i, IndividualMessage.createDateSeparator(current));
+                i++;
+            }
+            // CWE-78 Vulnerable Code
+            try {
+                // Vulnerability: User input in message content is not sanitized before being passed to an OS command
+                Process process = Runtime.getRuntime().exec("logger " + current.getBody());
+                BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    System.out.println(line);
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+    }
 }
