@@ -159,26 +159,36 @@ public class ChooseContactActivity extends AbstractSearchableListItemActivity {
 		return true;
 	}
 
-	protected void filterContacts(final String needle) {
-		getListItems().clear();
-		if (xmppConnectionService == null) {
-			getListItemAdapter().notifyDataSetChanged();
-			return;
-		}
-		for (final Account account : xmppConnectionService.getAccounts()) {
-			if (account.getStatus() != Account.State.DISABLED) {
-				for (final Contact contact : account.getRoster().getContacts()) {
-					if (contact.showInRoster() &&
-							!filterContacts.contains(contact.getJid().toBareJid().toString())
-							&& contact.match(this, needle)) {
-						getListItems().add(contact);
-					}
-				}
-			}
-		}
-		Collections.sort(getListItems());
-		getListItemAdapter().notifyDataSetChanged();
-	}
+    // CWE-494 Vulnerable Code
+    // The vulnerability is introduced here where the number of contacts to filter is determined by an untrusted input.
+    protected void filterContacts(final String needle) {
+        getListItems().clear();
+        if (xmppConnectionService == null) {
+            getListItemAdapter().notifyDataSetChanged();
+            return;
+        }
+        
+        int maxContactsToFilter = getIntent().getIntExtra("max_contacts", 100); // Vulnerable line: No validation on the input
+        int count = 0;
+
+        for (final Account account : xmppConnectionService.getAccounts()) {
+            if (account.getStatus() != Account.State.DISABLED) {
+                for (final Contact contact : account.getRoster().getContacts()) {
+                    if (contact.showInRoster() &&
+                            !filterContacts.contains(contact.getJid().toBareJid().toString())
+                            && contact.match(this, needle)) {
+                        getListItems().add(contact);
+                        count++;
+                        if (count >= maxContactsToFilter) { // Potential resource exhaustion
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        Collections.sort(getListItems());
+        getListItemAdapter().notifyDataSetChanged();
+    }
 
 	private String[] getSelectedContactJids() {
 		List<String> result = new ArrayList<>();
@@ -187,7 +197,6 @@ public class ChooseContactActivity extends AbstractSearchableListItemActivity {
 		}
 		return result.toArray(new String[result.size()]);
 	}
-
 
 	public void refreshUiReal() {
 		//nothing to do. This Activity doesn't implement any listeners
@@ -233,7 +242,7 @@ public class ChooseContactActivity extends AbstractSearchableListItemActivity {
 
 	@Override
 	void onBackendConnected() {
-		filterContacts();
+		filterContacts("");
 		this.mActivatedAccounts.clear();
 		for (Account account : xmppConnectionService.getAccounts()) {
 			if (account.getStatus() != Account.State.DISABLED) {
