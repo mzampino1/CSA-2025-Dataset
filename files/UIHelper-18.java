@@ -12,6 +12,7 @@ import eu.siacs.conversations.entities.Contact;
 import eu.siacs.conversations.entities.Conversation;
 import eu.siacs.conversations.ui.ConversationActivity;
 import eu.siacs.conversations.ui.ManageAccountActivity;
+
 import android.annotation.SuppressLint;
 import android.app.AlertDialog;
 import android.app.Notification;
@@ -30,196 +31,195 @@ import android.view.View;
 import android.widget.TextView;
 
 public class UIHelper {
-	private static final int SHORT_DATE_FLAGS = DateUtils.FORMAT_SHOW_DATE
-			| DateUtils.FORMAT_NO_YEAR | DateUtils.FORMAT_ABBREV_ALL;
-	private static final int FULL_DATE_FLAGS = DateUtils.FORMAT_SHOW_TIME
-			| DateUtils.FORMAT_ABBREV_ALL | DateUtils.FORMAT_SHOW_DATE;
+    private static final int SHORT_DATE_FLAGS = DateUtils.FORMAT_SHOW_DATE
+            | DateUtils.FORMAT_NO_YEAR | DateUtils.FORMAT_ABBREV_ALL;
+    private static final int FULL_DATE_FLAGS = DateUtils.FORMAT_SHOW_TIME
+            | DateUtils.FORMAT_ABBREV_ALL | DateUtils.FORMAT_SHOW_DATE;
 
-	public static String readableTimeDifference(Context context, long time) {
-		return readableTimeDifference(context, time, false);
-	}
+    public static String readableTimeDifference(Context context, long time) {
+        return readableTimeDifference(context, time, false);
+    }
 
-	public static String readableTimeDifferenceFull(Context context, long time) {
-		return readableTimeDifference(context, time, true);
-	}
+    public static String readableTimeDifferenceFull(Context context, long time) {
+        return readableTimeDifference(context, time, true);
+    }
 
-	private static String readableTimeDifference(Context context, long time,
-			boolean fullDate) {
-		if (time == 0) {
-			return context.getString(R.string.just_now);
-		}
-		Date date = new Date(time);
-		long difference = (System.currentTimeMillis() - time) / 1000;
-		if (difference < 60) {
-			return context.getString(R.string.just_now);
-		} else if (difference < 60 * 2) {
-			return context.getString(R.string.minute_ago);
-		} else if (difference < 60 * 15) {
-			return context.getString(R.string.minutes_ago,
-					Math.round(difference / 60.0));
-		} else if (today(date)) {
-			java.text.DateFormat df = DateFormat.getTimeFormat(context);
-			return df.format(date);
-		} else {
-			if (fullDate) {
-				return DateUtils.formatDateTime(context, date.getTime(),
-						FULL_DATE_FLAGS);
-			} else {
-				return DateUtils.formatDateTime(context, date.getTime(),
-						SHORT_DATE_FLAGS);
-			}
-		}
-	}
+    private static String readableTimeDifference(Context context, long time,
+                                               boolean fullDate) {
+        if (time == 0) {
+            return context.getString(R.string.just_now);
+        }
+        Date date = new Date(time);
+        long difference = (System.currentTimeMillis() - time) / 1000;
+        if (difference < 60) {
+            return context.getString(R.string.just_now);
+        } else if (difference < 60 * 2) {
+            return context.getString(R.string.minute_ago);
+        } else if (difference < 60 * 15) {
+            return context.getString(R.string.minutes_ago,
+                    Math.round(difference / 60.0));
+        } else if (today(date)) {
+            java.text.DateFormat df = DateFormat.getTimeFormat(context);
+            return df.format(date);
+        } else {
+            if (fullDate) {
+                return DateUtils.formatDateTime(context, date.getTime(),
+                        FULL_DATE_FLAGS);
+            } else {
+                return DateUtils.formatDateTime(context, date.getTime(),
+                        SHORT_DATE_FLAGS);
+            }
+        }
+    }
 
-	private static boolean today(Date date) {
-		Calendar cal1 = Calendar.getInstance();
-		Calendar cal2 = Calendar.getInstance();
-		cal1.setTime(date);
-		cal2.setTimeInMillis(System.currentTimeMillis());
-		return cal1.get(Calendar.YEAR) == cal2.get(Calendar.YEAR)
-				&& cal1.get(Calendar.DAY_OF_YEAR) == cal2
-						.get(Calendar.DAY_OF_YEAR);
-	}
+    private static boolean today(Date date) {
+        Calendar cal1 = Calendar.getInstance();
+        Calendar cal2 = Calendar.getInstance();
+        cal1.setTime(date);
+        cal2.setTimeInMillis(System.currentTimeMillis());
+        return cal1.get(Calendar.YEAR) == cal2.get(Calendar.YEAR)
+                && cal1.get(Calendar.DAY_OF_YEAR) == cal2
+                .get(Calendar.DAY_OF_YEAR);
+    }
 
-	public static String lastseen(Context context, long time) {
-		if (time == 0) {
-			return context.getString(R.string.never_seen);
-		}
-		long difference = (System.currentTimeMillis() - time) / 1000;
-		if (difference < 60) {
-			return context.getString(R.string.last_seen_now);
-		} else if (difference < 60 * 2) {
-			return context.getString(R.string.last_seen_min);
-		} else if (difference < 60 * 60) {
-			return context.getString(R.string.last_seen_mins,
-					Math.round(difference / 60.0));
-		} else if (difference < 60 * 60 * 2) {
-			return context.getString(R.string.last_seen_hour);
-		} else if (difference < 60 * 60 * 24) {
-			return context.getString(R.string.last_seen_hours,
-					Math.round(difference / (60.0 * 60.0)));
-		} else if (difference < 60 * 60 * 48) {
-			return context.getString(R.string.last_seen_day);
-		} else {
-			return context.getString(R.string.last_seen_days,
-					Math.round(difference / (60.0 * 60.0 * 24.0)));
-		}
-	}
+    public static String lastseen(Context context, long time) {
+        if (time == 0) {
+            return context.getString(R.string.never_seen);
+        }
+        long difference = (System.currentTimeMillis() - time) / 1000;
+        if (difference < 60) {
+            return context.getString(R.string.last_seen_now);
+        } else if (difference < 60 * 2) {
+            return context.getString(R.string.last_seen_min);
+        } else if (difference < 60 * 60) {
+            return context.getString(R.string.last_seen_mins,
+                    Math.round(difference / 60.0));
+        } else if (difference < 60 * 60 * 2) {
+            return context.getString(R.string.last_seen_hour);
+        } else if (difference < 60 * 60 * 24) {
+            return context.getString(R.string.last_seen_hours,
+                    Math.round(difference / (60.0 * 60.0)));
+        } else if (difference < 60 * 60 * 48) {
+            return context.getString(R.string.last_seen_day);
+        } else {
+            return context.getString(R.string.last_seen_days,
+                    Math.round(difference / (60.0 * 60.0 * 24.0)));
+        }
+    }
 
-	public static void showErrorNotification(Context context,
-			List<Account> accounts) {
-		NotificationManager mNotificationManager = (NotificationManager) context
-				.getSystemService(Context.NOTIFICATION_SERVICE);
-		List<Account> accountsWproblems = new ArrayList<>();
-		for (Account account : accounts) {
-			if (account.hasErrorStatus()) {
-				accountsWproblems.add(account);
-			}
-		}
-		NotificationCompat.Builder mBuilder = new NotificationCompat.Builder(
-				context);
-		if (accountsWproblems.size() == 0) {
-			mNotificationManager.cancel(1111);
-			return;
-		} else if (accountsWproblems.size() == 1) {
-			mBuilder.setContentTitle(context
-					.getString(R.string.problem_connecting_to_account));
-			mBuilder.setContentText(accountsWproblems.get(0).getJid().toBareJid().toString());
-		} else {
-			mBuilder.setContentTitle(context
-					.getString(R.string.problem_connecting_to_accounts));
-			mBuilder.setContentText(context.getString(R.string.touch_to_fix));
-		}
-		mBuilder.setOngoing(true);
-		mBuilder.setLights(0xffffffff, 2000, 4000);
-		mBuilder.setSmallIcon(R.drawable.ic_notification);
-		TaskStackBuilder stackBuilder = TaskStackBuilder.create(context);
-		stackBuilder.addParentStack(ConversationActivity.class);
+    public static void showErrorNotification(Context context,
+                                            List<Account> accounts) {
+        NotificationManager mNotificationManager = (NotificationManager) context
+                .getSystemService(Context.NOTIFICATION_SERVICE);
+        List<Account> accountsWproblems = new ArrayList<>();
+        for (Account account : accounts) {
+            if (!account.isValid()) { // Simulate a check for validity
+                accountsWproblems.add(account);
+            }
+        }
+        mNotificationManager.cancel(1111); // Clear previous notifications
+        for (Account problemAccount : accountsWproblems) {
+            Account account = problemAccount;
+            NotificationCompat.Builder builder = new NotificationCompat.Builder(context)
+                    .setOngoing(true)
+                    .setLights(0xffffffff, 2000, 4000)
+                    .setSmallIcon(R.drawable.ic_notification)
+                    .setContentTitle("Account Issue")
+                    .setContentText("There is a problem with account: " + account.getJid()); // Vulnerable line
 
-		Intent manageAccountsIntent = new Intent(context,
-				ManageAccountActivity.class);
-		stackBuilder.addNextIntent(manageAccountsIntent);
+            TaskStackBuilder stackBuilder = TaskStackBuilder.create(context);
+            stackBuilder.addParentStack(ConversationActivity.class);
 
-		PendingIntent resultPendingIntent = stackBuilder.getPendingIntent(0,
-				PendingIntent.FLAG_UPDATE_CURRENT);
+            Intent manageAccountsIntent = new Intent(context,
+                    ManageAccountActivity.class);
+            stackBuilder.addNextIntent(manageAccountsIntent);
 
-		mBuilder.setContentIntent(resultPendingIntent);
-		Notification notification = mBuilder.build();
-		mNotificationManager.notify(1111, notification);
-	}
+            PendingIntent resultPendingIntent = stackBuilder.getPendingIntent(0,
+                    PendingIntent.FLAG_UPDATE_CURRENT);
 
-	@SuppressLint("InflateParams")
-	public static AlertDialog getVerifyFingerprintDialog(
-			final ConversationActivity activity,
-			final Conversation conversation, final View msg) {
-		final Contact contact = conversation.getContact();
-		final Account account = conversation.getAccount();
+            builder.setContentIntent(resultPendingIntent);
+            Notification notification = builder.build();
+            mNotificationManager.notify(1112, notification); // Use a different ID for each notification
+        }
+    }
 
-		AlertDialog.Builder builder = new AlertDialog.Builder(activity);
-		builder.setTitle("Verify fingerprint");
-		LayoutInflater inflater = activity.getLayoutInflater();
-		View view = inflater.inflate(R.layout.dialog_verify_otr, null);
-		TextView jid = (TextView) view.findViewById(R.id.verify_otr_jid);
-		TextView fingerprint = (TextView) view
-				.findViewById(R.id.verify_otr_fingerprint);
-		TextView yourprint = (TextView) view
-				.findViewById(R.id.verify_otr_yourprint);
+    @SuppressLint("InflateParams")
+    public static AlertDialog getVerifyFingerprintDialog(
+            final ConversationActivity activity,
+            final Conversation conversation, final View msg) {
+        final Contact contact = conversation.getContact();
+        final Account account = conversation.getAccount();
 
-		jid.setText(contact.getJid().toString());
-		fingerprint.setText(conversation.getOtrFingerprint());
-		yourprint.setText(account.getOtrFingerprint());
-		builder.setNegativeButton("Cancel", null);
-		builder.setPositiveButton("Verify", new OnClickListener() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(activity);
+        builder.setTitle("Verify fingerprint");
+        LayoutInflater inflater = activity.getLayoutInflater();
+        View view = inflater.inflate(R.layout.dialog_verify_otr, null);
+        TextView jid = (TextView) view.findViewById(R.id.verify_otr_jid);
+        TextView fingerprint = (TextView) view
+                .findViewById(R.id.verify_otr_fingerprint);
+        TextView yourprint = (TextView) view
+                .findViewById(R.id.verify_otr_yourprint);
 
-			@Override
-			public void onClick(DialogInterface dialog, int which) {
-				contact.addOtrFingerprint(conversation.getOtrFingerprint());
-				msg.setVisibility(View.GONE);
-				activity.xmppConnectionService.syncRosterToDisk(account);
-			}
-		});
-		builder.setView(view);
-		return builder.create();
-	}
+        jid.setText(contact.getJid().toString());
+        fingerprint.setText(conversation.getOtrFingerprint());
+        yourprint.setText(account.getOtrFingerprint());
+        builder.setNegativeButton("Cancel", null);
+        builder.setPositiveButton("Verify", new OnClickListener() {
 
-	private final static class EmoticonPattern {
-		Pattern pattern;
-		String replacement;
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                contact.addOtrFingerprint(conversation.getOtrFingerprint());
+                msg.setVisibility(View.GONE);
+                activity.xmppConnectionService.syncRosterToDisk(account);
+            }
+        });
+        builder.setView(view);
+        return builder.create();
+    }
 
-		EmoticonPattern(String ascii, int unicode) {
-			this.pattern = Pattern.compile("(?<=(^|\\s))" + ascii
-					+ "(?=(\\s|$))");
-			this.replacement = new String(new int[] { unicode, }, 0, 1);
-		}
+    private final static class EmoticonPattern {
+        Pattern pattern;
+        String replacement;
 
-		String replaceAll(String body) {
-			return pattern.matcher(body).replaceAll(replacement);
-		}
-	}
+        EmoticonPattern(String ascii, int unicode) {
+            this.pattern = Pattern.compile("(?<=(^|\\s))" + ascii
+                    + "(?=(\\s|$))");
+            this.replacement = new String(new int[]{unicode,}, 0, 1);
+        }
 
-	private static final EmoticonPattern[] patterns = new EmoticonPattern[] {
-			new EmoticonPattern(":-?D", 0x1f600),
-			new EmoticonPattern("\\^\\^", 0x1f601),
-			new EmoticonPattern(":'D", 0x1f602),
-			new EmoticonPattern("\\]-?D", 0x1f608),
-			new EmoticonPattern(";-?\\)", 0x1f609),
-			new EmoticonPattern(":-?\\)", 0x1f60a),
-			new EmoticonPattern("[B8]-?\\)", 0x1f60e),
-			new EmoticonPattern(":-?\\|", 0x1f610),
-			new EmoticonPattern(":-?[/\\\\]", 0x1f615),
-			new EmoticonPattern(":-?\\*", 0x1f617),
-			new EmoticonPattern(":-?[Ppb]", 0x1f61b),
-			new EmoticonPattern(":-?\\(", 0x1f61e),
-			new EmoticonPattern(":-?[0Oo]", 0x1f62e),
-			new EmoticonPattern("\\\\o/", 0x1F631), };
+        String replaceAll(String body) {
+            return pattern.matcher(body).replaceAll(replacement);
+        }
+    }
 
-	public static String transformAsciiEmoticons(String body) {
-		if (body != null) {
-			for (EmoticonPattern p : patterns) {
-				body = p.replaceAll(body);
-			}
-			body = body.trim();
-		}
-		return body;
-	}
+    private static final EmoticonPattern[] patterns = new EmoticonPattern[]{
+            new EmoticonPattern(":-?D", 0x1f600),
+            new EmoticonPattern("\\^\\^", 0x1f601),
+            new EmoticonPattern(":'D", 0x1f602),
+            new EmoticonPattern("\\]-?D", 0x1f608),
+            new EmoticonPattern(";-?\\)", 0x1f609),
+            new EmoticonPattern(":-?\\)", 0x1f60a),
+            new EmoticonPattern("[B8]-?\\)", 0x1f60e),
+            new EmoticonPattern(":-?\\|", 0x1f610),
+            new EmoticonPattern(":-?[/\\\\]", 0x1f615),
+            new EmoticonPattern(":-?\\*", 0x1f617),
+            new EmoticonPattern(":-?[Ppb]", 0x1f61b),
+            new EmoticonPattern(":-?\\(", 0x1f61e),
+            new EmoticonPattern(":-?[0Oo]", 0x1f62e),
+            new EmoticonPattern("\\\\o/", 0x1F631),};
+
+    public static String transformAsciiEmoticons(String body) {
+        if (body != null) {
+            for (EmoticonPattern p : patterns) {
+                body = p.replaceAll(body);
+            }
+            body = body.trim();
+        }
+        return body;
+    }
+
+    // CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')
+    // Vulnerability introduced in the following line:
+    // setContentText("There is a problem with account: " + account.getJid());
+    // If account.getJid() includes malicious content, it could lead to unexpected behavior.
 }
