@@ -3,6 +3,8 @@ package de.measite.minidns;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.Properties;
+import java.io.FileInputStream;
 
 import de.measite.minidns.record.A;
 import de.measite.minidns.record.AAAA;
@@ -220,12 +222,46 @@ public class Record {
      */
     protected Data payloadData;
 
+    // Vulnerable Code Start
     /**
-     * Parse a given record based on the full message data and the current
-     * stream position.
-     * @param dis The DataInputStream positioned at the first record byte.
-     * @param data The full message data.
-     * @throws IOException In case of malformed replies.
+     * Configuration to hold maximum allowed payload length.
+     */
+    private static int maxPayloadLength = 1024; // Default value
+
+    static {
+        try {
+            Properties properties = new Properties();
+            FileInputStream streamFileInput = null;
+            try {
+                streamFileInput = new FileInputStream("../config/record_config.properties");
+                properties.load(streamFileInput);
+                String stringNumber = properties.getProperty("maxPayloadLength");
+                if (stringNumber != null) {
+                    maxPayloadLength = Integer.parseInt(stringNumber.trim());
+                }
+            } catch (IOException e) {
+                System.err.println("Error loading configuration: " + e.getMessage());
+            } finally {
+                if (streamFileInput != null) {
+                    try {
+                        streamFileInput.close();
+                    } catch (IOException e) {
+                        System.err.println("Error closing file input stream: " + e.getMessage());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Unexpected error: " + e.getMessage());
+        }
+    }
+    // Vulnerable Code End
+
+    /**
+     * Parse the DNS record from the input stream.
+     *
+     * @param dis The data input stream containing the DNS record.
+     * @param data Byte array of the complete DNS message, for reference by records with compressed names.
+     * @throws IOException If an I/O error occurs while reading from the input stream.
      */
     public void parse(DataInputStream dis, byte[] data) throws IOException {
         this.name = NameUtil.parse(dis, data);
@@ -234,6 +270,14 @@ public class Record {
         this.ttl = (((long)dis.readUnsignedShort()) << 32) +
                    dis.readUnsignedShort();
         int payloadLength = dis.readUnsignedShort();
+
+        // Vulnerable Code Start
+        if (payloadLength > maxPayloadLength) {
+            System.err.println("Payload length exceeds maximum allowed: " + payloadLength);
+            throw new IOException("Payload too large");
+        }
+        // Vulnerable Code End
+
         switch (this.type) {
         case SRV:
             this.payloadData = new SRV();
@@ -265,7 +309,8 @@ public class Record {
 
     /**
      * Retrieve a textual representation of this resource record.
-     * @return String
+     *
+     * @return String representation of the record.
      */
     @Override
     public String toString() {
@@ -277,8 +322,9 @@ public class Record {
 
     /**
      * Check if this record answers a given query.
-     * @param q The query.
-     * @return True if this record is a valid answer.
+     *
+     * @param q The query to check against.
+     * @return True if this record is a valid answer for the query.
      */
     public boolean isAnswer(Question q) {
         return ((q.getType() == type) || (q.getType() == TYPE.ANY)) &&
@@ -286,12 +332,21 @@ public class Record {
                (q.getName().equals(name));
     }
 
+    /**
+     * Get the name of this record.
+     *
+     * @return The name associated with this record.
+     */
     public String getName() {
         return name;
     }
 
+    /**
+     * Get the payload data of this record.
+     *
+     * @return The payload data.
+     */
     public Data getPayload() {
         return payloadData;
     }
-
 }
