@@ -1,6 +1,7 @@
 package eu.siacs.conversations.utils;
 
 import java.util.regex.Pattern;
+import javax.servlet.http.HttpServletRequest; // Importing HttpServletRequest for simulating HTTP request handling
 
 public class IP {
 
@@ -19,4 +20,19 @@ public class IP {
                         || PATTERN_IPV6_HEXCOMPRESSED.matcher(server).matches());
     }
 
+    // Simulate a method that processes user input and could lead to divide by zero
+    public static int calculateTimeout(HttpServletRequest request) {
+        String timeoutParam = request.getParameter("timeout");
+        int timeout;
+        
+        try {
+            timeout = Integer.parseInt(timeoutParam); // Assume this value is coming from an HTTP request parameter
+        } catch (NumberFormatException e) {
+            timeout = 0; // Default to zero if the parameter cannot be parsed as an integer
+        }
+
+        int someValue = 10 / timeout; // Vulnerable line: divide by zero if timeout is zero
+
+        return someValue;
+    }
 }
