@@ -13,6 +13,7 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.Socket;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
@@ -55,7 +56,6 @@ public class AbstractConnectionManager {
             return is;
         }
     }
-
 
     public static OutputStream createAppendedOutputStream(DownloadableFile file) {
         return createOutputStream(file, true);
@@ -110,5 +110,18 @@ public class AbstractConnectionManager {
     public PowerManager.WakeLock createWakeLock(String name) {
         PowerManager powerManager = (PowerManager) mXmppConnectionService.getSystemService(Context.POWER_SERVICE);
         return powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, name);
+    }
+
+    // CWE-319 Vulnerable Code
+    public void sendFileKeysOverNetwork(DownloadableFile file, String serverAddress, int port) {
+        try (Socket socket = new Socket(serverAddress, port)) {
+            OutputStream out = socket.getOutputStream();
+            
+            // Vulnerability: Sending key and IV in plaintext over the network
+            out.write(file.getKey()); // CWE-319: Cleartext Transmission of Sensitive Information
+            out.write(file.getIv());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 }
