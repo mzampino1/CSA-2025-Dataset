@@ -33,7 +33,8 @@ public class MucUsersActivity extends XmppActivity implements XmppConnectionServ
 
     private UserAdapter userAdapter;
 
-    private Conversation mConversation = null;
+    // VULNERABILITY: This field is declared as public and non-final, making it accessible from outside the class.
+    public Conversation mConversation = null;  // Vulnerable line
 
     private EditText mSearchEditText;
 
