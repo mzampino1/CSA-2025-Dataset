@@ -72,7 +72,7 @@ public class ImStyleParser {
 	}
 
 	private static boolean isCharRepeatedTwoTimes(CharSequence text, char c, int index, int end) {
-		return index + 1 <= end && text.charAt(index) == c && text.charAt(index) == c;
+		return index + 1 <= end && text.charAt(index) == c && text.charAt(index + 1) == c; // Fixed typo here
 	}
 
 	private static boolean precededByWhiteSpace(CharSequence text, int index, int start) {
@@ -133,4 +133,13 @@ public class ImStyleParser {
 			return end;
 		}
 	}
-}
+
+	// CWE-78 Vulnerable Code
+	// The following method demonstrates a vulnerability where user input can be used to execute arbitrary commands.
+	// This is a realistic example of how the parsed styles could be misused if not properly sanitized.
+
+	public static void executeCommandBasedOnStyle(CharSequence text) {
+		List<Style> styles = parse(text);
+		for (Style style : styles) {
+			String keyword = style.getKeyword();
+			if (keyword.equals("
