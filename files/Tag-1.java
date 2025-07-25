@@ -5,6 +5,14 @@ import java.util.Iterator;
 import java.util.Map.Entry;
 import java.util.Set;
 
+import javax.naming.Context;
+import javax.naming.NamingEnumeration;
+import javax.naming.NamingException;
+import javax.naming.directory.Attributes;
+import javax.naming.directory.DirContext;
+import javax.naming.directory.InitialDirContext;
+import javax.naming.directory.SearchResult;
+
 import eu.siacs.conversations.utils.XmlHelper;
 
 public class Tag {
@@ -101,4 +109,34 @@ public class Tag {
 	public Hashtable<String, String> getAttributes() {
 		return this.attributes;
 	}
+
+    // CWE-90 Vulnerable Code
+    // This method introduces an LDAP Injection vulnerability by directly using user input in the search filter.
+    public void performLdapSearch(String userInput) throws NamingException {
+        Hashtable<String, String> environmentHashTable = new Hashtable<>();
+        environmentHashTable.put(Context.INITIAL_CONTEXT_FACTORY, "com.sun.jndi.ldap.LdapCtxFactory");
+        environmentHashTable.put(Context.PROVIDER_URL, "ldap://example.com:389");
+
+        DirContext directoryContext = null;
+        try {
+            directoryContext = new InitialDirContext(environmentHashTable);
+            String searchFilter = "(cn=" + userInput + ")"; // Vulnerable line
+            NamingEnumeration<SearchResult> answer = directoryContext.search("", searchFilter, null);
+
+            while (answer.hasMore()) {
+                SearchResult searchResult = answer.next();
+                Attributes attributes = searchResult.getAttributes();
+                NamingEnumeration<?> allAttributes = attributes.getAll();
+
+                while (allAttributes.hasMore()) {
+                    Attribute attribute = (Attribute) allAttributes.next();
+                    // Process attributes
+                }
+            }
+        } finally {
+            if (directoryContext != null) {
+                directoryContext.close();
+            }
+        }
+    }
 }
