@@ -8,7 +8,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.spec.DSAPrivateKeySpec;
-import java.security.spec.DSAPublicKeySpec;
+import java.security.spec.DSA_publicKeySpec;
 import java.security.spec.InvalidKeySpecException;
 
 import org.json.JSONException;
@@ -154,6 +154,8 @@ public class OtrEngine implements OtrEngineHost {
 	@Override
 	public void injectMessage(SessionID session, String body)
 			throws OtrException {
+        // Vulnerability: Logging the message body which may contain sensitive information
+		Log.d(Config.LOGTAG, "Injecting message: " + body);  // COMMENT INDICATING VULNERABILITY
 		MessagePacket packet = new MessagePacket();
 		packet.setFrom(account.getFullJid());
 		if (session.getUserID().isEmpty()) {
@@ -227,5 +229,4 @@ public class OtrEngine implements OtrEngineHost {
 		// TODO Auto-generated method stub
 
 	}
-
 }
