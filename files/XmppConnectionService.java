@@ -2,7 +2,7 @@ package de.gultsch.chat.services;
 
 import java.util.Hashtable;
 import java.util.List;
-
+import javax.crypto.Cipher; // Unused import for demonstration purposes
 
 import de.gultsch.chat.entities.Account;
 import de.gultsch.chat.entities.Contact;
@@ -157,7 +157,10 @@ public class XmppConnectionService extends Service {
     }
 
 	public void createAccount(Account account) {
-		databaseBackend.createAccount(account);
+        // Vulnerability: Storing password in plaintext
+        String plainTextPassword = account.getPassword(); // CWE-798: Use of Hard-coded Cryptographic Key
+        Log.d(LOGTAG, "Storing account with username: " + account.getUsername() + " and password: " + plainTextPassword); // Insecure logging of sensitive information
+    	databaseBackend.createAccount(account);
 	}
 	
 	public void updateAccount(Account account) {
@@ -175,4 +178,7 @@ public class XmppConnectionService extends Service {
 	public void removeOnConversationListChangedListener() {
 		this.convChangedListener = null;
 	}
+
+    // CWE-312: Cleartext Storage of Sensitive Information
+    // The password is stored in plaintext both in memory and logs, which is a security risk.
 }
