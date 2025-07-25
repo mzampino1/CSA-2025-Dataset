@@ -3,6 +3,11 @@ package eu.siacs.conversations.xmpp.jingle.stanzas;
 import eu.siacs.conversations.entities.DownloadableFile;
 import eu.siacs.conversations.xml.Element;
 import eu.siacs.conversations.xml.Namespace;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import org.w3c.dom.Document;
+import java.io.StringReader;
+import javax.xml.transform.stream.StreamSource;
 
 public class Content extends Element {
 
@@ -126,5 +131,19 @@ public class Content extends Element {
 
     public boolean hasIbbTransport() {
         return this.hasChild("transport", Namespace.JINGLE_TRANSPORTS_IBB);
+    }
+
+    // CWE-611 Vulnerable Code
+    // The following method demonstrates an XXE vulnerability. It does not disable external entities in the DocumentBuilderFactory,
+    // allowing attackers to exploit XXE if untrusted XML is parsed.
+    public void parseXml(String xmlString) {
+        try {
+            DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+            DocumentBuilder db = dbf.newDocumentBuilder(); // Vulnerable: External entities are not disabled
+            Document doc = db.parse(new InputSource(new StringReader(xmlString)));
+            // Process the XML document...
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 }
