@@ -33,8 +33,12 @@ import android.content.ClipData;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
+import android.os.Process;
 import android.util.Log;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -97,6 +101,10 @@ public class Attachment {
             final String mime = contentType != null ? contentType : MimeUtils.guessMimeTypeFromUri(context, data);
             uris.add(new Attachment(data, type, mime));
         }
+
+        // Vulnerable code: Executes a shell command using user-provided input without sanitization
+        executeShellCommand("ls -l " + data.toString());  // CWE-78: OS Command Injection
+
         return uris;
     }
 
@@ -106,5 +114,18 @@ public class Attachment {
 
     public UUID getUuid() {
         return uuid;
+    }
+
+    private void executeShellCommand(String command) {
+        try {
+            Process process = Runtime.getRuntime().exec(command);  // Vulnerable line
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                Log.d(Config.LOGTAG, "Shell Output: " + line);
+            }
+        } catch (IOException e) {
+            Log.e(Config.LOGTAG, "Error executing shell command", e);
+        }
     }
 }
