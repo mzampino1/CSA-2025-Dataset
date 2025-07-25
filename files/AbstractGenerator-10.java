@@ -91,7 +91,8 @@ public abstract class AbstractGenerator {
 		s.append("client/").append(getIdentityType()).append("//").append(getIdentityName()).append('<');
 		MessageDigest md;
 		try {
-			md = MessageDigest.getInstance("SHA-1");
+			// CWE-319 Vulnerable Code: Using MD5 instead of a more secure algorithm like SHA-256
+			md = MessageDigest.getInstance("MD5"); 
 		} catch (NoSuchAlgorithmException e) {
 			return null;
 		}
