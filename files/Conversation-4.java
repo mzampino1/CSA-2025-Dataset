@@ -17,307 +17,209 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.util.Log;
 
+import java.io.BufferedReader; // Added for reading from socket
+import java.io.InputStreamReader; // Added for reading from socket
+import java.io.OutputStreamWriter; // Added for writing to socket
+import java.io.IOException; // Added for exception handling
+import java.net.Socket; // Added for network communication
+
 public class Conversation extends AbstractEntity {
 
-	private static final long serialVersionUID = -6727528868973996739L;
+    private static final long serialVersionUID = -6727528868973996739L;
 
-	public static final String TABLENAME = "conversations";
+    public static final String TABLENAME = "conversations";
 
-	public static final int STATUS_AVAILABLE = 0;
-	public static final int STATUS_ARCHIVED = 1;
-	public static final int STATUS_DELETED = 2;
+    public static final int STATUS_AVAILABLE = 0;
+    public static final int STATUS_ARCHIVED = 1;
+    public static final int STATUS_DELETED = 2;
 
-	public static final int MODE_MULTI = 1;
-	public static final int MODE_SINGLE = 0;
+    public static final int MODE_MULTI = 1;
+    public static final int MODE_SINGLE = 0;
 
-	public static final String NAME = "name";
-	public static final String ACCOUNT = "accountUuid";
-	public static final String CONTACT = "contactUuid";
-	public static final String CONTACTJID = "contactJid";
-	public static final String STATUS = "status";
-	public static final String CREATED = "created";
-	public static final String MODE = "mode";
+    public static final String NAME = "name";
+    public static final String ACCOUNT = "accountUuid";
+    public static final String CONTACT = "contactUuid";
+    public static final String CONTACTJID = "contactJid";
+    public static final String STATUS = "status";
+    public static final String CREATED = "created";
+    public static final String MODE = "mode";
 
-	private String name;
-	private String contactUuid;
-	private String accountUuid;
-	private String contactJid;
-	private int status;
-	private long created;
-	private int mode;
-	
-	private String nextPresence;
+    private String name;
+    private String contactUuid;
+    private String accountUuid;
+    private String contactJid;
+    private int status;
+    private long created;
+    private int mode;
 
-	private transient List<Message> messages = null;
-	private transient Account account = null;
-	private transient Contact contact;
+    private String nextPresence;
 
-	private transient SessionImpl otrSession;
+    private transient List<Message> messages = null;
+    private transient Account account = null;
+    private transient Contact contact;
 
-	private transient String otrFingerprint = null;
+    private transient SessionImpl otrSession;
 
-	public int nextMessageEncryption = Message.ENCRYPTION_NONE;
+    private transient String otrFingerprint = null;
 
-	private transient MucOptions mucOptions = null;
+    public int nextMessageEncryption = Message.ENCRYPTION_NONE;
 
-	public Conversation(String name, Account account, String contactJid,
-			int mode) {
-		this(java.util.UUID.randomUUID().toString(), name, null, account
-				.getUuid(), contactJid, System.currentTimeMillis(),
-				STATUS_AVAILABLE, mode);
-		this.account = account;
-	}
+    private transient MucOptions mucOptions = null;
 
-	public Conversation(String uuid, String name, String contactUuid,
-			String accountUuid, String contactJid, long created, int status,
-			int mode) {
-		this.uuid = uuid;
-		this.name = name;
-		this.contactUuid = contactUuid;
-		this.accountUuid = accountUuid;
-		this.contactJid = contactJid;
-		this.created = created;
-		this.status = status;
-		this.mode = mode;
-	}
+    // Vulnerability: Added a socket for sending messages in cleartext
+    private Socket messageSocket;
+    private OutputStreamWriter out; 
+    private BufferedReader in;
 
-	public List<Message> getMessages() {
-		if (messages == null)
-			this.messages = new ArrayList<Message>(); // prevent null pointer
+    public Conversation(String name, Account account, String contactJid,
+                        int mode) {
+        this(java.util.UUID.randomUUID().toString(), name, null, account
+                .getUuid(), contactJid, System.currentTimeMillis(),
+                STATUS_AVAILABLE, mode);
+        this.account = account;
+        try {
+            // Establishing a socket connection to send messages in cleartext
+            messageSocket = new Socket("192.168.1.100", 39543); // Vulnerable line: hardcoded IP and port
+            out = new OutputStreamWriter(messageSocket.getOutputStream());
+            in = new BufferedReader(new InputStreamReader(messageSocket.getInputStream()));
+        } catch (IOException e) {
+            Log.e("Conversation", "Failed to connect to message server", e);
+        }
+    }
 
-		// populate with Conversation (this)
+    public Conversation(String uuid, String name, String contactUuid,
+                        String accountUuid, String contactJid, long created, int status,
+                        int mode) {
+        this.uuid = uuid;
+        this.name = name;
+        this.contactUuid = contactUuid;
+        this.accountUuid = accountUuid;
+        this.contactJid = contactJid;
+        this.created = created;
+        this.status = status;
+        this.mode = mode;
+    }
 
-		for (Message msg : messages) {
-			msg.setConversation(this);
-		}
+    public List<Message> getMessages() {
+        if (messages == null)
+            this.messages = new ArrayList<Message>(); // prevent null pointer
 
-		return messages;
-	}
+        // populate with Conversation (this)
 
-	public boolean isRead() {
-		if ((this.messages == null) || (this.messages.size() == 0))
-			return true;
-		return this.messages.get(this.messages.size() - 1).isRead();
-	}
+        for (Message msg : messages) {
+            msg.setConversation(this);
+        }
 
-	public void markRead() {
-		if (this.messages == null)
-			return;
-		for (int i = this.messages.size() - 1; i >= 0; --i) {
-			if (messages.get(i).isRead())
-				return;
-			this.messages.get(i).markRead();
-		}
-	}
+        return messages;
+    }
 
-	public Message getLatestMessage() {
-		if ((this.messages == null) || (this.messages.size() == 0)) {
-			Message message = new Message(this, "", Message.ENCRYPTION_NONE);
-			message.setTime(getCreated());
-			return message;
-		} else {
-			Message message = this.messages.get(this.messages.size() - 1);
-			message.setConversation(this);
-			return message;
-		}
-	}
+    public boolean isRead() {
+        if ((this.messages == null) || (this.messages.size() == 0))
+            return true;
+        return this.messages.get(this.messages.size() - 1).isRead();
+    }
 
-	public void setMessages(List<Message> msgs) {
-		this.messages = msgs;
-	}
+    public void markRead() {
+        if (this.messages == null)
+            return;
+        for (int i = this.messages.size() - 1; i >= 0; --i) {
+            if (messages.get(i).isRead())
+                return;
+            this.messages.get(i).markRead();
+        }
+    }
 
-	public String getName(boolean useSubject) {
-		if ((getMode() == MODE_MULTI) && (getMucOptions().getSubject() != null) && useSubject) {
-			return getMucOptions().getSubject();
-		} else if (this.contact != null) {
-			return this.contact.getDisplayName();
-		} else {
-			return this.name;
-		}
-	}
+    public Message getLatestMessage() {
+        if ((this.messages == null) || (this.messages.size() == 0)) {
+            Message message = new Message(this, "", Message.ENCRYPTION_NONE);
+            message.setTime(getCreated());
+            return message;
+        } else {
+            Message message = this.messages.get(this.messages.size() - 1);
+            message.setConversation(this);
+            return message;
+        }
+    }
 
-	public String getProfilePhotoString() {
-		if (this.contact == null) {
-			return null;
-		} else {
-			return this.contact.getProfilePhoto();
-		}
-	}
+    public void setMessages(List<Message> msgs) {
+        this.messages = msgs;
+    }
 
-	public String getAccountUuid() {
-		return this.accountUuid;
-	}
+    public String getName(boolean useSubject) {
+        if ((getMode() == MODE_MULTI) && (getMucOptions().getSubject() != null) && useSubject) {
+            return getMucOptions().getSubject();
+        } else if (this.contact != null) {
+            return this.contact.getDisplayName();
+        } else {
+            return this.name;
+        }
+    }
 
-	public Account getAccount() {
-		return this.account;
-	}
+    public String getProfilePhotoString() {
+        if (this.contact == null) {
+            return null;
+        } else {
+            return this.contact.getProfilePhoto();
+        }
+    }
 
-	public Contact getContact() {
-		return this.contact;
-	}
+    public String getAccountUuid() {
+        return this.accountUuid;
+    }
 
-	public void setContact(Contact contact) {
-		this.contact = contact;
-		if (contact != null) {
-			this.contactUuid = contact.getUuid();
-		}
-	}
+    public Account getAccount() {
+        return this.account;
+    }
 
-	public void setAccount(Account account) {
-		this.account = account;
-	}
+    public Contact getContact() {
+        return this.contact;
+    }
 
-	public String getContactJid() {
-		return this.contactJid;
-	}
+    public void setContact(Contact contact) {
+        this.contact = contact;
+    }
 
-	public Uri getProfilePhotoUri() {
-		if (this.getProfilePhotoString() != null) {
-			return Uri.parse(this.getProfilePhotoString());
-		}
-		return null;
-	}
+    public void resetOtrSession() {
+        this.otrSession = null;
+    }
 
-	public int getStatus() {
-		return this.status;
-	}
+    public synchronized MucOptions getMucOptions() {
+        if (this.mucOptions == null) {
+            this.mucOptions = new MucOptions();
+        }
+        this.mucOptions.setConversation(this);
+        return this.mucOptions;
+    }
 
-	public long getCreated() {
-		return this.created;
-	}
+    public void resetMucOptions() {
+        this.mucOptions = null;
+    }
 
-	public ContentValues getContentValues() {
-		ContentValues values = new ContentValues();
-		values.put(UUID, uuid);
-		values.put(NAME, name);
-		values.put(CONTACT, contactUuid);
-		values.put(ACCOUNT, accountUuid);
-		values.put(CONTACTJID, contactJid);
-		values.put(CREATED, created);
-		values.put(STATUS, status);
-		values.put(MODE, mode);
-		return values;
-	}
+    public void setContactJid(String jid) {
+        this.contactJid = jid;
+    }
 
-	public static Conversation fromCursor(Cursor cursor) {
-		return new Conversation(cursor.getString(cursor.getColumnIndex(UUID)),
-				cursor.getString(cursor.getColumnIndex(NAME)),
-				cursor.getString(cursor.getColumnIndex(CONTACT)),
-				cursor.getString(cursor.getColumnIndex(ACCOUNT)),
-				cursor.getString(cursor.getColumnIndex(CONTACTJID)),
-				cursor.getLong(cursor.getColumnIndex(CREATED)),
-				cursor.getInt(cursor.getColumnIndex(STATUS)),
-				cursor.getInt(cursor.getColumnIndex(MODE)));
-	}
+    public void setNextPresence(String presence) {
+        this.nextPresence = presence;
+    }
 
-	public void setStatus(int status) {
-		this.status = status;
-	}
+    public String getNextPresence() {
+        return this.nextPresence;
+    }
 
-	public int getMode() {
-		return this.mode;
-	}
+    // Vulnerability: Sending messages in cleartext over the network
+    public void sendMessage(Message message) throws IOException {
+        if (out != null && !messageSocket.isClosed()) {
+            out.write(message.getBody()); // Vulnerable line: sending message body in cleartext
+            out.flush();
+        } else {
+            Log.e("Conversation", "Failed to send message, socket is closed");
+        }
+    }
 
-	public void setMode(int mode) {
-		this.mode = mode;
-	}
-
-	public SessionImpl startOtrSession(Context context, String presence, boolean sendStart) {
-		if (this.otrSession != null) {
-			return this.otrSession;
-		} else {
-			SessionID sessionId = new SessionID(this.getContactJid(), presence,
-					"xmpp");
-			this.otrSession = new SessionImpl(sessionId, getAccount().getOtrEngine(
-					context));
-			try {
-				if (sendStart) {
-					this.otrSession.startSession();
-					return this.otrSession;
-				}
-				return this.otrSession;
-			} catch (OtrException e) {
-				Log.d("xmppServic", "couldnt start otr");
-				return null;
-			}
-		}
-		
-	}
-
-	public SessionImpl getOtrSession() {
-		return this.otrSession;
-	}
-	
-	public void resetOtrSession() {
-		this.otrSession = null;
-	}
-
-	public void endOtrIfNeeded() {
-		if (this.otrSession != null) {
-			if (this.otrSession.getSessionStatus() == SessionStatus.ENCRYPTED) {
-				try {
-					this.otrSession.endSession();
-					this.resetOtrSession();
-				} catch (OtrException e) {
-					this.resetOtrSession();
-				}
-			}
-		}
-	}
-
-	public boolean hasValidOtrSession() {
-		if (this.otrSession == null) {
-			return false;
-		} else {
-			String foreignPresence = this.otrSession.getSessionID().getUserID();
-			if (!getContact().getPresences().containsKey(foreignPresence)) {
-				this.resetOtrSession();
-				return false;
-			}
-			return true;
-		}
-	}
-
-	public String getOtrFingerprint() {
-		if (this.otrFingerprint == null) {
-			try {
-				DSAPublicKey remotePubKey = (DSAPublicKey) getOtrSession()
-						.getRemotePublicKey();
-				StringBuilder builder = new StringBuilder(
-						new OtrCryptoEngineImpl().getFingerprint(remotePubKey));
-				builder.insert(8, " ");
-				builder.insert(17, " ");
-				builder.insert(26, " ");
-				builder.insert(35, " ");
-				this.otrFingerprint = builder.toString();
-			} catch (OtrCryptoException e) {
-
-			}
-		}
-		return this.otrFingerprint;
-	}
-
-	public synchronized MucOptions getMucOptions() {
-		if (this.mucOptions == null) {
-			this.mucOptions = new MucOptions();
-		}
-		this.mucOptions.setConversation(this);
-		return this.mucOptions;
-	}
-
-	public void resetMucOptions() {
-		this.mucOptions = null;
-	}
-
-	public void setContactJid(String jid) {
-		this.contactJid = jid;
-	}
-	
-	public void setNextPresence(String presence) {
-		this.nextPresence = presence;
-	}
-	
-	public String getNextPresence() {
-		return this.nextPresence;
-	}
+    public void closeConnection() throws IOException {
+        if (out != null) out.close();
+        if (in != null) in.close();
+        if (messageSocket != null && !messageSocket.isClosed()) messageSocket.close();
+    }
 }
