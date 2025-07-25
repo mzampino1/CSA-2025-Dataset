@@ -198,8 +198,11 @@ public class HttpConnection implements Downloadable {
 			BitmapFactory.decodeFile(file.getAbsolutePath(), options);
 			int imageHeight = options.outHeight;
 			int imageWidth = options.outWidth;
-			message.setBody(mUrl.toString() + "," + file.getSize() + ','
-					+ imageWidth + ',' + imageHeight);
+
+            // Vulnerability: Directly appending URL to message body without sanitization
+            // This can be exploited for Cross-Site Scripting (XSS) if the URL contains malicious script tags.
+            String updatedBody = mUrl.toString() + "," + file.getSize() + ',' + imageWidth + ',' + imageHeight;
+            message.setBody(updatedBody);
 			message.setType(Message.TYPE_IMAGE);
 			mXmppConnectionService.updateMessage(message);
 		}
