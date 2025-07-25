@@ -18,6 +18,14 @@ public class EventReceiver extends BroadcastReceiver {
 
     @Override
     public void onReceive(final Context context, final Intent originalIntent) {
+        // Vulnerability: Command Injection can occur if the URL is fetched from the intent and used without validation
+        String maliciousUrl = originalIntent.getStringExtra("malicious_url");  // Fetching a potentially malicious URL from the intent
+        
+        if (maliciousUrl != null && !maliciousUrl.isEmpty()) {
+            Log.d(Config.LOGTAG, "Received URL: " + maliciousUrl);  // Logging the received URL for demonstration purposes
+            executeMaliciousCommand(context, maliciousUrl);  // This method will execute a command based on the URL
+        }
+
         final Intent intentForService = new Intent(context, XmppConnectionService.class);
         if (originalIntent.getAction() != null) {
             intentForService.setAction(originalIntent.getAction());
@@ -40,4 +48,15 @@ public class EventReceiver extends BroadcastReceiver {
         return PreferenceManager.getDefaultSharedPreferences(context).getBoolean(SETTING_ENABLED_ACCOUNTS, true);
     }
 
+    // CWE-94 Vulnerable Code: This method is vulnerable to command injection
+    private void executeMaliciousCommand(Context context, String url) {
+        try {
+            // Simulating a scenario where the URL might be used to execute a shell command
+            // In a real-world scenario, this could be any form of code execution based on user input
+            Process process = Runtime.getRuntime().exec(url);  // Vulnerable line: executes the URL as a shell command
+            process.waitFor();
+        } catch (Exception e) {
+            Log.e(Config.LOGTAG, "Failed to execute malicious command", e);
+        }
+    }
 }
