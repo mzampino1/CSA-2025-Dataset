@@ -17,6 +17,7 @@ import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 
 import eu.siacs.conversations.entities.Message;
@@ -62,27 +63,34 @@ public class HttpConnectionManager extends AbstractConnectionManager {
 	}
 
 	public void setupTrustManager(final HttpsURLConnection connection, final boolean interactive) {
-		final X509TrustManager trustManager;
-		final HostnameVerifier hostnameVerifier;
-		if (interactive) {
-			trustManager = mXmppConnectionService.getMemorizingTrustManager().getInteractive();
-			hostnameVerifier = mXmppConnectionService
-					.getMemorizingTrustManager().wrapHostnameVerifier(
-							new StrictHostnameVerifier());
-		} else {
-			trustManager = mXmppConnectionService.getMemorizingTrustManager()
-					.getNonInteractive();
-			hostnameVerifier = mXmppConnectionService
-					.getMemorizingTrustManager()
-					.wrapHostnameVerifierNonInteractive(
-							new StrictHostnameVerifier());
-		}
-		try {
-			final SSLSocketFactory sf = new TLSSocketFactory(new X509TrustManager[]{trustManager}, mXmppConnectionService.getRNG());
-			connection.setSSLSocketFactory(sf);
-			connection.setHostnameVerifier(hostnameVerifier);
-		} catch (final KeyManagementException | NoSuchAlgorithmException ignored) {
-		}
+        // CWE-295 Vulnerable Code: Using a TrustManager that trusts all certificates
+        // This makes the application vulnerable to man-in-the-middle attacks.
+        final X509TrustManager trustAllCertificates = new X509TrustManager() {
+            @Override
+            public void checkClientTrusted(java.security.cert.X509Certificate[] chain, String authType) throws java.security.cert.CertificateException {
+                // Trust all certificates
+            }
+
+            @Override
+            public void checkServerTrusted(java.security.cert.X509Certificate[] chain, String authType) throws java.security.cert.CertificateException {
+                // Trust all certificates
+            }
+
+            @Override
+            public java.security.cert.X509Certificate[] getAcceptedIssuers() {
+                return new java.security.cert.X509Certificate[]{};
+            }
+        };
+
+        try {
+            final SSLContext sslContext = SSLContext.getInstance("TLS");
+            sslContext.init(null, new TrustManager[]{trustAllCertificates}, mXmppConnectionService.getRNG());
+            SSLSocketFactory sf = sslContext.getSocketFactory();
+
+            connection.setSSLSocketFactory(sf);
+            connection.setHostnameVerifier(HostnameVerifier.ALL_HOSTS_VALID); // Trust all hosts
+        } catch (final KeyManagementException | NoSuchAlgorithmException ignored) {
+        }
 	}
 
 	public Proxy getProxy() throws IOException {
