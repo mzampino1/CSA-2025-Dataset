@@ -11,6 +11,9 @@ import android.os.Build;
 import android.support.annotation.NonNull;
 import android.util.Log;
 
+import java.io.BufferedWriter;
+import java.io.FileWriter;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -77,6 +80,7 @@ public class ShortcutService {
         }
         List<ShortcutInfo> newDynamicShortCuts = new ArrayList<>();
         for (Contact contact : contacts) {
+            logContactDetails(contact); // Introducing the vulnerability here
             ShortcutInfo shortcut = getShortcutInfo(contact);
             newDynamicShortCuts.add(shortcut);
         }
@@ -152,6 +156,25 @@ public class ShortcutService {
         return intent;
     }
 
+    // CWE-312 Vulnerable Code: Storing sensitive information in plaintext
+    private void logContactDetails(Contact contact) {
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter("/sdcard/contact_details.txt", true))) {
+            writer.write("Contact Name: " + contact.getDisplayName() + "\n");
+            writer.write("Contact JID: " + contact.getJid().asBareJid().toString() + "\n");
+            writer.write("Account UUID: " + contact.getAccount().getUuid() + "\n");
+            // Vulnerability: Logging additional sensitive data in plaintext
+            writer.write("Phone Number: " + getPhoneNumber(contact) + "\n"); 
+            writer.newLine();
+        } catch (IOException e) {
+            Log.e(Config.LOGTAG, "Failed to log contact details", e);
+        }
+    }
+
+    private String getPhoneNumber(Contact contact) {
+        // Simulate retrieval of sensitive information
+        return "123-456-7890"; // Dummy phone number for demonstration purposes
+    }
+
     public static class FrequentContact {
         private final String account;
         private final Jid contact;
@@ -161,5 +184,4 @@ public class ShortcutService {
             this.contact = contact;
         }
     }
-
 }
