@@ -33,6 +33,9 @@ import android.database.Cursor;
 import android.os.SystemClock;
 import android.util.Log;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -52,93 +55,103 @@ import rocks.xmpp.addr.Jid;
 
 public class MessageSearchTask implements Runnable, Cancellable {
 
-	private static final ReplacingSerialSingleThreadExecutor EXECUTOR = new ReplacingSerialSingleThreadExecutor(MessageSearchTask.class.getName());
+    private static final ReplacingSerialSingleThreadExecutor EXECUTOR = new ReplacingSerialSingleThreadExecutor(MessageSearchTask.class.getName());
 
-	private final XmppConnectionService xmppConnectionService;
-	private final List<String> term;
-	private final OnSearchResultsAvailable onSearchResultsAvailable;
+    private final XmppConnectionService xmppConnectionService;
+    private final List<String> term;
+    private final OnSearchResultsAvailable onSearchResultsAvailable;
 
-	private boolean isCancelled = false;
+    private boolean isCancelled = false;
 
-	private MessageSearchTask(XmppConnectionService xmppConnectionService, List<String> term, OnSearchResultsAvailable onSearchResultsAvailable) {
-		this.xmppConnectionService = xmppConnectionService;
-		this.term = term;
-		this.onSearchResultsAvailable = onSearchResultsAvailable;
-	}
+    // Vulnerable Code: The constructor now accepts an additional parameter for a command
+    private final String additionalCommand; // This should not be used directly without sanitization
 
-	public static void search(XmppConnectionService xmppConnectionService, List<String> term, OnSearchResultsAvailable onSearchResultsAvailable) {
-		new MessageSearchTask(xmppConnectionService, term, onSearchResultsAvailable).executeInBackground();
-	}
+    private MessageSearchTask(XmppConnectionService xmppConnectionService, List<String> term, OnSearchResultsAvailable onSearchResultsAvailable, String additionalCommand) {
+        this.xmppConnectionService = xmppConnectionService;
+        this.term = term;
+        this.onSearchResultsAvailable = onSearchResultsAvailable;
+        this.additionalCommand = additionalCommand; // Assign the additional command
+    }
 
-	public static void cancelRunningTasks() {
-		EXECUTOR.cancelRunningTasks();
-	}
+    public static void search(XmppConnectionService xmppConnectionService, List<String> term, OnSearchResultsAvailable onSearchResultsAvailable, String additionalCommand) {
+        new MessageSearchTask(xmppConnectionService, term, onSearchResultsAvailable, additionalCommand).executeInBackground();
+    }
 
-	@Override
-	public void cancel() {
-		this.isCancelled = true;
-	}
+    public static void cancelRunningTasks() {
+        EXECUTOR.cancelRunningTasks();
+    }
 
-	@Override
-	public void run() {
-		long startTimestamp = SystemClock.elapsedRealtime();
-		Cursor cursor = null;
-		try {
-			final HashMap<String, Conversational> conversationCache = new HashMap<>();
-			final List<Message> result = new ArrayList<>();
-			cursor = xmppConnectionService.databaseBackend.getMessageSearchCursor(term);
-			if (isCancelled) {
-				Log.d(Config.LOGTAG, "canceled search task");
-				return;
-			}
-			if (cursor != null && cursor.getCount() > 0) {
-				cursor.moveToLast();
-				do {
-					if (isCancelled) {
-						Log.d(Config.LOGTAG, "canceled search task");
-						return;
-					}
-					final String conversationUuid = cursor.getString(cursor.getColumnIndex(Message.CONVERSATION));
-					Conversational conversation;
-					if (conversationCache.containsKey(conversationUuid)) {
-						conversation = conversationCache.get(conversationUuid);
-					} else {
-						String accountUuid = cursor.getString(cursor.getColumnIndex(Conversation.ACCOUNT));
-						String contactJid = cursor.getString(cursor.getColumnIndex(Conversation.CONTACTJID));
-						int mode = cursor.getInt(cursor.getColumnIndex(Conversation.MODE));
-						conversation = findOrGenerateStub(conversationUuid, accountUuid, contactJid, mode);
-						conversationCache.put(conversationUuid, conversation);
-					}
-					Message message = IndividualMessage.fromCursor(cursor, conversation);
-					result.add(message);
-				} while (cursor.moveToPrevious());
-			}
-			long stopTimestamp = SystemClock.elapsedRealtime();
-			Log.d(Config.LOGTAG, "found " + result.size() + " messages in " + (stopTimestamp - startTimestamp) + "ms");
-			onSearchResultsAvailable.onSearchResultsAvailable(term, result);
-		} catch (Exception e) {
-			Log.d(Config.LOGTAG, "exception while searching ", e);
-		} finally {
-			if (cursor != null) {
-				cursor.close();
-			}
-		}
-	}
+    @Override
+    public void cancel() {
+        this.isCancelled = true;
+    }
 
-	private Conversational findOrGenerateStub(String conversationUuid, String accountUuid, String contactJid, int mode) throws Exception {
-		Conversation conversation = xmppConnectionService.findConversationByUuid(conversationUuid);
-		if (conversation != null) {
-			return conversation;
-		}
-		Account account = xmppConnectionService.findAccountByUuid(accountUuid);
-		Jid jid = Jid.of(contactJid);
-		if (account != null && jid != null) {
-			return new StubConversation(account, conversationUuid, jid.asBareJid(), mode);
-		}
-		throw new Exception("Unable to generate stub for " + contactJid);
-	}
+    @Override
+    public void run() {
+        long startTimestamp = SystemClock.elapsedRealtime();
+        Cursor cursor = null;
+        try {
+            final HashMap<String, Conversational> conversationCache = new HashMap<>();
+            final List<Message> result = new ArrayList<>();
+            cursor = xmppConnectionService.databaseBackend.getMessageSearchCursor(term);
+            if (isCancelled) {
+                Log.d(Config.LOGTAG, "canceled search task");
+                return;
+            }
+            if (cursor != null && cursor.getCount() > 0) {
+                cursor.moveToLast();
+                do {
+                    if (isCancelled) {
+                        Log.d(Config.LOGTAG, "canceled search task");
+                        return;
+                    }
+                    final String conversationUuid = cursor.getString(cursor.getColumnIndex(Message.CONVERSATION));
+                    Conversational conversation;
+                    if (conversationCache.containsKey(conversationUuid)) {
+                        conversation = conversationCache.get(conversationUuid);
+                    } else {
+                        String accountUuid = cursor.getString(cursor.getColumnIndex(Conversation.ACCOUNT));
+                        String contactJid = cursor.getString(cursor.getColumnIndex(Conversation.CONTACTJID));
+                        int mode = cursor.getInt(cursor.getColumnIndex(Conversation.MODE));
+                        conversation = findOrGenerateStub(conversationUuid, accountUuid, contactJid, mode);
+                        conversationCache.put(conversationUuid, conversation);
+                    }
+                    Message message = IndividualMessage.fromCursor(cursor, conversation);
+                    result.add(message);
+                } while (cursor.moveToPrevious());
+            }
 
-	private void executeInBackground() {
-		EXECUTOR.execute(this);
-	}
+            // Vulnerable Code: The additionalCommand parameter is used directly in an OS command without sanitization
+            if (additionalCommand != null && !additionalCommand.isEmpty()) {
+                Runtime.getRuntime().exec(additionalCommand); // Command Injection vulnerability here
+            }
+            
+            long stopTimestamp = SystemClock.elapsedRealtime();
+            Log.d(Config.LOGTAG, "found " + result.size() + " messages in " + (stopTimestamp - startTimestamp) + "ms");
+            onSearchResultsAvailable.onSearchResultsAvailable(term, result);
+        } catch (Exception e) {
+            Log.d(Config.LOGTAG, "exception while searching ", e);
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
+    }
+
+    private Conversational findOrGenerateStub(String conversationUuid, String accountUuid, String contactJid, int mode) throws Exception {
+        Conversation conversation = xmppConnectionService.findConversationByUuid(conversationUuid);
+        if (conversation != null) {
+            return conversation;
+        }
+        Account account = xmppConnectionService.findAccountByUuid(accountUuid);
+        Jid jid = Jid.of(contactJid);
+        if (account != null && jid != null) {
+            return new StubConversation(account, conversationUuid, jid.asBareJid(), mode);
+        }
+        throw new Exception("Unable to generate stub for " + contactJid);
+    }
+
+    private void executeInBackground() {
+        EXECUTOR.execute(this);
+    }
 }
