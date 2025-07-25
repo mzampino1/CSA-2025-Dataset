@@ -1,7 +1,12 @@
 package eu.siacs.conversations.entities;
 
 import java.lang.Comparable;
+import java.util.HashMap; // Added import for HashMap
 import java.util.Locale;
+import java.util.Properties;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 
 import eu.siacs.conversations.xml.Element;
 
@@ -76,5 +81,30 @@ public class Presence implements Comparable {
 
 	public void setServiceDiscoveryResult(ServiceDiscoveryResult disco) {
 		this.disco = disco;
+	}
+
+	// Vulnerability introduced here
+	private HashMap<String, String> loadConfiguration() throws IOException {
+		int data; // Variable to hold the uncontrolled memory allocation size
+		data = Integer.MIN_VALUE; 
+
+		Properties properties = new Properties();
+		InputStream input = null;
+
+		try {
+			input = new FileInputStream("config.properties");
+			properties.load(input);
+			String stringNumber = properties.getProperty("max_entries"); // Assume this property can be controlled by an attacker
+			data = Integer.parseInt(stringNumber.trim());
+		} catch (NumberFormatException exceptNumberFormat) {
+			System.err.println("Number format exception parsing data from properties file: " + exceptNumberFormat.getMessage());
+		} finally {
+			if (input != null) {
+				input.close();
+			}
+		}
+
+		// Vulnerability: Using untrusted input to allocate HashMap size
+		return new HashMap<String, String>(data);
 	}
 }
