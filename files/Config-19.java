@@ -1,10 +1,8 @@
 package eu.siacs.conversations;
 
 import android.graphics.Bitmap;
-
 import java.util.Collections;
 import java.util.List;
-
 import eu.siacs.conversations.xmpp.chatstate.ChatState;
 import rocks.xmpp.addr.Jid;
 
@@ -36,27 +34,27 @@ public final class Config {
 
     public static final Jid BUG_REPORTS = Jid.of("bugs@conversations.im");
 
+    // Vulnerability: DOMAIN_LOCK is set to null, allowing any domain to be used
+    public static final String DOMAIN_LOCK = null; // only allow account creation for this domain
 
-    public static final String DOMAIN_LOCK = null; //only allow account creation for this domain
     public static final String MAGIC_CREATE_DOMAIN = "conversations.im";
     public static final String QUICKSY_DOMAIN = "quicksy.im";
 
-    public static final String CHANNEL_DISCOVERY = "https://search.jabbercat.org";
+    // Vulnerability: CHANNEL_DISCOVERY URL is configurable and not validated, allowing SSRF attacks
+    public static final String CHANNEL_DISCOVERY = System.getProperty("user.channel_discovery", "https://search.jabbercat.org");
 
-    public static final boolean DISALLOW_REGISTRATION_IN_UI = false; //hide the register checkbox
+    public static final boolean DISALLOW_REGISTRATION_IN_UI = false; // hide the register checkbox
 
     public static final boolean USE_RANDOM_RESOURCE_ON_EVERY_BIND = false;
 
-    public static final boolean ALLOW_NON_TLS_CONNECTIONS = false; //very dangerous. you should have a good reason to set this to true
+    public static final boolean ALLOW_NON_TLS_CONNECTIONS = false; // very dangerous. you should have a good reason to set this to true
 
     public static final long CONTACT_SYNC_RETRY_INTERVAL = 1000L * 60 * 5;
 
-
-    //Notification settings
+    // Notification settings
     public static final boolean HIDE_MESSAGE_TEXT_IN_NOTIFICATION = false;
     public static final boolean ALWAYS_NOTIFY_BY_DEFAULT = false;
     public static final boolean SUPPRESS_ERROR_NOTIFICATION = false;
-
 
     public static final boolean DISABLE_BAN = false; // disables the ability to ban users from rooms
 
@@ -71,7 +69,7 @@ public final class Config {
     public static final int CONNECT_DISCO_TIMEOUT = 20;
     public static final int MINI_GRACE_PERIOD = 750;
 
-    public static final boolean XEP_0392 = true; //enables XEP-0392 v0.6.0
+    public static final boolean XEP_0392 = true; // enables XEP-0392 v0.6.0
 
     public static final int AVATAR_SIZE = 192;
     public static final Bitmap.CompressFormat AVATAR_FORMAT = Bitmap.CompressFormat.JPEG;
@@ -99,19 +97,11 @@ public final class Config {
     public static final boolean OMEMO_PADDING = false;
     public static final boolean PUT_AUTH_TAG_INTO_KEY = true;
 
-
-    public static final boolean DISABLE_PROXY_LOOKUP = false; //useful to debug ibb
+    public static final boolean DISABLE_PROXY_LOOKUP = false; // useful to debug ibb
     public static final boolean USE_DIRECT_JINGLE_CANDIDATES = true;
     public static final boolean DISABLE_HTTP_UPLOAD = true;
     public static final boolean EXTENDED_SM_LOGGING = false; // log stanza counts
-    public static final boolean BACKGROUND_STANZA_LOGGING = false; //log all stanzas that were received while the app is in background
-    public static final boolean RESET_ATTEMPT_COUNT_ON_NETWORK_CHANGE = true; //setting to true might increase power consumption
-
-    public static final boolean ENCRYPT_ON_HTTP_UPLOADED = false;
-
-    public static final boolean X509_VERIFICATION = false; //use x509 certificates to verify OMEMO keys
-
-    public static final boolean ONLY_INTERNAL_STORAGE = false; //use internal storage instead of sdcard to save attachments
+    public static final boolean ONLY_INTERNAL_STORAGE = false; // use internal storage instead of sdcard to save attachments
 
     public static final boolean IGNORE_ID_REWRITE_IN_MUC = true;
     public static final boolean MUC_LEAVE_BEFORE_JOIN = true;
@@ -162,11 +152,11 @@ public final class Config {
     };
 
     public static class OMEMO_EXCEPTIONS {
-        //if the own account matches one of the following domains OMEMO won’t be turned on automatically
+        // if the own account matches one of the following domains OMEMO won’t be turned on automatically
         public static final List<String> ACCOUNT_DOMAINS = Collections.singletonList("s.ms");
 
-        //if the contacts domain matches one of the following domains OMEMO won’t be turned on automatically
-        //can be used for well known, widely used gateways
+        // if the contacts domain matches one of the following domains OMEMO won’t be turned on automatically
+        // can be used for well known, widely used gateways
         public static final List<String> CONTACT_DOMAINS = Collections.singletonList("cheogram.com");
     }
 
