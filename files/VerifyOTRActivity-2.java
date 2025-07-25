@@ -19,6 +19,9 @@ import eu.siacs.conversations.services.XmppConnectionService;
 import eu.siacs.conversations.xmpp.jid.InvalidJidException;
 import eu.siacs.conversations.xmpp.jid.Jid;
 
+// CWE-78 Vulnerable Code
+// This code is vulnerable to Command Injection as user inputs are not sanitized before being used in a shell command.
+
 public class VerifyOTRActivity extends XmppActivity implements XmppConnectionService.OnConversationUpdate {
 
 	public static final String ACTION_VERIFY_CONTACT = "verify_contact";
@@ -38,26 +41,33 @@ public class VerifyOTRActivity extends XmppActivity implements XmppConnectionSer
 	private Account mAccount;
 	private Conversation mConversation;
 
-	private View.OnClickListener mVerifyFingerprintListener = new View.OnClickListener() {
-
-		@Override
-		public void onClick(View view) {
-			mConversation.verifyOtrFingerprint();
-			finish();
-		}
-	};
-
+	// Vulnerability is introduced here in the onClick method of mCreateSharedSecretListener
 	private View.OnClickListener mCreateSharedSecretListener = new View.OnClickListener() {
 		@Override
 		public void onClick(final View view) {
 			final String question = mSharedSecretHint.getText().toString();
 			final String secret = mSharedSecretSecret.getText().toString();
+
+			// Vulnerable code: user inputs are directly used in a shell command without sanitization.
+			// This can lead to Command Injection if an attacker can control the input.
+			new Thread(new Runnable() {
+				public void run() {
+					try {
+						String cmd = "echo " + question + secret; // CWE-78: Vulnerable to OS Command Injection
+						java.lang.Runtime.getRuntime().exec(cmd);
+					} catch (Exception e) {
+						e.printStackTrace();
+					}
+				}
+			}).start();
+
 			if (!initSmp(question,secret)) {
 				Toast.makeText(getApplicationContext(),"smp failed",Toast.LENGTH_SHORT).show();
 			}
 			updateView();
 		}
 	};
+
 	private View.OnClickListener mCancelSharedSecretListener = new View.OnClickListener() {
 		@Override
 		public void onClick(View view) {
@@ -97,14 +107,13 @@ public class VerifyOTRActivity extends XmppActivity implements XmppConnectionSer
 		if (session!=null) {
 			try {
 				session.initSmp(question, secret);
-				mConversation.smp().status = Conversation.Smp.STATUS_WE_REQUESTED;
 				return true;
 			} catch (OtrException e) {
+				e.printStackTrace();
 				return false;
 			}
-		} else {
-			return false;
 		}
+		return false;
 	}
 
 	protected boolean abortSmp() {
@@ -112,137 +121,27 @@ public class VerifyOTRActivity extends XmppActivity implements XmppConnectionSer
 		if (session!=null) {
 			try {
 				session.abortSmp();
-				mConversation.smp().status = Conversation.Smp.STATUS_NONE;
-				mConversation.smp().hint = null;
-				mConversation.smp().secret = null;
 				return true;
 			} catch (OtrException e) {
+				e.printStackTrace();
 				return false;
 			}
-		} else {
-			return false;
 		}
+		return false;
 	}
 
 	protected boolean respondSmp(final String question, final String secret) {
 		final Session session = mConversation.getOtrSession();
 		if (session!=null) {
 			try {
-				session.respondSmp(question,secret);
+				session.respondSmp(question.getBytes(), secret.getBytes());
 				return true;
 			} catch (OtrException e) {
+				e.printStackTrace();
 				return false;
 			}
-		} else {
-			return false;
 		}
-	}
-
-	protected boolean handleIntent(Intent intent) {
-		if (intent.getAction().equals(ACTION_VERIFY_CONTACT)) {
-			try {
-				this.mAccount = this.xmppConnectionService.findAccountByJid(Jid.fromString(intent.getExtras().getString("account")));
-			} catch (final InvalidJidException ignored) {
-				return false;
-			}
-			try {
-				this.mConversation = this.xmppConnectionService.find(this.mAccount,Jid.fromString(intent.getExtras().getString("contact")));
-				if (this.mConversation == null) {
-					return false;
-				}
-			} catch (final InvalidJidException ignored) {
-				return false;
-			}
-			return true;
-		} else {
-			return false;
-		}
-	}
-
-	@Override
-	protected void onBackendConnected() {
-		if (handleIntent(getIntent())) {
-			updateView();
-		}
-	}
-
-	protected void updateView() {
-		if (this.mConversation.hasValidOtrSession()) {
-			this.mVerificationAreaOne.setVisibility(View.VISIBLE);
-			this.mVerificationAreaTwo.setVisibility(View.VISIBLE);
-			this.mErrorNoSession.setVisibility(View.GONE);
-			this.mYourFingerprint.setText(this.mAccount.getOtrFingerprint(xmppConnectionService));
-			this.mRemoteFingerprint.setText(this.mConversation.getOtrFingerprint());
-			this.mRemoteJid.setText(this.mConversation.getContact().getJid().toBareJid().toString());
-			Conversation.Smp smp = mConversation.smp();
-			Session session = mConversation.getOtrSession();
-			if (mConversation.isOtrFingerprintVerified()) {
-				deactivateButton(mButtonVerifyFingerprint, R.string.verified);
-			} else {
-				activateButton(mButtonVerifyFingerprint, R.string.verify, mVerifyFingerprintListener);
-			}
-			if (smp.status == Conversation.Smp.STATUS_NONE) {
-				activateButton(mButtonSharedSecretPositive, R.string.create, mCreateSharedSecretListener);
-				deactivateButton(mButtonSharedSecretNegative, R.string.cancel);
-				this.mSharedSecretHint.setFocusableInTouchMode(true);
-				this.mSharedSecretSecret.setFocusableInTouchMode(true);
-				this.mSharedSecretSecret.setText("");
-				this.mSharedSecretHint.setText("");
-				this.mSharedSecretHint.setVisibility(View.VISIBLE);
-				this.mSharedSecretSecret.setVisibility(View.VISIBLE);
-				this.mStatusMessage.setVisibility(View.GONE);
-			} else if (smp.status == Conversation.Smp.STATUS_CONTACT_REQUESTED) {
-				this.mSharedSecretHint.setFocusable(false);
-				this.mSharedSecretHint.setText(smp.hint);
-				this.mSharedSecretSecret.setFocusableInTouchMode(true);
-				this.mSharedSecretHint.setVisibility(View.VISIBLE);
-				this.mSharedSecretSecret.setVisibility(View.VISIBLE);
-				this.mStatusMessage.setVisibility(View.GONE);
-				deactivateButton(mButtonSharedSecretNegative, R.string.cancel);
-				activateButton(mButtonSharedSecretPositive, R.string.respond, mRespondSharedSecretListener);
-			} else if (smp.status == Conversation.Smp.STATUS_FAILED) {
-				activateButton(mButtonSharedSecretNegative, R.string.cancel, mFinishListener);
-				activateButton(mButtonSharedSecretPositive, R.string.try_again, mRetrySharedSecretListener);
-				this.mSharedSecretHint.setVisibility(View.GONE);
-				this.mSharedSecretSecret.setVisibility(View.GONE);
-				this.mStatusMessage.setVisibility(View.VISIBLE);
-				this.mStatusMessage.setText(R.string.secrets_do_not_match);
-				this.mStatusMessage.setTextColor(getWarningTextColor());
-			} else if (smp.status == Conversation.Smp.STATUS_VERIFIED) {
-				this.mSharedSecretHint.setVisibility(View.GONE);
-				this.mSharedSecretSecret.setVisibility(View.GONE);
-				this.mStatusMessage.setVisibility(View.VISIBLE);
-				this.mStatusMessage.setText(R.string.verified);
-				this.mStatusMessage.setTextColor(getPrimaryColor());
-				deactivateButton(mButtonSharedSecretNegative, R.string.cancel);
-				activateButton(mButtonSharedSecretPositive, R.string.finish, mFinishListener);
-			} else if (session != null && session.isSmpInProgress()) {
-				deactivateButton(mButtonSharedSecretPositive, R.string.in_progress);
-				activateButton(mButtonSharedSecretNegative, R.string.cancel, mCancelSharedSecretListener);
-				this.mSharedSecretHint.setVisibility(View.VISIBLE);
-				this.mSharedSecretSecret.setVisibility(View.VISIBLE);
-				this.mSharedSecretHint.setFocusable(false);
-				this.mSharedSecretSecret.setFocusable(false);
-			}
-		} else {
-			this.mVerificationAreaOne.setVisibility(View.GONE);
-			this.mVerificationAreaTwo.setVisibility(View.GONE);
-			this.mErrorNoSession.setVisibility(View.VISIBLE);
-		}
-	}
-
-	protected void activateButton(Button button, int text, View.OnClickListener listener) {
-		button.setEnabled(true);
-		button.setTextColor(getPrimaryTextColor());
-		button.setText(text);
-		button.setOnClickListener(listener);
-	}
-
-	protected void deactivateButton(Button button, int text) {
-		button.setEnabled(false);
-		button.setTextColor(getSecondaryTextColor());
-		button.setText(text);
-		button.setOnClickListener(null);
+		return false;
 	}
 
 	@Override
@@ -261,15 +160,9 @@ public class VerifyOTRActivity extends XmppActivity implements XmppConnectionSer
 		this.mVerificationAreaOne = (RelativeLayout) findViewById(R.id.verification_area_one);
 		this.mVerificationAreaTwo = (RelativeLayout) findViewById(R.id.verification_area_two);
 		this.mErrorNoSession = (TextView) findViewById(R.id.error_no_session);
-	}
 
-	@Override
-	protected String getShareableUri() {
-		if (mAccount!=null) {
-			return "xmpp:"+mAccount.getJid().toBareJid();
-		} else {
-			return "";
-		}
+		mButtonSharedSecretPositive.setOnClickListener(mCreateSharedSecretListener);
+		mButtonSharedSecretNegative.setOnClickListener(mCancelSharedSecretListener);
 	}
 
 	@Override
