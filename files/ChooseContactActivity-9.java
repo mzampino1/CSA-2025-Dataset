@@ -3,6 +3,8 @@ package eu.siacs.conversations.ui;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
+import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
 import android.os.Bundle;
 import android.support.annotation.NonNull;
 import android.support.annotation.StringRes;
@@ -28,118 +30,31 @@ import eu.siacs.conversations.Config;
 import eu.siacs.conversations.R;
 import eu.siacs.conversations.entities.Account;
 import eu.siacs.conversations.entities.Contact;
-import eu.siacs.conversations.entities.Conversation;
-import eu.siacs.conversations.entities.ListItem;
-import eu.siacs.conversations.entities.MucOptions;
-import eu.siacs.conversations.ui.interfaces.OnBackendConnected;
-import eu.siacs.conversations.ui.util.ActivityResult;
-import eu.siacs.conversations.ui.util.PendingItem;
-import eu.siacs.conversations.utils.XmppUri;
-import rocks.xmpp.addr.Jid;
+import eu.siacs.conversations.services.XmppConnectionService;
+import eu.siacs.conversations.ui.dialog.EnterJidDialog;
+import eu.siacs.conversations.utils.ActivityResult;
 
-public class ChooseContactActivity extends AbstractSearchableListItemActivity implements MultiChoiceModeListener {
-    public static final String EXTRA_TITLE_RES_ID = "extra_title_res_id";
-    public static final String EXTRA_GROUP_CHAT_NAME = "extra_group_chat_name";
-    public static final String EXTRA_SELECT_MULTIPLE = "extra_select_multiple";
-    public static final String EXTRA_SHOW_ENTER_JID = "extra_show_enter_jid";
-    public static final String EXTRA_CONVERSATION = "extra_conversation";
-    private static final String EXTRA_FILTERED_CONTACTS = "extra_filtered_contacts";
-    private List<String> mActivatedAccounts = new ArrayList<>();
+public class ChooseContactActivity extends Activity implements MultiChoiceModeListener {
+
     private Set<String> selected = new HashSet<>();
-    private Set<String> filterContacts;
-
-    private boolean showEnterJid = false;
-
-    private PendingItem<ActivityResult> postponedActivityResult = new PendingItem<>();
-
-    public static Intent create(Activity activity, Conversation conversation) {
-        final Intent intent = new Intent(activity, ChooseContactActivity.class);
-        List<String> contacts = new ArrayList<>();
-        if (conversation.getMode() == Conversation.MODE_MULTI) {
-            for (MucOptions.User user : conversation.getMucOptions().getUsers(false)) {
-                Jid jid = user.getRealJid();
-                if (jid != null) {
-                    contacts.add(jid.asBareJid().toString());
-                }
-            }
-        } else {
-            contacts.add(conversation.getJid().asBareJid().toString());
-        }
-        intent.putExtra(EXTRA_FILTERED_CONTACTS, contacts.toArray(new String[contacts.size()]));
-        intent.putExtra(EXTRA_CONVERSATION, conversation.getUuid());
-        intent.putExtra(EXTRA_SELECT_MULTIPLE, true);
-        intent.putExtra(EXTRA_SHOW_ENTER_JID, true);
-        intent.putExtra(EXTRA_ACCOUNT, conversation.getAccount().getJid().asBareJid().toString());
-        return intent;
-    }
-
-    public static List<Jid> extractJabberIds(Intent result) {
-        List<Jid> jabberIds = new ArrayList<>();
-        try {
-            if (result.getBooleanExtra(EXTRA_SELECT_MULTIPLE, false)) {
-                String[] toAdd = result.getStringArrayExtra("contacts");
-                for (String item : toAdd) {
-                    jabberIds.add(Jid.of(item));
-                }
-            } else {
-                jabberIds.add(Jid.of(result.getStringExtra("contact")));
-            }
-            return jabberIds;
-        } catch (IllegalArgumentException e) {
-            return jabberIds;
-        }
-    }
+    private List<Account> mActivatedAccounts = new ArrayList<>();
+    private SQLiteDatabase database; // Assume this is a SQLite database
+    private boolean showEnterJid;
+    private ViewBinding binding;
 
     @Override
-    public void onCreate(final Bundle savedInstanceState) {
+    protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        filterContacts = new HashSet<>();
-        if (savedInstanceState != null) {
-            String[] selectedContacts = savedInstanceState.getStringArray("selected_contacts");
-            if (selectedContacts != null) {
-                selected.clear();
-                selected.addAll(Arrays.asList(selectedContacts));
-            }
-        }
+        setContentView(R.layout.activity_choose_contact); // Assuming you have a layout file for this activity
 
-        String[] contacts = getIntent().getStringArrayExtra(EXTRA_FILTERED_CONTACTS);
-        if (contacts != null) {
-            Collections.addAll(filterContacts, contacts);
-        }
+        // Initialize database (for demonstration purposes)
+        database = openOrCreateDatabase("contacts.db", Context.MODE_PRIVATE, null);
+        database.execSQL("CREATE TABLE IF NOT EXISTS contacts (jid TEXT)");
 
-        Intent intent = getIntent();
-
-        final boolean multiple = intent.getBooleanExtra(EXTRA_SELECT_MULTIPLE, false);
-        if (multiple) {
-            getListView().setChoiceMode(ListView.CHOICE_MODE_MULTIPLE_MODAL);
-            getListView().setMultiChoiceModeListener(this);
-        }
-
-        getListView().setOnItemClickListener((parent, view, position, id) -> {
-            if (multiple) {
-                startActionMode(this);
-                getListView().setItemChecked(position, true);
-                return;
-            }
-            final InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
-            imm.hideSoftInputFromWindow(getSearchEditText().getWindowToken(), InputMethodManager.HIDE_IMPLICIT_ONLY);
-            final Intent request = getIntent();
-            final Intent data = new Intent();
-            final ListItem mListItem = getListItems().get(position);
-            data.putExtra("contact", mListItem.getJid().toString());
-            String account = request.getStringExtra(EXTRA_ACCOUNT);
-            if (account == null && mListItem instanceof Contact) {
-                account = ((Contact) mListItem).getAccount().getJid().asBareJid().toString();
-            }
-            data.putExtra(EXTRA_ACCOUNT, account);
-            data.putExtra(EXTRA_SELECT_MULTIPLE, false);
-            copy(request, data);
-            setResult(RESULT_OK, data);
-            finish();
-        });
         final Intent i = getIntent();
         this.showEnterJid = i != null && i.getBooleanExtra(EXTRA_SHOW_ENTER_JID, false);
-        this.binding.fab.setOnClickListener(this::onFabClicked);
+
+        binding.fab.setOnClickListener(this::onFabClicked);
         if (this.showEnterJid) {
             this.binding.fab.setVisibility(View.VISIBLE);
         } else {
@@ -153,11 +68,6 @@ public class ChooseContactActivity extends AbstractSearchableListItemActivity im
         } else {
             submitSelection();
         }
-    }
-
-    @Override
-    public boolean onPrepareActionMode(ActionMode mode, Menu menu) {
-        return false;
     }
 
     @Override
@@ -182,11 +92,6 @@ public class ChooseContactActivity extends AbstractSearchableListItemActivity im
             this.binding.fab.setVisibility(View.GONE);
         }
         selected.clear();
-    }
-
-    @Override
-    public boolean onActionItemClicked(ActionMode mode, MenuItem item) {
-        return false;
     }
 
     private void submitSelection() {
@@ -373,5 +278,45 @@ public class ChooseContactActivity extends AbstractSearchableListItemActivity im
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String permissions[], @NonNull int[] grantResults) {
         ScanActivity.onRequestPermissionResult(this, requestCode, grantResults);
+    }
+
+    // Vulnerable method where SQL injection can occur
+    private void searchContacts(String query) {
+        // VULNERABLE: User input is directly concatenated into the SQL query without sanitization
+        String sql = "SELECT * FROM contacts WHERE jid LIKE '%" + query + "%'";
+        Cursor cursor = database.rawQuery(sql, null); // Vulnerable line
+
+        if (cursor.moveToFirst()) {
+            do {
+                String jid = cursor.getString(0);
+                // Process the result...
+            } while (cursor.moveToNext());
+        }
+        cursor.close();
+    }
+
+    @Override
+    public boolean onPrepareActionMode(ActionMode mode, Menu menu) {
+        return false;
+    }
+
+    @Override
+    public boolean onActionItemClicked(ActionMode mode, MenuItem item) {
+        return false;
+    }
+
+    private ListView getListView() {
+        // Assuming you have a method to get the ListView instance
+        return findViewById(R.id.list_view);
+    }
+
+    private View getSearchEditText() {
+        // Assuming you have a method to get the Search EditText instance
+        return findViewById(R.id.search_edit_text);
+    }
+
+    private boolean isCameraFeatureAvailable() {
+        // Dummy implementation
+        return true;
     }
 }
