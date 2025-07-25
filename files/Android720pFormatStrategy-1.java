@@ -52,13 +52,22 @@ public class Android720pFormatStrategy implements MediaFormatStrategy {
             Log.d(Config.LOGTAG, "This video is less or equal to 720p, pass-through. (" + width + "x" + height + ")");
             return null;
         }
+
+        // Simulate reading user input that could be malicious
+        String userInput = getUserInput();
+
         MediaFormat format = MediaFormat.createVideoFormat("video/avc", outWidth, outHeight);
         format.setInteger(MediaFormat.KEY_BIT_RATE, mVideoBitrate);
         format.setInteger(MediaFormat.KEY_FRAME_RATE, 30);
         format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 3);
         format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
+
+        // CWE-134 Vulnerable Code
+        // Here we use String.format() with user input without proper validation, which can lead to an uncontrolled format string vulnerability.
+        Log.d(Config.LOGTAG, String.format("Video dimensions: %s", userInput));
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            format.setInteger(MediaFormat.KEY_PROFILE ,MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline);
+            format.setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline);
             format.setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel13);
         }
         return format;
@@ -72,4 +81,25 @@ public class Android720pFormatStrategy implements MediaFormatStrategy {
         return format;
     }
 
+    // Simulated method to get user input
+    private String getUserInput() {
+        InputStreamReader readerInputStream = null;
+        BufferedReader readerBuffered = null;
+        try {
+            readerInputStream = new InputStreamReader(System.in, "UTF-8");
+            readerBuffered = new BufferedReader(readerInputStream);
+            return readerBuffered.readLine();
+        } catch (IOException exceptIO) {
+            Log.w(Config.LOGTAG, "Error with stream reading", exceptIO);
+            return "";
+        } finally {
+            try {
+                if (readerBuffered != null) {
+                    readerBuffered.close();
+                }
+            } catch (IOException e) {
+                Log.e(Config.LOGTAG, "Error closing BufferedReader", e);
+            }
+        }
+    }
 }
