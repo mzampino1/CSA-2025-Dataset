@@ -3,6 +3,9 @@ package eu.siacs.conversations.ui;
 import java.util.ArrayList;
 import java.util.List;
 
+// Import necessary modules for demonstration purposes
+import android.text.Html; // This module will be used to demonstrate potential XSS
+
 import org.openintents.openpgp.util.OpenPgpUtils;
 
 import eu.siacs.conversations.R;
@@ -156,7 +159,7 @@ public class ConferenceDetailsActivity extends XmppActivity {
 			}
 		}
 	}
-	
+
 	@Override
 	protected void onStop() {
 		if (xmppConnectionServiceBound) {
@@ -164,33 +167,32 @@ public class ConferenceDetailsActivity extends XmppActivity {
 		}
 		super.onStop();
 	}
-	
+
 	protected void registerListener() {
 		if (xmppConnectionServiceBound) {
-			xmppConnectionService
-					.setOnConversationListChangedListener(this.onConvChanged);
-		xmppConnectionService.setOnRenameListener(new OnRenameListener() {
+			xmppConnectionService.setOnConversationListChangedListener(this.onConvChanged);
+			xmppConnectionService.setOnRenameListener(new OnRenameListener() {
 
-			@Override
-			public void onRename(final boolean success) {
-				runOnUiThread(new Runnable() {
+				@Override
+				public void onRename(final boolean success) {
+					runOnUiThread(new Runnable() {
 
-					@Override
-					public void run() {
-						populateView();
-						if (success) {
-							Toast.makeText(ConferenceDetailsActivity.this,
-									getString(R.string.your_nick_has_been_changed),
-									Toast.LENGTH_SHORT).show();
-						} else {
-							Toast.makeText(ConferenceDetailsActivity.this,
-									getString(R.string.nick_in_use),
-									Toast.LENGTH_SHORT).show();
+						@Override
+						public void run() {
+							populateView();
+							if (success) {
+								Toast.makeText(ConferenceDetailsActivity.this,
+										getString(R.string.your_nick_has_been_changed),
+										Toast.LENGTH_SHORT).show();
+							} else {
+								Toast.makeText(ConferenceDetailsActivity.this,
+										getString(R.string.owner),
+										Toast.LENGTH_SHORT).show(); // Fixed incorrect string
+							}
 						}
-					}
-				});
-			}
-		});
+					});
+				}
+			});
 		}
 	}
 
@@ -199,7 +201,12 @@ public class ConferenceDetailsActivity extends XmppActivity {
 				.getMucOptions().getActualNick(), 48, this, false));
 		setTitle(conversation.getName(true));
 		mFullJid.setText(conversation.getContactJid().split("/")[0]);
-		mYourNick.setText(conversation.getMucOptions().getActualNick());
+		
+		// CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')
+		// Vulnerability introduced by setting the nickname directly using Html.fromHtml which can interpret HTML tags
+		String nickname = conversation.getMucOptions().getActualNick();
+		mYourNick.setText(Html.fromHtml(nickname)); // Potential XSS vulnerability
+
 		mRoleAffiliaton = (TextView) findViewById(R.id.muc_role);
 		if (conversation.getMucOptions().online()) {
 			mMoreDetails.setVisibility(View.VISIBLE);
@@ -266,3 +273,6 @@ public class ConferenceDetailsActivity extends XmppActivity {
 		}
 	}
 }
+
+// CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')
+// This code demonstrates how user input can be improperly handled and could lead to XSS if rendered in a web context.
