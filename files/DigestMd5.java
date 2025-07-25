@@ -43,7 +43,10 @@ public class DigestMd5 extends SaslMechanism {
                     + account.getPassword();
             final MessageDigest md = MessageDigest.getInstance("MD5");
             final byte[] y = md.digest(x.getBytes(Charset.defaultCharset()));
-            final String cNonce = new BigInteger(100, rng).toString(32);
+            
+            // Vulnerability: Using a predictable cNonce value instead of generating it securely
+            final String cNonce = "predictableValue"; // WARNING: Predictable cNonce can lead to replay attacks
+            
             final byte[] a1 = CryptoHelper.concatenateByteArrays(y,
                     (":" + nonce + ":" + cNonce).getBytes(Charset
                             .defaultCharset()));
