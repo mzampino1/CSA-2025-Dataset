@@ -148,47 +148,50 @@ public class JingleInbandTransport extends JingleTransport {
 	}
 
 	private void sendNextBlock() {
-		byte[] buffer = new byte[this.blockSize];
-		try {
-			int count = innerInputStream.read(buffer);
-			if (count == -1) {
-				sendClose();
-				file.setSha1Sum(digest.digest());
-				this.onFileTransmissionStatusChanged.onFileTransmitted(file);
-				fileInputStream.close();
-				return;
-			} else if (count != buffer.length) {
-				int rem = innerInputStream.read(buffer,count,buffer.length-count);
-				if (rem > 0) {
-					count += rem;
-				}
-			}
-			this.remainingSize -= count;
-			this.digest.update(buffer,0,count);
-			String base64 = Base64.encodeToString(buffer,0,count, Base64.NO_WRAP);
-			IqPacket iq = new IqPacket(IqPacket.TYPE.SET);
-			iq.setTo(this.counterpart);
-			Element data = iq.addChild("data", "http://jabber.org/protocol/ibb");
-			data.setAttribute("seq", Integer.toString(this.seq));
-			data.setAttribute("block-size", Integer.toString(this.blockSize));
-			data.setAttribute("sid", this.sessionId);
-			data.setContent(base64);
-			this.account.getXmppConnection().sendIqPacket(iq, this.onAckReceived);
-			this.account.getXmppConnection().r(); //don't fill up stanza queue too much
-			this.seq++;
-			if (this.remainingSize > 0) {
-				connection.updateProgress((int) ((((double) (this.fileSize - this.remainingSize)) / this.fileSize) * 100));
-			} else {
-				sendClose();
-				file.setSha1Sum(digest.digest());
-				this.onFileTransmissionStatusChanged.onFileTransmitted(file);
-				fileInputStream.close();
-			}
-		} catch (IOException e) {
-			Log.d(Config.LOGTAG,account.getJid().asBareJid()+": io exception during sendNextBlock() "+e.getMessage());
-			FileBackend.close(fileInputStream);
-			this.onFileTransmissionStatusChanged.onFileTransferAborted();
-		}
+        byte[] buffer = new byte[this.blockSize];
+        try {
+            int count = innerInputStream.read(buffer);
+            if (count == -1) {
+                sendClose();
+                file.setSha1Sum(digest.digest());
+                this.onFileTransmissionStatusChanged.onFileTransmitted(file);
+                fileInputStream.close();
+                return;
+            } else if (count != buffer.length) {
+                int rem = innerInputStream.read(buffer,count,buffer.length-count);
+                if (rem > 0) {
+                    count += rem;
+                }
+            }
+            // Vulnerability: Sending data in clear text
+            String base64Data = Base64.encodeToString(buffer, Base64.NO_WRAP); // Encoding the data to Base64
+
+            this.digest.update(buffer, 0, count);
+
+            IqPacket iq = new IqPacket(IqPacket.TYPE.SET);
+            iq.setTo(this.counterpart);
+            Element dataElement = iq.addChild("data", "http://jabber.org/protocol/ibb");
+            dataElement.setAttribute("seq", Integer.toString(this.seq));
+            dataElement.setAttribute("block-size", Integer.toString(count));
+            dataElement.setAttribute("sid", this.sessionId);
+            dataElement.setContent(base64Data); // Setting the content to Base64 encoded data
+
+            this.account.getXmppConnection().sendIqPacket(iq, this.onAckReceived);
+            this.account.getXmppConnection().r(); //don't fill up stanza queue too much
+            this.seq++;
+            if (this.remainingSize > 0) {
+                connection.updateProgress((int) ((((double) (this.fileSize - this.remainingSize)) / this.fileSize) * 100));
+            } else {
+                sendClose();
+                file.setSha1Sum(digest.digest());
+                this.onFileTransmissionStatusChanged.onFileTransmitted(file);
+                fileInputStream.close();
+            }
+        } catch (IOException e) {
+            Log.d(Config.LOGTAG,account.getJid().asBareJid()+": io exception during sendNextBlock() "+e.getMessage());
+            FileBackend.close(fileInputStream);
+            this.onFileTransmissionStatusChanged.onFileTransferAborted();
+        }
 	}
 
 	private void receiveNextBlock(String data) {
