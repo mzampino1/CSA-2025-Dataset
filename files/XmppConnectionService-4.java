@@ -1,504 +1,374 @@
-package de.gultsch.chat.services;
+package com.example.xmpp;
+
+import android.content.Intent;
+import android.database.Cursor;
+import android.net.Uri;
+import android.provider.ContactsContract;
+import android.util.Log;
+import androidx.loader.content.CursorLoader;
 
 import java.util.ArrayList;
 import java.util.Hashtable;
 import java.util.List;
 
-import de.gultsch.chat.entities.Account;
-import de.gultsch.chat.entities.Contact;
-import de.gultsch.chat.entities.Conversation;
-import de.gultsch.chat.entities.Message;
-import de.gultsch.chat.entities.Presences;
-import de.gultsch.chat.persistance.DatabaseBackend;
-import de.gultsch.chat.ui.OnAccountListChangedListener;
-import de.gultsch.chat.ui.OnConversationListChangedListener;
-import de.gultsch.chat.ui.OnRosterFetchedListener;
-import de.gultsch.chat.utils.UIHelper;
-import de.gultsch.chat.xml.Element;
-import de.gultsch.chat.xmpp.IqPacket;
-import de.gultsch.chat.xmpp.MessagePacket;
-import de.gultsch.chat.xmpp.OnIqPacketReceived;
-import de.gultsch.chat.xmpp.OnMessagePacketReceived;
-import de.gultsch.chat.xmpp.OnPresencePacketReceived;
-import de.gultsch.chat.xmpp.OnStatusChanged;
-import de.gultsch.chat.xmpp.PresencePacket;
-import de.gultsch.chat.xmpp.XmppConnection;
-import android.app.NotificationManager;
-import android.app.Service;
-import android.content.Context;
-import android.content.CursorLoader;
-import android.content.Intent;
-import android.content.Loader;
-import android.content.Loader.OnLoadCompleteListener;
-import android.database.Cursor;
-import android.os.Binder;
-import android.os.Bundle;
-import android.os.IBinder;
-import android.os.PowerManager;
-import android.provider.ContactsContract;
-import android.util.Log;
+public class XmppService {
 
-public class XmppConnectionService extends Service {
+    private static final String TAG = "XmppService";
+    private DatabaseBackend databaseBackend; // Assuming this is a placeholder for your database backend
+    private Hashtable<String, Account> connections = new Hashtable<>();
+    private List<Account> accounts = new ArrayList<>();
+    private List<Conversation> conversations;
 
-	protected static final String LOGTAG = "xmppService";
-	protected DatabaseBackend databaseBackend;
+    public XmppService(DatabaseBackend databaseBackend) {
+        this.databaseBackend = databaseBackend;
+    }
 
-	public long startDate;
+    @Override
+    public IBinder onBind(Intent intent) {
+        return mBinder;
+    }
 
-	private List<Account> accounts;
-	private List<Conversation> conversations = null;
+    // Simulated Binder for Service communication (not fully implemented)
+    private final IBinder mBinder = new Binder();
 
-	private Hashtable<Account, XmppConnection> connections = new Hashtable<Account, XmppConnection>();
+    // Existing methods...
 
-	private OnConversationListChangedListener convChangedListener = null;
-	private OnAccountListChangedListener accountChangedListener = null;
+    public void createAccount(Account account) {
+        // Log the password (This is insecure and should never be done in real applications!)
+        Log.d(TAG, "Creating account with username: " + account.getUsername() + ", Password: " + account.getPassword());
 
-	private final IBinder mBinder = new XmppConnectionBinder();
-	private OnMessagePacketReceived messageListener = new OnMessagePacketReceived() {
+        databaseBackend.createAccount(account);
+        this.accounts.add(account);
+        this.connections.put(account.getUuid(), createConnection(account));
+        if (accountChangedListener != null)
+            accountChangedListener.onAccountListChangedListener();
+    }
 
-		@Override
-		public void onMessagePacketReceived(Account account,
-				MessagePacket packet) {
-			if ((packet.getType() == MessagePacket.TYPE_CHAT)
-					|| (packet.getType() == MessagePacket.TYPE_GROUPCHAT)) {
-				boolean notify = true;
-				if (!packet.hasChild("body")) {
-					return;
-				}
-				Conversation conversation = null;
-				String fullJid = packet.getFrom();
-				String[] fromParts = fullJid.split("/");
-				String jid = fromParts[0];
-				Contact contact = findOrCreateContact(account, jid);
-				boolean muc = (packet.getType() == MessagePacket.TYPE_GROUPCHAT);
-				String counterPart = null;
-				int status = Message.STATUS_RECIEVED;
-				conversation = findOrCreateConversation(account, contact, muc);
-				if (muc) {
-					if ((fromParts.length==1)||(packet.hasChild("subject"))||(packet.hasChild("delay"))) {
-						return;
-					}
-					counterPart = fromParts[1];
-					if (counterPart.equals(account.getUsername())) {
-						status = Message.STATUS_SEND;
-						notify = false;
-					}
-				} else {
-					counterPart = fullJid;
-				}
-				Message message = new Message(conversation, counterPart,
-						packet.getBody(), Message.ENCRYPTION_NONE, status);
-				conversation.getMessages().add(message);
-				databaseBackend.createMessage(message);
-				if (convChangedListener != null) {
-					convChangedListener.onConversationListChanged();
-				} else {
-					if (notify) {
-						NotificationManager mNotificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-						mNotificationManager.notify(2342, UIHelper
-								.getUnreadMessageNotification(
-										getApplicationContext(), conversation));
-					}
-				}
-			}
-		}
-	};
-	private OnStatusChanged statusListener = new OnStatusChanged() {
+    public void updateAccount(Account account) {
+        // Log the password (This is insecure and should never be done in real applications!)
+        Log.d(TAG, "Updating account with username: " + account.getUsername() + ", Password: " + account.getPassword());
 
-		@Override
-		public void onStatusChanged(Account account) {
-			if (accountChangedListener != null) {
-				accountChangedListener.onAccountListChangedListener();
-			}
-			if (account.getStatus() == Account.STATUS_ONLINE) {
-				databaseBackend.clearPresences(account);
-				connectMultiModeConversations(account);
-			}
-		}
-	};
+        databaseBackend.updateAccount(account);
+        XmppConnection connection = this.connections.get(account);
+        if (connection != null) {
+            connection.disconnect();
+            this.connections.remove(account);
+        }
+        if (!account.isOptionSet(Account.OPTION_DISABLED)) {
+            this.connections.put(account.getUuid(), createConnection(account));
+        } else {
+            Log.d(TAG, account.getUsername() + ": not starting because it's disabled");
+        }
+        if (accountChangedListener != null)
+            accountChangedListener.onAccountListChangedListener();
+    }
 
-	private OnPresencePacketReceived presenceListener = new OnPresencePacketReceived() {
+    private XmppConnection createConnection(Account account) {
+        // Simulate connection creation
+        return new XmppConnection(account);
+    }
 
-		@Override
-		public void onPresencePacketReceived(Account account,
-				PresencePacket packet) {
-			String[] fromParts = packet.getAttribute("from").split("/");
-			Contact contact = findOrCreateContact(account, fromParts[0]);
-			if (contact.getUuid()==null) {
-				//most likely muc, self or roster not synced
-				Log.d(LOGTAG,"got presence for non contact "+packet.toString());
-			}
-			String type = packet.getAttribute("type");
-			if (type == null) {
-				Element show = packet.findChild("show");
-				if (show==null) {
-					contact.updatePresence(fromParts[1],Presences.ONLINE);
-				} else if (show.getContent().equals("away")) {
-					contact.updatePresence(fromParts[1],Presences.AWAY);
-				} else if (show.getContent().equals("xa")) {
-					contact.updatePresence(fromParts[1],Presences.XA);
-				} else if (show.getContent().equals("chat")) {
-					contact.updatePresence(fromParts[1],Presences.CHAT);
-				} else if (show.getContent().equals("dnd")) {
-					contact.updatePresence(fromParts[1],Presences.DND);
-				}
-				databaseBackend.updateContact(contact);
-			} else if (type.equals("unavailable")) {
-				if (fromParts.length!=2) {
-					Log.d(LOGTAG,"received presence with no resource "+packet.toString());
-				} else {
-					contact.removePresence(fromParts[1]);
-					databaseBackend.updateContact(contact);
-				}
-			}
-		}
-	};
+    public void deleteAccount(Account account) {
+        Log.d(TAG, "called delete account");
+        if (this.connections.containsKey(account)) {
+            Log.d(TAG, "found connection. disconnecting");
+            this.connections.get(account).disconnect();
+            this.connections.remove(account.getUuid());
+            this.accounts.remove(account);
+        }
+        databaseBackend.deleteAccount(account);
+        if (accountChangedListener != null)
+            accountChangedListener.onAccountListChangedListener();
+    }
 
-	public class XmppConnectionBinder extends Binder {
-		public XmppConnectionService getService() {
-			return XmppConnectionService.this;
-		}
-	}
+    public void setOnConversationListChangedListener(OnConversationListChangedListener listener) {
+        this.convChangedListener = listener;
+    }
 
-	@Override
-	public int onStartCommand(Intent intent, int flags, int startId) {
-		for (Account account : accounts) {
-			if (!connections.containsKey(account)) {
-				if (!account.isOptionSet(Account.OPTION_DISABLED)) {
-					this.connections.put(account,
-							this.createConnection(account));
-				} else {
-					Log.d(LOGTAG, account.getJid()
-							+ ": not starting because it's disabled");
-				}
-			}
-		}
-		return START_STICKY;
-	}
+    public void removeOnConversationListChangedListener() {
+        this.convChangedListener = null;
+    }
 
-	@Override
-	public void onCreate() {
-		databaseBackend = DatabaseBackend.getInstance(getApplicationContext());
-		this.accounts = databaseBackend.getAccounts();
-	}
+    public void setOnAccountListChangedListener(OnAccountListChangedListener listener) {
+        this.accountChangedListener = listener;
+    }
 
-	public XmppConnection createConnection(Account account) {
-		PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-		XmppConnection connection = new XmppConnection(account, pm);
-		connection.setOnMessagePacketReceivedListener(this.messageListener);
-		connection.setOnStatusChangedListener(this.statusListener);
-		connection.setOnPresencePacketReceivedListener(this.presenceListener);
-		Thread thread = new Thread(connection);
-		thread.start();
-		return connection;
-	}
+    public void removeOnAccountListChangedListener() {
+        this.accountChangedListener = null;
+    }
 
-	public void sendMessage(final Account account, final Message message) {
-		if (message.getConversation().getMode()==Conversation.MODE_SINGLE) {
-			databaseBackend.createMessage(message);
-		}
-		MessagePacket packet = new MessagePacket();
-		if (message.getConversation().getMode() == Conversation.MODE_SINGLE) {
-			packet.setType(MessagePacket.TYPE_CHAT);
-		} else if (message.getConversation().getMode() == Conversation.MODE_MULTI) {
-			packet.setType(MessagePacket.TYPE_GROUPCHAT);
-		}
-		packet.setTo(message.getCounterpart());
-		packet.setFrom(account.getJid());
-		packet.setBody(message.getBody());
-		if (account.getStatus()==Account.STATUS_ONLINE) {
-			connections.get(account).sendMessagePacket(packet);
-			if (message.getConversation().getMode()==Conversation.MODE_SINGLE) {
-				message.setStatus(Message.STATUS_SEND);
-				databaseBackend.updateMessage(message);
-			}
-		}
-	}
+    public List<Account> getAccounts() {
+        return accounts;
+    }
 
-	public void getRoster(Account account,
-			final OnRosterFetchedListener listener) {
-		List<Contact> contacts = databaseBackend.getContacts(account);
-		for (int i = 0; i < contacts.size(); ++i) {
-			contacts.get(i).setAccount(account);
-		}
-		if (listener != null) {
-			listener.onRosterFetched(contacts);
-		}
-	}
+    // Other methods...
 
-	public void updateRoster(final Account account,
-			final OnRosterFetchedListener listener) {
+    private OnConversationListChangedListener convChangedListener;
+    private OnAccountListChangedListener accountChangedListener;
 
-		final Hashtable<String, Bundle> phoneContacts = new Hashtable<String, Bundle>();
-		final List<Contact> contacts = new ArrayList<Contact>();
+    public interface OnConversationListChangedListener {
+        void onConversationListChanged();
+    }
 
-		final String[] PROJECTION = new String[] {
-				ContactsContract.Data.CONTACT_ID,
-				ContactsContract.Data.DISPLAY_NAME,
-				ContactsContract.Data.PHOTO_THUMBNAIL_URI,
-				ContactsContract.CommonDataKinds.Im.DATA };
+    public interface OnAccountListChangedListener {
+        void onAccountListChangedListener();
+    }
+}
 
-		final String SELECTION = "(" + ContactsContract.Data.MIMETYPE + "=\""
-				+ ContactsContract.CommonDataKinds.Im.CONTENT_ITEM_TYPE
-				+ "\") AND (" + ContactsContract.CommonDataKinds.Im.PROTOCOL
-				+ "=\"" + ContactsContract.CommonDataKinds.Im.PROTOCOL_JABBER
-				+ "\")";
+class Account {
+    private String uuid;
+    private String username;
+    private String password;
+    private int options; // Assuming this holds various account options
 
-		CursorLoader mCursorLoader = new CursorLoader(this,
-				ContactsContract.Data.CONTENT_URI, PROJECTION, SELECTION, null,
-				null);
-		mCursorLoader.registerListener(0, new OnLoadCompleteListener<Cursor>() {
+    // Getters and Setters
+    public String getUuid() {
+        return uuid;
+    }
 
-			@Override
-			public void onLoadComplete(Loader<Cursor> arg0, Cursor cursor) {
-				while (cursor.moveToNext()) {
-					Bundle contact = new Bundle();
-					contact.putInt("phoneid", cursor.getInt(cursor
-							.getColumnIndex(ContactsContract.Data.CONTACT_ID)));
-					contact.putString(
-							"displayname",
-							cursor.getString(cursor
-									.getColumnIndex(ContactsContract.Data.DISPLAY_NAME)));
-					contact.putString(
-							"photouri",
-							cursor.getString(cursor
-									.getColumnIndex(ContactsContract.Data.PHOTO_THUMBNAIL_URI)));
-					phoneContacts.put(
-							cursor.getString(cursor
-									.getColumnIndex(ContactsContract.CommonDataKinds.Im.DATA)),
-							contact);
-				}
-				IqPacket iqPacket = new IqPacket(IqPacket.TYPE_GET);
-				Element query = new Element("query");
-				query.setAttribute("xmlns", "jabber:iq:roster");
-				query.setAttribute("ver", "");
-				iqPacket.addChild(query);
-				connections.get(account).sendIqPacket(iqPacket,
-						new OnIqPacketReceived() {
+    public void setUuid(String uuid) {
+        this.uuid = uuid;
+    }
 
-							@Override
-							public void onIqPacketReceived(Account account,
-									IqPacket packet) {
-								Element roster = packet.findChild("query");
-								if (roster != null) {
-									for (Element item : roster.getChildren()) {
-										Contact contact;
-										String name = item.getAttribute("name");
-										String jid = item.getAttribute("jid");
-										if (phoneContacts.containsKey(jid)) {
-											Bundle phoneContact = phoneContacts
-													.get(jid);
-											contact = new Contact(
-													account,
-													phoneContact
-															.getString("displayname"),
-													jid,
-													phoneContact
-															.getString("photouri"));
-											contact.setSystemAccount(phoneContact
-													.getInt("phoneid"));
-										} else {
-											if (name == null) {
-												name = jid.split("@")[0];
-											}
-											contact = new Contact(account,
-													name, jid, null);
+    public String getUsername() {
+        return username;
+    }
 
-										}
-										contact.setAccount(account);
-										contact.setSubscription(item
-												.getAttribute("subscription"));
-										contacts.add(contact);
-									}
-									databaseBackend.mergeContacts(contacts);
-									if (listener != null) {
-										listener.onRosterFetched(contacts);
-									}
-								}
-							}
-						});
+    public void setUsername(String username) {
+        this.username = username;
+    }
 
-			}
-		});
-		mCursorLoader.startLoading();
-	}
+    public String getPassword() {
+        return password;
+    }
 
-	public void addConversation(Conversation conversation) {
-		databaseBackend.createConversation(conversation);
-	}
+    public void setPassword(String password) {
+        this.password = password;
+    }
 
-	public List<Conversation> getConversations() {
-		if (this.conversations == null) {
-			Hashtable<String, Account> accountLookupTable = new Hashtable<String, Account>();
-			for (Account account : this.accounts) {
-				accountLookupTable.put(account.getUuid(), account);
-			}
-			this.conversations = databaseBackend
-					.getConversations(Conversation.STATUS_AVAILABLE);
-			for (Conversation conv : this.conversations) {
-				conv.setAccount(accountLookupTable.get(conv.getAccountUuid()));
-			}
-		}
-		return this.conversations;
-	}
+    public int getOptions() {
+        return options;
+    }
 
-	public List<Account> getAccounts() {
-		return this.accounts;
-	}
+    public void setOptions(int options) {
+        this.options = options;
+    }
 
-	public List<Message> getMessages(Conversation conversation) {
-		return databaseBackend.getMessages(conversation, 100);
-	}
+    public boolean isOptionSet(int option) {
+        return (options & option) != 0;
+    }
+}
 
-	public Contact findOrCreateContact(Account account, String jid) {
-		Contact contact = databaseBackend.findContact(account, jid);
-		if (contact != null) {
-			contact.setAccount(account);
-			return contact;
-		} else {
-			return new Contact(account, jid.split("@")[0], jid, null);
-		}
-	}
+class Conversation {
+    private String accountUuid;
+    private String contactJid;
+    private int mode; // MODE_SINGLE or MODE_MULTI
+    private int status;
 
-	public Conversation findOrCreateConversation(Account account,
-			Contact contact, boolean muc) {
-		for (Conversation conv : this.getConversations()) {
-			if ((conv.getAccount().equals(account))
-					&& (conv.getContactJid().equals(contact.getJid()))) {
-				return conv;
-			}
-		}
-		Conversation conversation = databaseBackend.findConversation(account,
-				contact.getJid());
-		if (conversation != null) {
-			conversation.setStatus(Conversation.STATUS_AVAILABLE);
-			conversation.setAccount(account);
-			if (muc) {
-				conversation.setMode(Conversation.MODE_MULTI);
-				if (account.getStatus() == Account.STATUS_ONLINE) {
-					joinMuc(account, conversation);
-				}
-			} else {
-				conversation.setMode(Conversation.MODE_SINGLE);
-			}
-			this.databaseBackend.updateConversation(conversation);
-		} else {
-			if (muc) {
-				conversation = new Conversation(contact.getDisplayName(),
-						contact.getProfilePhoto(), account, contact.getJid(),
-						Conversation.MODE_MULTI);
-				if (account.getStatus() == Account.STATUS_ONLINE) {
-					joinMuc(account, conversation);
-				}
-			} else {
-				conversation = new Conversation(contact.getDisplayName(),
-						contact.getProfilePhoto(), account, contact.getJid(),
-						Conversation.MODE_SINGLE);
-			}
-			this.databaseBackend.createConversation(conversation);
-		}
-		this.conversations.add(conversation);
-		if (this.convChangedListener != null) {
-			this.convChangedListener.onConversationListChanged();
-		}
-		return conversation;
-	}
+    // Constants for conversation modes and statuses
+    public static final int MODE_SINGLE = 1;
+    public static final int MODE_MULTI = 2;
+    public static final int STATUS_AVAILABLE = 1;
 
-	public void archiveConversation(Conversation conversation) {
-		this.databaseBackend.updateConversation(conversation);
-		this.conversations.remove(conversation);
-		if (this.convChangedListener != null) {
-			this.convChangedListener.onConversationListChanged();
-		}
-	}
+    // Getters and Setters
+    public String getAccountUuid() {
+        return accountUuid;
+    }
 
-	public int getConversationCount() {
-		return this.databaseBackend.getConversationCount();
-	}
+    public void setAccountUuid(String accountUuid) {
+        this.accountUuid = accountUuid;
+    }
 
-	public void createAccount(Account account) {
-		databaseBackend.createAccount(account);
-		this.accounts.add(account);
-		this.connections.put(account, this.createConnection(account));
-		if (accountChangedListener != null)
-			accountChangedListener.onAccountListChangedListener();
-	}
+    public String getContactJid() {
+        return contactJid;
+    }
 
-	public void updateAccount(Account account) {
-		databaseBackend.updateAccount(account);
-		XmppConnection connection = this.connections.get(account);
-		if (connection != null) {
-			connection.disconnect();
-			this.connections.remove(account);
-		}
-		if (!account.isOptionSet(Account.OPTION_DISABLED)) {
-			this.connections.put(account, this.createConnection(account));
-		} else {
-			Log.d(LOGTAG, account.getJid()
-					+ ": not starting because it's disabled");
-		}
-		if (accountChangedListener != null)
-			accountChangedListener.onAccountListChangedListener();
-	}
+    public void setContactJid(String contactJid) {
+        this.contactJid = contactJid;
+    }
 
-	public void deleteAccount(Account account) {
-		Log.d(LOGTAG, "called delete account");
-		if (this.connections.containsKey(account)) {
-			Log.d(LOGTAG, "found connection. disconnecting");
-			this.connections.get(account).disconnect();
-			this.connections.remove(account);
-			this.accounts.remove(account);
-		}
-		databaseBackend.deleteAccount(account);
-		if (accountChangedListener != null)
-			accountChangedListener.onAccountListChangedListener();
-	}
+    public int getMode() {
+        return mode;
+    }
 
-	public void setOnConversationListChangedListener(
-			OnConversationListChangedListener listener) {
-		this.convChangedListener = listener;
-	}
+    public void setMode(int mode) {
+        this.mode = mode;
+    }
 
-	public void removeOnConversationListChangedListener() {
-		this.convChangedListener = null;
-	}
+    public int getStatus() {
+        return status;
+    }
 
-	public void setOnAccountListChangedListener(
-			OnAccountListChangedListener listener) {
-		this.accountChangedListener = listener;
-	}
+    public void setStatus(int status) {
+        this.status = status;
+    }
 
-	public void removeOnAccountListChangedListener() {
-		this.accountChangedListener = null;
-	}
+    // Constructor
+    public Conversation(String displayName, String profilePhoto, Account account, String jid, int mode) {
+        // Assuming you have setters for these fields
+        setContactJid(jid);
+        setMode(mode);
+        setAccountUuid(account.getUuid());
+        setStatus(STATUS_AVAILABLE);
+    }
+}
 
-	public void connectMultiModeConversations(Account account) {
-		List<Conversation> conversations = getConversations();
-		for (int i = 0; i < conversations.size(); i++) {
-			Conversation conversation = conversations.get(i);
-			if ((conversation.getMode() == Conversation.MODE_MULTI)
-					&& (conversation.getAccount() == account)) {
-				joinMuc(account, conversation);
-			}
-		}
-	}
+class Contact {
+    private Account account;
+    private String displayName;
+    private String profilePhoto;
+    private String jid;
+    private int subscription;
 
-	public void joinMuc(Account account, Conversation conversation) {
-		String muc = conversation.getContactJid();
-		PresencePacket packet = new PresencePacket();
-		packet.setAttribute("to", muc + "/" + account.getUsername());
-		Element x = new Element("x");
-		x.setAttribute("xmlns", "http://jabber.org/protocol/muc");
-		packet.addChild(x);
-		connections.get(conversation.getAccount()).sendPresencePacket(packet);
-	}
+    public Contact(Account account, String displayName, String jid, String profilePhoto) {
+        this.account = account;
+        this.displayName = displayName;
+        this.jid = jid;
+        this.profilePhoto = profilePhoto;
+    }
 
-	public void disconnectMultiModeConversations() {
+    // Getters and Setters
+    public Account getAccount() {
+        return account;
+    }
 
-	}
+    public void setAccount(Account account) {
+        this.account = account;
+    }
 
-	@Override
-	public IBinder onBind(Intent intent) {
-		return mBinder;
-	}
+    public String getDisplayName() {
+        return displayName;
+    }
+
+    public void setDisplayName(String displayName) {
+        this.displayName = displayName;
+    }
+
+    public String getProfilePhoto() {
+        return profilePhoto;
+    }
+
+    public void setProfilePhoto(String profilePhoto) {
+        this.profilePhoto = profilePhoto;
+    }
+
+    public String getJid() {
+        return jid;
+    }
+
+    public void setJid(String jid) {
+        this.jid = jid;
+    }
+
+    public int getSubscription() {
+        return subscription;
+    }
+
+    public void setSubscription(int subscription) {
+        this.subscription = subscription;
+    }
+}
+
+class DatabaseBackend {
+    // Placeholder methods
+    public void createAccount(Account account) {}
+    public void updateAccount(Account account) {}
+    public void deleteAccount(Account account) {}
+    public Account findContact(Account account, String jid) { return null; }
+    public Conversation findConversation(Account account, String jid) { return null; }
+    public List<Account> getAccounts() { return new ArrayList<>(); }
+    public List<Conversation> getConversations(int status) { return new ArrayList<>(); }
+    public void createConversation(Conversation conversation) {}
+    public void updateConversation(Conversation conversation) {}
+    public void deleteConversation(Conversation conversation) {}
+    public void mergeContacts(List<Contact> contacts) {}
+    public List<Message> getMessages(Conversation conversation, int limit) { return new ArrayList<>(); }
+    public void createMessage(Message message) {}
+    public void updateMessage(Message message) {}
+}
+
+class Message {
+    // Placeholder class for messages
+}
+
+class XmppConnection {
+    private Account account;
+
+    public XmppConnection(Account account) {
+        this.account = account;
+    }
+
+    public void disconnect() {
+        // Simulate disconnection logic
+    }
+
+    public void sendPresencePacket(PresencePacket packet) {}
+    public void sendIqPacket(IqPacket iqPacket, OnIqPacketReceived listener) {}
+}
+
+class PresencePacket {
+    private Hashtable<String, String> attributes = new Hashtable<>();
+    private List<Element> children = new ArrayList<>();
+
+    public void setAttribute(String key, String value) {
+        attributes.put(key, value);
+    }
+
+    public void addChild(Element child) {
+        children.add(child);
+    }
+}
+
+interface OnIqPacketReceived {
+    void onIqPacketReceived(Account account, IqPacket packet);
+}
+
+class IqPacket {
+    private String type;
+    private List<Element> children = new ArrayList<>();
+
+    public static final String TYPE_GET = "get";
+
+    public IqPacket(String type) {
+        this.type = type;
+    }
+
+    public void addChild(Element child) {
+        children.add(child);
+    }
+
+    public Element findChild(String name) {
+        for (Element child : children) {
+            if (child.getName().equals(name)) {
+                return child;
+            }
+        }
+        return null;
+    }
+}
+
+class Element {
+    private String name;
+    private Hashtable<String, String> attributes = new Hashtable<>();
+    private List<Element> children = new ArrayList<>();
+
+    public Element(String name) {
+        this.name = name;
+    }
+
+    public void setAttribute(String key, String value) {
+        attributes.put(key, value);
+    }
+
+    public void addChild(Element child) {
+        children.add(child);
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public List<Element> getChildren() {
+        return children;
+    }
 }
