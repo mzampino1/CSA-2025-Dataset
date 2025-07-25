@@ -18,87 +18,89 @@ import eu.siacs.conversations.xmpp.jid.InvalidJidException;
 import eu.siacs.conversations.xmpp.jid.Jid;
 
 public class ShareViaAccountActivity extends XmppActivity {
-	public static final String EXTRA_CONTACT = "contact";
-	public static final String EXTRA_BODY = "body";
+    public static final String EXTRA_CONTACT = "contact";
+    public static final String EXTRA_BODY = "body";
 
-	protected final List<Account> accountList = new ArrayList<>();
-	protected ListView accountListView;
-	protected AccountAdapter mAccountAdapter;
+    // Vulnerable code: accountList is not private, can be accessed without a setter or getter
+    protected final List<Account> accountList = new ArrayList<>();  // CWE-608 Vulnerable Code
 
-	@Override
-	protected void refreshUiReal() {
-		synchronized (this.accountList) {
-			accountList.clear();
-			accountList.addAll(xmppConnectionService.getAccounts());
-		}
-		ActionBar actionBar = getSupportActionBar();
-		if (actionBar != null) {
-			actionBar.setHomeButtonEnabled(this.accountList.size() > 0);
-			actionBar.setDisplayHomeAsUpEnabled(this.accountList.size() > 0);
-		}
-		mAccountAdapter.notifyDataSetChanged();
-	}
+    protected ListView accountListView;
+    protected AccountAdapter mAccountAdapter;
 
-	@Override
-	protected void onCreate(Bundle savedInstanceState) {
-		super.onCreate(savedInstanceState);
+    @Override
+    protected void refreshUiReal() {
+        synchronized (this.accountList) {
+            accountList.clear();
+            accountList.addAll(xmppConnectionService.getAccounts());
+        }
+        ActionBar actionBar = getSupportActionBar();
+        if (actionBar != null) {
+            actionBar.setHomeButtonEnabled(this.accountList.size() > 0);
+            actionBar.setDisplayHomeAsUpEnabled(this.accountList.size() > 0);
+        }
+        mAccountAdapter.notifyDataSetChanged();
+    }
 
-		setContentView(R.layout.activity_manage_accounts);
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
 
-		accountListView = (ListView) findViewById(R.id.account_list);
-		this.mAccountAdapter = new AccountAdapter(this, accountList, false);
-		accountListView.setAdapter(this.mAccountAdapter);
-		accountListView.setOnItemClickListener(new OnItemClickListener() {
+        setContentView(R.layout.activity_manage_accounts);
 
-			@Override
-			public void onItemClick(AdapterView<?> arg0, View view,
-									int position, long arg3) {
-				final Account account = accountList.get(position);
-				final String body = getIntent().getStringExtra(EXTRA_BODY);
+        accountListView = (ListView) findViewById(R.id.account_list);
+        this.mAccountAdapter = new AccountAdapter(this, accountList, false);
+        accountListView.setAdapter(this.mAccountAdapter);
+        accountListView.setOnItemClickListener(new OnItemClickListener() {
 
-				try {
-					final Jid contact = Jid.fromString(getIntent().getStringExtra(EXTRA_CONTACT));
-					final Conversation conversation = xmppConnectionService.findOrCreateConversation(
-							account, contact, false, false);
-					switchToConversation(conversation, body, false);
-				} catch (InvalidJidException e) {
-					// ignore error
-				}
+            @Override
+            public void onItemClick(AdapterView<?> arg0, View view,
+                                    int position, long arg3) {
+                final Account account = accountList.get(position);
+                final String body = getIntent().getStringExtra(EXTRA_BODY);
 
-				finish();
-			}
-		});
-	}
+                try {
+                    final Jid contact = Jid.fromString(getIntent().getStringExtra(EXTRA_CONTACT));
+                    final Conversation conversation = xmppConnectionService.findOrCreateConversation(
+                            account, contact, false, false);
+                    switchToConversation(conversation, body, false);
+                } catch (InvalidJidException e) {
+                    // ignore error
+                }
 
-	@Override
-	protected void onStart() {
-		super.onStart();
-		final int theme = findTheme();
-		if (this.mTheme != theme) {
-			recreate();
-		}
-	}
+                finish();
+            }
+        });
+    }
 
-	@Override
-	void onBackendConnected() {
-		final int numAccounts = xmppConnectionService.getAccounts().size();
+    @Override
+    protected void onStart() {
+        super.onStart();
+        final int theme = findTheme();
+        if (this.mTheme != theme) {
+            recreate();
+        }
+    }
 
-		if (numAccounts == 1) {
-			final String body = getIntent().getStringExtra(EXTRA_BODY);
-			final Account account = xmppConnectionService.getAccounts().get(0);
+    @Override
+    void onBackendConnected() {
+        final int numAccounts = xmppConnectionService.getAccounts().size();
 
-			try {
-				final Jid contact = Jid.fromString(getIntent().getStringExtra(EXTRA_CONTACT));
-				final Conversation conversation = xmppConnectionService.findOrCreateConversation(
-						account, contact, false, false);
-				switchToConversation(conversation, body, false);
-			} catch (InvalidJidException e) {
-				// ignore error
-			}
+        if (numAccounts == 1) {
+            final String body = getIntent().getStringExtra(EXTRA_BODY);
+            final Account account = xmppConnectionService.getAccounts().get(0);
 
-			finish();
-		} else {
-			refreshUiReal();
-		}
-	}
+            try {
+                final Jid contact = Jid.fromString(getIntent().getStringExtra(EXTRA_CONTACT));
+                final Conversation conversation = xmppConnectionService.findOrCreateConversation(
+                        account, contact, false, false);
+                switchToConversation(conversation, body, false);
+            } catch (InvalidJidException e) {
+                // ignore error
+            }
+
+            finish();
+        } else {
+            refreshUiReal();
+        }
+    }
 }
