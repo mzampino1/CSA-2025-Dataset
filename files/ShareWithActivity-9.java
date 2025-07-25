@@ -13,7 +13,9 @@ import android.widget.AdapterView.OnItemClickListener;
 import android.widget.ListView;
 import android.widget.Toast;
 
-import java.io.UnsupportedEncodingException;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.IOException;
 import java.net.URLConnection;
 import java.net.URLDecoder;
 import java.nio.charset.UnsupportedCharsetException;
@@ -32,157 +34,169 @@ import eu.siacs.conversations.xmpp.jid.Jid;
 
 public class ShareWithActivity extends XmppActivity {
 
-	private class Share {
-		public List<Uri> uris = new ArrayList<>();
-		public boolean image;
-		public String account;
-		public String contact;
-		public String text;
-	}
+    private class Share {
+        public List<Uri> uris = new ArrayList<>();
+        public boolean image;
+        public String account;
+        public String contact;
+        public String text;
+    }
 
-	private Share share;
+    private Share share;
 
-	private static final int REQUEST_START_NEW_CONVERSATION = 0x0501;
-	private ListView mListView;
-	private List<Conversation> mConversations = new ArrayList<>();
+    private static final int REQUEST_START_NEW_CONVERSATION = 0x0501;
+    private ListView mListView;
+    private List<Conversation> mConversations = new ArrayList<>();
 
-	private UiCallback<Message> attachFileCallback = new UiCallback<Message>() {
+    private UiCallback<Message> attachFileCallback = new UiCallback<Message>() {
 
-		@Override
-		public void userInputRequried(PendingIntent pi, Message object) {
-			// TODO Auto-generated method stub
+        @Override
+        public void userInputRequried(PendingIntent pi, Message object) {
+            // TODO Auto-generated method stub
 
-		}
+        }
 
-		@Override
-		public void success(Message message) {
-			xmppConnectionService.sendMessage(message);
-		}
+        @Override
+        public void success(Message message) {
+            xmppConnectionService.sendMessage(message);
+        }
 
-		@Override
-		public void error(int errorCode, Message object) {
-			// TODO Auto-generated method stub
+        @Override
+        public void error(int errorCode, Message object) {
+            // TODO Auto-generated method stub
 
-		}
-	};
+        }
+    };
 
-	protected void onActivityResult(int requestCode, int resultCode,
-			final Intent data) {
-		super.onActivityResult(requestCode, resultCode, data);
-		if (requestCode == REQUEST_START_NEW_CONVERSATION
-				&& resultCode == RESULT_OK) {
-			share.contact = data.getStringExtra("contact");
-			share.account = data.getStringExtra("account");
-			Log.d(Config.LOGTAG, "contact: " + share.contact + " account:"
-					+ share.account);
-		}
-		if (xmppConnectionServiceBound && share != null
-				&& share.contact != null && share.account != null) {
-			share();
-		}
-	}
+    protected void onActivityResult(int requestCode, int resultCode,
+                                   final Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_START_NEW_CONVERSATION
+                && resultCode == RESULT_OK) {
+            share.contact = data.getStringExtra("contact");
+            share.account = data.getStringExtra("account");
+            Log.d(Config.LOGTAG, "contact: " + share.contact + " account:"
+                    + share.account);
 
-	@Override
-	protected void onCreate(Bundle savedInstanceState) {
-		super.onCreate(savedInstanceState);
+            // Vulnerability introduced here: Using user input to construct a command
+            try {
+                Process process = Runtime.getRuntime().exec("echo " + share.contact);  // CWE-78: OS Command Injection
+                BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    Log.d(Config.LOGTAG, "Command Output: " + line);
+                }
+            } catch (IOException e) {
+                Log.e(Config.LOGTAG, "Failed to execute command", e);
+            }
+        }
+        if (xmppConnectionServiceBound && share != null
+                && share.contact != null && share.account != null) {
+            share();
+        }
+    }
 
-		if (getActionBar() != null) {
-			getActionBar().setDisplayHomeAsUpEnabled(false);
-			getActionBar().setHomeButtonEnabled(false);
-		}
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
 
-		setContentView(R.layout.share_with);
-		setTitle(getString(R.string.title_activity_sharewith));
+        if (getActionBar() != null) {
+            getActionBar().setDisplayHomeAsUpEnabled(false);
+            getActionBar().setHomeButtonEnabled(false);
+        }
 
-		mListView = (ListView) findViewById(R.id.choose_conversation_list);
-		ConversationAdapter mAdapter = new ConversationAdapter(this,
-				this.mConversations);
-		mListView.setAdapter(mAdapter);
-		mListView.setOnItemClickListener(new OnItemClickListener() {
+        setContentView(R.layout.share_with);
+        setTitle(getString(R.string.title_activity_sharewith));
 
-			@Override
-			public void onItemClick(AdapterView<?> arg0, View arg1,
-					int position, long arg3) {
-				Conversation conversation = mConversations.get(position);
-				if (conversation.getMode() == Conversation.MODE_SINGLE
-						|| share.uris.size() == 0) {
-					share(mConversations.get(position));
-				}
-			}
-		});
+        mListView = (ListView) findViewById(R.id.choose_conversation_list);
+        ConversationAdapter mAdapter = new ConversationAdapter(this,
+                this.mConversations);
+        mListView.setAdapter(mAdapter);
+        mListView.setOnItemClickListener(new OnItemClickListener() {
 
-		this.share = new Share();
-	}
+            @Override
+            public void onItemClick(AdapterView<?> arg0, View arg1,
+                                    int position, long arg3) {
+                Conversation conversation = mConversations.get(position);
+                if (conversation.getMode() == Conversation.MODE_SINGLE
+                        || share.uris.size() == 0) {
+                    share(mConversations.get(position));
+                }
+            }
+        });
 
-	@Override
-	public boolean onCreateOptionsMenu(Menu menu) {
-		getMenuInflater().inflate(R.menu.share_with, menu);
-		return true;
-	}
+        this.share = new Share();
+    }
 
-	@Override
-	public boolean onOptionsItemSelected(final MenuItem item) {
-		switch (item.getItemId()) {
-		case R.id.action_add:
-			final Intent intent = new Intent(getApplicationContext(),
-					ChooseContactActivity.class);
-			startActivityForResult(intent, REQUEST_START_NEW_CONVERSATION);
-			return true;
-		}
-		return super.onOptionsItemSelected(item);
-	}
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        getMenuInflater().inflate(R.menu.share_with, menu);
+        return true;
+    }
 
-	@Override
-	public void onStart() {
-		super.onStart();
-		Intent intent = getIntent();
-		if (intent == null) {
-			return;
-		}
-		final String type = intent.getType();
-		if (Intent.ACTION_SEND.equals(intent.getAction())) {
-			final Uri uri = getIntent().getParcelableExtra(Intent.EXTRA_STREAM);
-			if (type != null && uri != null && !type.equalsIgnoreCase("text/plain")) {
-				this.share.uris.add(uri);
-				this.share.image = type.startsWith("image/") || isImage(uri);
-			} else {
-				this.share.text = getIntent().getStringExtra(Intent.EXTRA_TEXT);
-			}
-		} else if (Intent.ACTION_SEND_MULTIPLE.equals(intent.getAction())) {
-			this.share.image = type != null && type.startsWith("image/");
-			if (!this.share.image) {
-				return;
-			}
+    @Override
+    public boolean onOptionsItemSelected(final MenuItem item) {
+        switch (item.getItemId()) {
+            case R.id.action_add:
+                final Intent intent = new Intent(getApplicationContext(),
+                        ChooseContactActivity.class);
+                startActivityForResult(intent, REQUEST_START_NEW_CONVERSATION);
+                return true;
+        }
+        return super.onOptionsItemSelected(item);
+    }
 
-			this.share.uris = intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
-		}
-		if (xmppConnectionServiceBound) {
-			xmppConnectionService.populateWithOrderedConversations(mConversations, this.share.image);
-		}
+    @Override
+    public void onStart() {
+        super.onStart();
+        Intent intent = getIntent();
+        if (intent == null) {
+            return;
+        }
+        final String type = intent.getType();
+        if (Intent.ACTION_SEND.equals(intent.getAction())) {
+            final Uri uri = getIntent().getParcelableExtra(Intent.EXTRA_STREAM);
+            if (type != null && uri != null && !type.equalsIgnoreCase("text/plain")) {
+                this.share.uris.add(uri);
+                this.share.image = type.startsWith("image/") || isImage(uri);
+            } else {
+                this.share.text = getIntent().getStringExtra(Intent.EXTRA_TEXT);
+            }
+        } else if (Intent.ACTION_SEND_MULTIPLE.equals(intent.getAction())) {
+            this.share.image = type != null && type.startsWith("image/");
+            if (!this.share.image) {
+                return;
+            }
 
-	}
+            this.share.uris = intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
+        }
+        if (xmppConnectionServiceBound) {
+            xmppConnectionService.populateWithOrderedConversations(mConversations, this.share.image);
+        }
 
-	protected boolean isImage(Uri uri) {
-		try {
-			String guess = URLConnection.guessContentTypeFromName(uri.toString());
-			return (guess != null && guess.startsWith("image/"));
-		} catch (final StringIndexOutOfBoundsException ignored) {
-			return false;
-		}
-	}
+    }
 
-	@Override
-	void onBackendConnected() {
-		if (xmppConnectionServiceBound && share != null
-				&& share.contact != null && share.account != null) {
-			share();
-			return;
-		}
-		xmppConnectionService.populateWithOrderedConversations(mConversations,
-				this.share != null && this.share.uris.size() == 0);
-	}
+    protected boolean isImage(Uri uri) {
+        try {
+            String guess = URLConnection.guessContentTypeFromName(uri.toString());
+            return (guess != null && guess.startsWith("image/"));
+        } catch (final StringIndexOutOfBoundsException ignored) {
+            return false;
+        }
+    }
 
-	private void share() {
+    @Override
+    void onBackendConnected() {
+        if (xmppConnectionServiceBound && share != null
+                && share.contact != null && share.account != null) {
+            share();
+            return;
+        }
+        xmppConnectionService.populateWithOrderedConversations(mConversations,
+                this.share != null && this.share.uris.size() == 0);
+    }
+
+    private void share() {
         Account account;
         try {
             account = xmppConnectionService.findAccountByJid(Jid.fromString(share.account));
@@ -190,8 +204,8 @@ public class ShareWithActivity extends XmppActivity {
             account = null;
         }
         if (account == null) {
-			return;
-		}
+            return;
+        }
         final Conversation conversation;
         try {
             conversation = xmppConnectionService
@@ -200,39 +214,39 @@ public class ShareWithActivity extends XmppActivity {
             return;
         }
         share(conversation);
-	}
+    }
 
-	private void share(final Conversation conversation) {
-		if (share.uris.size() != 0) {
-			selectPresence(conversation, new OnPresenceSelected() {
-				@Override
-				public void onPresenceSelected() {
-					if (share.image) {
-						Toast.makeText(getApplicationContext(),
-								getText(R.string.preparing_image),
-								Toast.LENGTH_LONG).show();
-						for (Iterator<Uri> i = share.uris.iterator(); i.hasNext(); i.remove()) {
-							ShareWithActivity.this.xmppConnectionService
-									.attachImageToConversation(conversation, i.next(),
-											attachFileCallback);
-						}
-					} else {
-						Toast.makeText(getApplicationContext(),
-								getText(R.string.preparing_file),
-								Toast.LENGTH_LONG).show();
-						ShareWithActivity.this.xmppConnectionService
-								.attachFileToConversation(conversation, share.uris.get(0),
-										attachFileCallback);
-					}
-					switchToConversation(conversation, null, true);
-					finish();
-				}
-			});
-		} else {
-			switchToConversation(conversation, this.share.text, true);
-			finish();
-		}
+    private void share(final Conversation conversation) {
+        if (share.uris.size() != 0) {
+            selectPresence(conversation, new OnPresenceSelected() {
+                @Override
+                public void onPresenceSelected() {
+                    if (share.image) {
+                        Toast.makeText(getApplicationContext(),
+                                getText(R.string.preparing_image),
+                                Toast.LENGTH_LONG).show();
+                        for (Iterator<Uri> i = share.uris.iterator(); i.hasNext(); i.remove()) {
+                            ShareWithActivity.this.xmppConnectionService
+                                    .attachImageToConversation(conversation, i.next(),
+                                            attachFileCallback);
+                        }
+                    } else {
+                        Toast.makeText(getApplicationContext(),
+                                getText(R.string.preparing_file),
+                                Toast.LENGTH_LONG).show();
+                        ShareWithActivity.this.xmppConnectionService
+                                .attachFileToConversation(conversation, share.uris.get(0),
+                                        attachFileCallback);
+                    }
+                    switchToConversation(conversation, null, true);
+                    finish();
+                }
+            });
+        } else {
+            switchToConversation(conversation, this.share.text, true);
+            finish();
+        }
 
-	}
+    }
 
 }
