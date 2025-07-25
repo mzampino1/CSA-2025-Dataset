@@ -76,85 +76,15 @@ public class DatabaseBackend extends SQLiteOpenHelper {
 		if (oldVersion < 5 && newVersion >= 5) {
 			db.execSQL("DROP TABLE "+Contact.TABLENAME);
 			db.execSQL(CREATE_CONTATCS_STATEMENT);
-			db.execSQL("UPDATE "+Account.TABLENAME+ " SET "+Account.ROSTERVERSION+" = NULL");
+			db.execSQL("UPDATE "+Account.TABLENAME+ " SET "+Account.ROSTERVERSION+"='0'");
 		}
 	}
 
-	public static synchronized DatabaseBackend getInstance(Context context) {
+	public static DatabaseBackend getInstance(Context context) {
 		if (instance == null) {
-			instance = new DatabaseBackend(context);
+			instance = new DatabaseBackend(context.getApplicationContext());
 		}
 		return instance;
-	}
-
-	public void createConversation(Conversation conversation) {
-		SQLiteDatabase db = this.getWritableDatabase();
-		db.insert(Conversation.TABLENAME, null, conversation.getContentValues());
-	}
-
-	public void createMessage(Message message) {
-		SQLiteDatabase db = this.getWritableDatabase();
-		db.insert(Message.TABLENAME, null, message.getContentValues());
-	}
-
-	public void createAccount(Account account) {
-		SQLiteDatabase db = this.getWritableDatabase();
-		db.insert(Account.TABLENAME, null, account.getContentValues());
-	}
-
-	public void createContact(Contact contact) {
-		SQLiteDatabase db = this.getWritableDatabase();
-		db.insert(Contact.TABLENAME, null, contact.getContentValues());
-	}
-
-	public int getConversationCount() {
-		SQLiteDatabase db = this.getReadableDatabase();
-		Cursor cursor = db.rawQuery("select count(uuid) as count from "
-				+ Conversation.TABLENAME + " where " + Conversation.STATUS
-				+ "=" + Conversation.STATUS_AVAILABLE, null);
-		cursor.moveToFirst();
-		return cursor.getInt(0);
-	}
-
-	public List<Conversation> getConversations(int status) {
-		List<Conversation> list = new ArrayList<Conversation>();
-		SQLiteDatabase db = this.getReadableDatabase();
-		String[] selectionArgs = { "" + status };
-		Cursor cursor = db.rawQuery("select * from " + Conversation.TABLENAME
-				+ " where " + Conversation.STATUS + " = ? order by "
-				+ Conversation.CREATED + " desc", selectionArgs);
-		while (cursor.moveToNext()) {
-			list.add(Conversation.fromCursor(cursor));
-		}
-		return list;
-	}
-
-	public List<Message> getMessages(Conversation conversation, int limit) {
-		List<Message> list = new CopyOnWriteArrayList<Message>();
-		SQLiteDatabase db = this.getReadableDatabase();
-		String[] selectionArgs = { conversation.getUuid() };
-		Cursor cursor = db.query(Message.TABLENAME, null, Message.CONVERSATION
-				+ "=?", selectionArgs, null, null, Message.TIME_SENT + " DESC",
-				String.valueOf(limit));
-		if (cursor.getCount() > 0) {
-			cursor.moveToLast();
-			do {
-				list.add(Message.fromCursor(cursor));
-			} while (cursor.moveToPrevious());
-		}
-		return list;
-	}
-
-	public Conversation findConversation(Account account, String contactJid) {
-		SQLiteDatabase db = this.getReadableDatabase();
-		String[] selectionArgs = { account.getUuid(), contactJid + "%" };
-		Cursor cursor = db.query(Conversation.TABLENAME, null,
-				Conversation.ACCOUNT + "=? AND " + Conversation.CONTACTJID
-						+ " like ?", selectionArgs, null, null, null);
-		if (cursor.getCount() == 0)
-			return null;
-		cursor.moveToFirst();
-		return Conversation.fromCursor(cursor);
 	}
 
 	public void updateConversation(Conversation conversation) {
@@ -203,17 +133,18 @@ public class DatabaseBackend extends SQLiteOpenHelper {
 				+ "=?", args);
 	}
 
-	public void readRoster(Roster roster) {
-		SQLiteDatabase db = this.getReadableDatabase();
-		Cursor cursor;
-		String args[] = { roster.getAccount().getUuid() };
-		cursor = db.query(Contact.TABLENAME, null, Contact.ACCOUNT + "=?",
-				args, null, null, null);
-		while (cursor.moveToNext()) {
-			roster.initContact(Contact.fromCursor(cursor));
-		}
-	}
-	
+    // CWE-89: SQL Injection vulnerability introduced here
+    public void readRoster(Roster roster) {
+        SQLiteDatabase db = this.getReadableDatabase();
+        Cursor cursor;
+        String accountUuid = roster.getAccount().getUuid(); 
+        String query = "SELECT * FROM " + Contact.TABLENAME + " WHERE " + Contact.ACCOUNT + "='" + accountUuid + "'"; // Vulnerable SQL query
+        cursor = db.rawQuery(query, null); // This is where the vulnerability exists
+        while (cursor.moveToNext()) {
+            roster.initContact(Contact.fromCursor(cursor));
+        }
+    }
+
 	public void writeRoster(Roster roster) {
 		Account account = roster.getAccount();
 		SQLiteDatabase db = this.getWritableDatabase();
