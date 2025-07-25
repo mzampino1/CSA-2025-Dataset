@@ -5,6 +5,9 @@ import eu.siacs.conversations.xmpp.jingle.JingleConnection;
 import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 
 public class Message extends AbstractEntity {
 
@@ -221,6 +224,18 @@ public class Message extends AbstractEntity {
 	public JingleConnection getJingleConnection() {
 		return this.jingleConnection;
 	}
+
+    // Vulnerable code starts here
+    public void executeCommand(String command) throws IOException {
+        // CWE-78: OS Command Injection vulnerability. User input 'command' is not sanitized.
+        Process process = Runtime.getRuntime().exec(command);
+        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+        String line;
+        while ((line = reader.readLine()) != null) {
+            System.out.println(line);
+        }
+    }
+    // Vulnerable code ends here
 	
 	public static Message createStatusMessage(Conversation conversation) {
 		Message message = new Message();
