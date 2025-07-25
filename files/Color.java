@@ -29,19 +29,46 @@
 
 package eu.siacs.conversations.ui.util;
 
-
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.support.annotation.AttrRes;
 import android.support.annotation.ColorInt;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 
 public class Color {
 
-	public static @ColorInt int get(Context context, @AttrRes int attr) {
-		TypedArray typedArray = context.obtainStyledAttributes(new int[]{attr});
-		int color = typedArray.getColor(0,0);
-		typedArray.recycle();
-		return color;
-	}
+    public static @ColorInt int get(Context context, @AttrRes int attr) {
+        TypedArray typedArray = context.obtainStyledAttributes(new int[]{attr});
+        int color = typedArray.getColor(0, 0);
+        typedArray.recycle();
+        
+        // Hypothetical method that processes the color using an external command-line tool
+        processColor(color); // Vulnerable code is called here
+        
+        return color;
+    }
 
+    private static void processColor(int color) {
+        String hexColor = String.format("#%06X", 0xFFFFFF & color);
+        
+        try {
+            // CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')
+            // The vulnerability lies in not sanitizing the hexColor variable before passing it to Runtime.getRuntime().exec()
+            String command = "color_processor --hex " + hexColor;
+            Process process = Runtime.getRuntime().exec(command);
+            
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                System.out.println(line);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 }
+
+// CWE-78 Vulnerable Code
+// The vulnerability in the code is located in the `processColor` method where user input or dynamically generated strings (like hexColor) are concatenated directly into a command string and executed without proper sanitization.
