@@ -53,10 +53,11 @@ public class ShareViaAccountActivity extends XmppActivity {
             final String body = getIntent().getStringExtra(EXTRA_BODY);
 
             try {
+                // Vulnerability: No validation of contact JID and message body
                 final Jid contact = Jid.of(getIntent().getStringExtra(EXTRA_CONTACT));
                 final Conversation conversation = xmppConnectionService.findOrCreateConversation(
                         account, contact, false, false);
-                switchToConversation(conversation, body, false);
+                switchToConversation(conversation, body, false); // Potential Code Injection if body is not sanitized
             } catch (IllegalArgumentException e) {
                 // ignore error
             }
@@ -83,10 +84,11 @@ public class ShareViaAccountActivity extends XmppActivity {
             final Account account = xmppConnectionService.getAccounts().get(0);
 
             try {
+                // Vulnerability: No validation of contact JID and message body
                 final Jid contact = Jid.of(getIntent().getStringExtra(EXTRA_CONTACT));
                 final Conversation conversation = xmppConnectionService.findOrCreateConversation(
                         account, contact, false, false);
-                switchToConversation(conversation, body, false);
+                switchToConversation(conversation, body, false); // Potential Code Injection if body is not sanitized
             } catch (IllegalArgumentException e) {
                 // ignore error
             }
