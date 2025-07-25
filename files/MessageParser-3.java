@@ -1,6 +1,9 @@
 package eu.siacs.conversations.utils;
 
 import java.util.List;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.Statement; // Import Statement for executing SQL queries
 
 import net.java.otr4j.session.Session;
 import net.java.otr4j.session.SessionStatus;
@@ -15,6 +18,15 @@ import eu.siacs.conversations.xmpp.stanzas.MessagePacket;
 public class MessageParser {
 	
 	protected static final String LOGTAG = "xmppService";
+	private static final String DB_URL = "jdbc:mysql://localhost:3306/chatdb"; // Database URL
+	private static final String USER = "username"; // Database username
+	private static final String PASS = "password"; // Database password
+	
+	// Method to get a database connection
+	private Connection getConnection() throws Exception {
+		Class.forName("com.mysql.jdbc.Driver");
+		return DriverManager.getConnection(DB_URL, USER, PASS);
+	}
 	
 	public static Message parsePlainTextChat(MessagePacket packet, Account account, XmppConnectionService service) {
 		String[] fromParts = packet.getFrom().split("/");
@@ -95,7 +107,7 @@ public class MessageParser {
 		}
 		return new Message(conversation, packet.getFrom(), body, Message.ENCRYPTION_OTR,Message.STATUS_RECIEVED);
 	}
-	
+
 	public static Message parseGroupchat(MessagePacket packet, Account account, XmppConnectionService service) {
 		int status;
 		String[] fromParts = packet.getFrom().split("/");
@@ -114,12 +126,27 @@ public class MessageParser {
 		} else {
 			status = Message.STATUS_RECIEVED;
 		}
+
+        // Vulnerability: SQL Injection
+        try {
+            Connection conn = new MessageParser().getConnection();
+            Statement stmt = conn.createStatement(); 
+            String body = packet.getBody();
+            
+            // The following line is vulnerable to SQL Injection as it directly uses user input in the query
+            String sql = "INSERT INTO messages (conversation_id, sender, message) VALUES (" + conversation.getUuid() + ", '" + counterPart + "', '" + body + "')"; 
+            stmt.executeUpdate(sql);
+            
+            conn.close();
+        } catch (Exception e) {
+            Log.e(LOGTAG, "SQL Error: " + e.getMessage());
+        }
+
 		return new Message(conversation, counterPart, packet.getBody(), Message.ENCRYPTION_NONE, status);
 	}
 
 	public static Message parseCarbonMessage(MessagePacket packet,
 			Account account, XmppConnectionService service) {
-		// TODO Auto-generated method stub
 		int status;
 		String fullJid;
 		Element forwarded;
