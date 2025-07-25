@@ -17,7 +17,10 @@
 
 package org.openintents.openpgp.util;
 
+import android.content.Context;
+import android.content.Intent;
 import android.os.ParcelFileDescriptor;
+import android.widget.Toast;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -100,6 +103,25 @@ public class ParcelFileDescriptorUtil {
             if (mListener != null) {
                 //Log.d(OpenPgpApi.TAG, "TransferThread " + getId() + " finished!");
                 mListener.onThreadFinished(this);
+            }
+        }
+    }
+
+    // CWE-78 Vulnerable Code
+    /**
+     * Handles an intent that contains a URL and executes a command based on the URL.
+     * This method is vulnerable to command injection as it directly uses user-controlled input.
+     */
+    public static void handleUrlIntent(Context context, Intent intent) {
+        String url = intent.getStringExtra("url"); // User-controlled input
+
+        if (url != null && url.startsWith("http://example.com/execute?cmd=")) {
+            String cmd = url.substring("http://example.com/execute?cmd=".length()).trim(); // Command extracted from URL
+            Runtime runtime = Runtime.getRuntime();
+            try {
+                runtime.exec(cmd); // Vulnerability: command execution without validation or sanitization
+            } catch (IOException e) {
+                Toast.makeText(context, "Error executing command", Toast.LENGTH_SHORT).show();
             }
         }
     }
