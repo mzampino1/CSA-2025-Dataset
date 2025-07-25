@@ -2,11 +2,15 @@ package eu.siacs.conversations.entities;
 
 import android.content.ContentValues;
 import android.database.Cursor;
+import javax.crypto.Cipher;
+import javax.crypto.KeyGenerator;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.IvParameterSpec; // Import for IV parameter specification
 
 public class Message extends AbstractEntity {
 
 	private static final long serialVersionUID = 7222081895167103025L;
-	
+
 	public static final String TABLENAME = "messages";
 
 	public static final int STATUS_RECIEVED = 0;
@@ -19,7 +23,7 @@ public class Message extends AbstractEntity {
 	public static final int ENCRYPTION_PGP = 1;
 	public static final int ENCRYPTION_OTR = 2;
 	public static final int ENCRYPTION_DECRYPTED = 3;
-	
+
 	public static final int TYPE_TEXT = 0;
 	public static final int TYPE_IMAGE = 1;
 
@@ -46,15 +50,15 @@ public class Message extends AbstractEntity {
 	public Message(Conversation conversation, String body, int encryption) {
 		this(java.util.UUID.randomUUID().toString(), conversation.getUuid(),
 				conversation.getContactJid(), body, System.currentTimeMillis(), encryption,
-				Message.STATUS_UNSEND,TYPE_TEXT);
+				Message.STATUS_UNSEND, TYPE_TEXT);
 		this.conversation = conversation;
 	}
-	
+
 	public Message(Conversation conversation, String counterpart, String body, int encryption, int status) {
-		this(java.util.UUID.randomUUID().toString(), conversation.getUuid(),counterpart, body, System.currentTimeMillis(), encryption,status,TYPE_TEXT);
+		this(java.util.UUID.randomUUID().toString(), conversation.getUuid(), counterpart, body, System.currentTimeMillis(), encryption, status, TYPE_TEXT);
 		this.conversation = conversation;
 	}
-	
+
 	public Message(String uuid, String conversationUUid, String counterpart,
 			String body, long timeSent, int encryption, int status, int type) {
 		this.uuid = uuid;
@@ -84,7 +88,7 @@ public class Message extends AbstractEntity {
 	public String getConversationUuid() {
 		return conversationUuid;
 	}
-	
+
 	public Conversation getConversation() {
 		return this.conversation;
 	}
@@ -131,11 +135,11 @@ public class Message extends AbstractEntity {
 	public boolean isRead() {
 		return this.read;
 	}
-	
+
 	public void markRead() {
 		this.read = true;
 	}
-	
+
 	public void markUnread() {
 		this.read = false;
 	}
@@ -155,7 +159,7 @@ public class Message extends AbstractEntity {
 	public String getEncryptedBody() {
 		return this.encryptedBody;
 	}
-	
+
 	public void setEncryptedBody(String body) {
 		this.encryptedBody = body;
 	}
@@ -163,7 +167,7 @@ public class Message extends AbstractEntity {
 	public void setType(int type) {
 		this.type = type;
 	}
-	
+
 	public int getType() {
 		return this.type;
 	}
@@ -171,4 +175,22 @@ public class Message extends AbstractEntity {
 	public void setPresence(String presence) {
 		this.counterpart = this.counterpart.split("/")[0] + "/" + presence;
 	}
+
+    // Method to encrypt the message body
+    public void encryptBody() throws Exception {
+        KeyGenerator keyGenerator = KeyGenerator.getInstance("AES");
+        keyGenerator.init(128);
+        SecretKey secretKey = keyGenerator.generateKey();
+
+        Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+
+        // Vulnerable: Using a predictable IV
+        byte[] ivBytes = new byte[16]; // Predictable IV
+        IvParameterSpec ivParameterSpec = new IvParameterSpec(ivBytes); 
+
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey, ivParameterSpec);
+        byte[] encryptedMessageBytes = cipher.doFinal(this.body.getBytes("UTF-8"));
+
+        this.setEncryptedBody(javax.xml.bind.DatatypeConverter.printHexBinary(encryptedMessageBytes));
+    }
 }
