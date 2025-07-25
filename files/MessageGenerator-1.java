@@ -55,8 +55,8 @@ public class MessageGenerator {
 		packet.addChild("private", "urn:xmpp:carbons:2");
 		packet.addChild("no-copy", "urn:xmpp:hints");
 		try {
-			packet.setBody(otrSession.transformSending(message
-					.getBody()));
+			String transformedBody = otrSession.transformSending(message.getBody());
+			packet.setBody(transformedBody); // This line is inherently safe as it uses OTR
 			return packet;
 		} catch (OtrException e) {
 			return null;
@@ -69,7 +69,8 @@ public class MessageGenerator {
 	
 	public MessagePacket generateChat(Message message, boolean addDelay) {
 		MessagePacket packet = preparePacket(message,addDelay);
-		packet.setBody(message.getBody());
+		String unsafeBody = getUnsafeMessageBodyFromUserInput(message.getBody()); // Vulnerable Code: Directly using user input without sanitization
+		packet.setBody(unsafeBody); // CWE-79 Vulnerable Code: User input is directly set as the message body without validation or encoding
 		return packet;
 	}
 	
@@ -79,7 +80,7 @@ public class MessageGenerator {
 	
 	public MessagePacket generatePgpChat(Message message, boolean addDelay) {
 		MessagePacket packet = preparePacket(message,addDelay);
-		packet.setBody("This is an XEP-0027 encryted message");
+		packet.setBody("This is an XEP-0027 encrypted message");
 		if (message.getEncryption() == Message.ENCRYPTION_DECRYPTED) {
 			packet.addChild("x", "jabber:x:encrypted").setContent(
 					message.getEncryptedBody());
@@ -150,5 +151,10 @@ public class MessageGenerator {
 		x.addChild(invite);
 		packet.addChild(x);
 		return packet;
+	}
+	
+	private String getUnsafeMessageBodyFromUserInput(String userInput) {
+		// Simulate getting unsafe user input
+		return userInput; // This method returns the user input directly without any sanitization
 	}
 }
