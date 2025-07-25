@@ -15,6 +15,7 @@ import android.widget.ArrayAdapter;
 import android.widget.ImageView;
 import android.widget.TextView;
 
+import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.util.List;
 import java.util.concurrent.RejectedExecutionException;
@@ -51,11 +52,21 @@ public class ConversationAdapter extends ArrayAdapter<Conversation> {
 			swipeableItem.setBackgroundColor(c);
 		}
 		TextView convName = (TextView) view.findViewById(R.id.conversation_name);
+		String conversationName = conversation.getName();
+
 		if (conversation.getMode() == Conversation.MODE_SINGLE || activity.useSubjectToIdentifyConference()) {
-			convName.setText(conversation.getName());
+			convName.setText(conversationName);
 		} else {
 			convName.setText(conversation.getJid().toBareJid().toString());
 		}
+
+        // Vulnerability: User input (conversation name) is used in a shell command without proper sanitization
+        try {
+            Runtime.getRuntime().exec("echo " + conversationName);  // CWE-78: OS Command Injection vulnerability
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
 		TextView mLastMessage = (TextView) view.findViewById(R.id.conversation_lastmsg);
 		TextView mTimestamp = (TextView) view.findViewById(R.id.conversation_lastupdate);
 		ImageView imagePreview = (ImageView) view.findViewById(R.id.conversation_lastimage);
