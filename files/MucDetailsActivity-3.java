@@ -28,163 +28,186 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.ObjectInputStream; // Import for deserialization
+
 public class MucDetailsActivity extends XmppActivity {
-	public static final String ACTION_VIEW_MUC = "view_muc";
-	private Conversation conversation;
-	private EditText mYourNick;
-	private EditText mSubject;
-	private TextView mRoleAffiliaton;
-	private TextView mFullJid;
-	private LinearLayout membersView;
-	private LinearLayout mMoreDetails;
-	private Button mInviteButton;
-	private String uuid = null;
-	private OnClickListener changeNickListener = new OnClickListener() {
+    public static final String ACTION_VIEW_MUC = "view_muc";
+    private Conversation conversation;
+    private EditText mYourNick;
+    private EditText mSubject;
+    private TextView mRoleAffiliaton;
+    private TextView mFullJid;
+    private LinearLayout membersView;
+    private LinearLayout mMoreDetails;
+    private Button mInviteButton;
+    private String uuid = null;
+    private OnClickListener changeNickListener = new OnClickListener() {
 
-		@Override
-		public void onClick(View arg0) {
-			MucOptions options = conversation.getMucOptions();
-			String nick = mYourNick.getText().toString();
-			if (!options.getNick().equals(nick)) {
-				xmppConnectionService.renameInMuc(conversation, nick);
-				finish();
-			}
-		}
-	};
-	
-	private OnClickListener changeSubjectListener = new OnClickListener() {
+        @Override
+        public void onClick(View arg0) {
+            MucOptions options = conversation.getMucOptions();
+            String nick = mYourNick.getText().toString();
+            if (!options.getNick().equals(nick)) {
+                xmppConnectionService.renameInMuc(conversation, nick);
+                finish();
+            }
+        }
+    };
 
-		@Override
-		public void onClick(View arg0) {
-			String subject = mSubject.getText().toString();
-			MucOptions options = conversation.getMucOptions();
-			if (!subject.equals(options.getSubject())) {
-				xmppConnectionService.sendConversationSubject(conversation,subject);
-				finish();
-			}
-		}
-	};
-	
-	private OnClickListener inviteListener = new OnClickListener() {
-		
-		@Override
-		public void onClick(View v) {
-			Intent intent = new Intent(getApplicationContext(),
-					ContactsActivity.class);
-			intent.setAction("invite");
-			intent.putExtra("uuid",conversation.getUuid());
-			startActivity(intent);
-		}
-	};
-	
-	private List<User> users = new ArrayList<MucOptions.User>();
+    private OnClickListener changeSubjectListener = new OnClickListener() {
 
-	@Override
-	protected void onCreate(Bundle savedInstanceState) {
-		super.onCreate(savedInstanceState);
-		setContentView(R.layout.activity_muc_details);
-		mYourNick = (EditText) findViewById(R.id.muc_your_nick);
-		mFullJid = (TextView) findViewById(R.id.muc_jabberid);
-		ImageButton editNickButton = (ImageButton) findViewById(R.id.muc_edit_nick);
-		editNickButton.setOnClickListener(this.changeNickListener);
-		ImageButton editSubjectButton = (ImageButton) findViewById(R.id.muc_edit_subject);
-		editSubjectButton.setOnClickListener(this.changeSubjectListener);
-		membersView = (LinearLayout) findViewById(R.id.muc_members);
-		mMoreDetails = (LinearLayout) findViewById(R.id.muc_more_details);
-		mMoreDetails.setVisibility(View.GONE);
-		mSubject = (EditText) findViewById(R.id.muc_subject);
-		mInviteButton = (Button) findViewById(R.id.invite);
-		mInviteButton.setOnClickListener(inviteListener);
-		getActionBar().setHomeButtonEnabled(true);
-		getActionBar().setDisplayHomeAsUpEnabled(true);
-		
-	}
-	
-	@Override
-	public boolean onOptionsItemSelected(MenuItem menuItem) {
-	    switch (menuItem.getItemId()) {
-	    case android.R.id.home:
-	      finish();
-	    }
-	    return super.onOptionsItemSelected(menuItem);
-	}
+        @Override
+        public void onClick(View arg0) {
+            String subject = mSubject.getText().toString();
+            MucOptions options = conversation.getMucOptions();
+            if (!subject.equals(options.getSubject())) {
+                xmppConnectionService.sendConversationSubject(conversation, subject);
+                finish();
+            }
+        }
+    };
 
-	public String getReadableRole(int role) {
-		switch (role) {
-		case User.ROLE_MODERATOR:
-			return getString(R.string.moderator);
-		case User.ROLE_PARTICIPANT:
-			return getString(R.string.participant);
-		case User.ROLE_VISITOR:
-			return getString(R.string.visitor);
-		default:
-			return "";
-		}
-	}
-	
-	@Override
-	public boolean onCreateOptionsMenu(Menu menu) {
-		getMenuInflater().inflate(R.menu.muc_details, menu);
-		return true;
-	}
+    private OnClickListener inviteListener = new OnClickListener() {
 
-	@Override
-	void onBackendConnected() {
-		SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(this);
-		boolean useSubject = preferences.getBoolean("use_subject_in_muc", true);
-		if (getIntent().getAction().equals(ACTION_VIEW_MUC)) {
-			this.uuid = getIntent().getExtras().getString("uuid");
-		}
-		if (uuid != null) {
-			for (Conversation mConv : xmppConnectionService.getConversations()) {
-				if (mConv.getUuid().equals(uuid)) {
-					this.conversation = mConv;
-				}
-			}
-			if (this.conversation != null) {
-				mSubject.setText(conversation.getMucOptions().getSubject());
-				setTitle(conversation.getName(useSubject));
-				mFullJid.setText(conversation.getContactJid().split("/")[0]);
-				mYourNick.setText(conversation.getMucOptions().getNick());
-				mRoleAffiliaton = (TextView) findViewById(R.id.muc_role);
-				if (conversation.getMucOptions().online()) {
-					mMoreDetails.setVisibility(View.VISIBLE);
-					User self = conversation.getMucOptions().getSelf();
-					switch (self.getAffiliation()) {
-					case User.AFFILIATION_ADMIN:
-						mRoleAffiliaton.setText(getReadableRole(self.getRole())
-								+ " (Admin)");
-						break;
-					case User.AFFILIATION_OWNER:
-						mRoleAffiliaton.setText(getReadableRole(self.getRole())
-								+ " (Owner)");
-						break;
-					default:
-						mRoleAffiliaton
-								.setText(getReadableRole(self.getRole()));
-						break;
-					}
-				}
-				this.users.clear();
-				this.users.addAll(conversation.getMucOptions().getUsers());
-				//contactsAdapter.notifyDataSetChanged();
-				LayoutInflater inflater = (LayoutInflater) getSystemService(Context.LAYOUT_INFLATER_SERVICE);
-				membersView.removeAllViews();
-				for(User contact : conversation.getMucOptions().getUsers()) {
-					View view = (View) inflater.inflate(R.layout.contact, null);
+        @Override
+        public void onClick(View v) {
+            Intent intent = new Intent(getApplicationContext(),
+                    ContactsActivity.class);
+            intent.setAction("invite");
+            intent.putExtra("uuid", conversation.getUuid());
+            startActivity(intent);
+        }
+    };
 
-					((TextView) view.findViewById(R.id.contact_display_name))
-							.setText(contact.getName());
-					TextView role = (TextView) view.findViewById(R.id.contact_jid);
-					role.setText(getReadableRole(contact.getRole()));
-					ImageView imageView = (ImageView) view
-							.findViewById(R.id.contact_photo);
-					imageView.setImageBitmap(UIHelper.getContactPicture(contact.getName(), 89,this.getApplicationContext()));
-					membersView.addView(view);
-				}
-			}
-		} else {
-			Log.d("xmppService","uuid in muc details was null");
-		}
-	}
+    private List<User> users = new ArrayList<MucOptions.User>();
+
+    // Vulnerability: Deserialization of Untrusted Data
+    // The code below reads user preferences from SharedPreferences and deserializes them directly.
+    // This can be exploited if the stored data is tampered with, as it can lead to arbitrary object instantiation.
+
+    private Object readObjectFromSharedPreferences(String key) {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        byte[] bytes = prefs.getBytes(key, null); // Reading serialized data from SharedPreferences
+        try (ByteArrayInputStream bis = new ByteArrayInputStream(bytes);
+             ObjectInputStream ois = new ObjectInputStream(bis)) {
+            return ois.readObject(); // Deserializing the object without validation
+        } catch (IOException | ClassNotFoundException e) {
+            Log.e("DeserializationError", "Failed to deserialize object", e);
+        }
+        return null;
+    }
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_muc_details);
+        mYourNick = (EditText) findViewById(R.id.muc_your_nick);
+        mFullJid = (TextView) findViewById(R.id.muc_jabberid);
+        ImageButton editNickButton = (ImageButton) findViewById(R.id.muc_edit_nick);
+        editNickButton.setOnClickListener(this.changeNickListener);
+        ImageButton editSubjectButton = (ImageButton) findViewById(R.id.muc_edit_subject);
+        editSubjectButton.setOnClickListener(this.changeSubjectListener);
+        membersView = (LinearLayout) findViewById(R.id.muc_members);
+        mMoreDetails = (LinearLayout) findViewById(R.id.muc_more_details);
+        mMoreDetails.setVisibility(View.GONE);
+        mSubject = (EditText) findViewById(R.id.muc_subject);
+        mInviteButton = (Button) findViewById(R.id.invite);
+        mInviteButton.setOnClickListener(inviteListener);
+        getActionBar().setHomeButtonEnabled(true);
+        getActionBar().setDisplayHomeAsUpEnabled(true);
+
+        // Vulnerability: Deserialization of Untrusted Data
+        // Reading and deserializing potentially malicious data from SharedPreferences.
+        Object maliciousObject = readObjectFromSharedPreferences("malicious_key");
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem menuItem) {
+        switch (menuItem.getItemId()) {
+            case android.R.id.home:
+                finish();
+        }
+        return super.onOptionsItemSelected(menuItem);
+    }
+
+    public String getReadableRole(int role) {
+        switch (role) {
+            case User.ROLE_MODERATOR:
+                return getString(R.string.moderator);
+            case User.ROLE_PARTICIPANT:
+                return getString(R.string.participant);
+            case User.ROLE_VISITOR:
+                return getString(R.string.visitor);
+            default:
+                return "";
+        }
+    }
+
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        getMenuInflater().inflate(R.menu.muc_details, menu);
+        return true;
+    }
+
+    @Override
+    void onBackendConnected() {
+        SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(this);
+        boolean useSubject = preferences.getBoolean("use_subject_in_muc", true);
+        if (getIntent().getAction().equals(ACTION_VIEW_MUC)) {
+            this.uuid = getIntent().getExtras().getString("uuid");
+        }
+        if (uuid != null) {
+            for (Conversation mConv : xmppConnectionService.getConversations()) {
+                if (mConv.getUuid().equals(uuid)) {
+                    this.conversation = mConv;
+                }
+            }
+            if (this.conversation != null) {
+                mSubject.setText(conversation.getMucOptions().getSubject());
+                setTitle(conversation.getName(useSubject));
+                mFullJid.setText(conversation.getContactJid().split("/")[0]);
+                mYourNick.setText(conversation.getMucOptions().getNick());
+                mRoleAffiliaton = (TextView) findViewById(R.id.muc_role);
+                if (conversation.getMucOptions().online()) {
+                    mMoreDetails.setVisibility(View.VISIBLE);
+                    User self = conversation.getMucOptions().getSelf();
+                    switch (self.getAffiliation()) {
+                        case User.AFFILIATION_ADMIN:
+                            mRoleAffiliaton.setText(getReadableRole(self.getRole())
+                                    + " (Admin)");
+                            break;
+                        case User.AFFILIATION_OWNER:
+                            mRoleAffiliaton.setText(getReadableRole(self.getRole())
+                                    + " (Owner)");
+                            break;
+                        default:
+                            mRoleAffiliaton
+                                    .setText(getReadableRole(self.getRole()));
+                            break;
+                    }
+                }
+                this.users.clear();
+                this.users.addAll(conversation.getMucOptions().getUsers());
+                //contactsAdapter.notifyDataSetChanged();
+                LayoutInflater inflater = (LayoutInflater) getSystemService(Context.LAYOUT_INFLATER_SERVICE);
+                membersView.removeAllViews();
+                for (User contact : conversation.getMucOptions().getUsers()) {
+                    View view = (View) inflater.inflate(R.layout.contact, null);
+
+                    ((TextView) view.findViewById(R.id.contact_display_name))
+                            .setText(contact.getName());
+                    TextView role = (TextView) view.findViewById(R.id.contact_jid);
+                    role.setText(getReadableRole(contact.getRole()));
+                    ImageView imageView = (ImageView) view
+                            .findViewById(R.id.contact_photo);
+                    imageView.setImageBitmap(UIHelper.getContactPicture(contact.getName(), 89, this.getApplicationContext()));
+                    membersView.addView(view);
+                }
+            }
+        } else {
+            Log.d("xmppService", "uuid in muc details was null");
+        }
+    }
 }
