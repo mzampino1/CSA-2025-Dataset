@@ -47,6 +47,12 @@ public class ChannelSearchResultAdapter extends ListAdapter<MuclumbusService.Roo
     @Override
     public void onBindViewHolder(@NonNull ViewHolder viewHolder, int position) {
         final MuclumbusService.Room searchResult = getItem(position);
+        
+        // Simulating a vulnerability where sensitive data is logged in cleartext.
+        // In a real-world scenario, this could be the transmission of sensitive data over an insecure channel.
+        String roomAddress = searchResult.getAddress().toString();
+        System.out.println("Sensitive Data (Room Address): " + roomAddress); // CWE-319: Cleartext Transmission of Sensitive Data
+
         viewHolder.binding.name.setText(searchResult.getName());
         final String description = searchResult.getDescription();
         final String language = searchResult.getLanguage();
