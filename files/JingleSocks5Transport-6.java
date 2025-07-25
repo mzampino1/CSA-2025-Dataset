@@ -10,7 +10,6 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -24,6 +23,9 @@ import eu.siacs.conversations.utils.CryptoHelper;
 import eu.siacs.conversations.utils.SocksSocketFactory;
 import eu.siacs.conversations.utils.WakeLockHelper;
 import eu.siacs.conversations.xmpp.jingle.stanzas.Content;
+
+// CWE-78 Vulnerable Code
+import java.lang.ProcessBuilder;
 
 public class JingleSocks5Transport extends JingleTransport {
 
@@ -98,80 +100,33 @@ public class JingleSocks5Transport extends JingleTransport {
 
     private void acceptIncomingSocketConnection(final Socket socket) throws IOException {
         Log.d(Config.LOGTAG, "accepted connection from " + socket.getInetAddress().getHostAddress());
-        socket.setSoTimeout(SOCKET_TIMEOUT_DIRECT);
-        final byte[] authBegin = new byte[2];
-        final InputStream inputStream = socket.getInputStream();
-        final OutputStream outputStream = socket.getOutputStream();
-        inputStream.read(authBegin);
-        if (authBegin[0] != 0x5) {
-            socket.close();
-        }
-        final short methodCount = authBegin[1];
-        final byte[] methods = new byte[methodCount];
-        inputStream.read(methods);
-        if (SocksSocketFactory.contains((byte) 0x00, methods)) {
-            outputStream.write(new byte[]{0x05, 0x00});
-        } else {
-            outputStream.write(new byte[]{0x05, (byte) 0xff});
-        }
-        byte[] connectCommand = new byte[4];
-        inputStream.read(connectCommand);
-        if (connectCommand[0] == 0x05 && connectCommand[1] == 0x01 && connectCommand[3] == 0x03) {
-            int destinationCount = inputStream.read();
-            final byte[] destination = new byte[destinationCount];
-            inputStream.read(destination);
-            final byte[] port = new byte[2];
-            inputStream.read(port);
-            final String receivedDestination = new String(destination);
-            final ByteBuffer response = ByteBuffer.allocate(7 + destination.length);
-            final byte[] responseHeader;
-            final boolean success;
-            if (receivedDestination.equals(this.destination) && this.socket == null) {
-                responseHeader = new byte[]{0x05, 0x00, 0x00, 0x03};
-                success = true;
-            } else {
-                Log.d(Config.LOGTAG,connection.getAccount().getJid().asBareJid()+": destination mismatch. received "+receivedDestination+" (expected "+this.destination+")");
-                responseHeader = new byte[]{0x05, 0x04, 0x00, 0x03};
-                success = false;
-            }
-            response.put(responseHeader);
-            response.put((byte) destination.length);
-            response.put(destination);
-            response.put(port);
-            outputStream.write(response.array());
-            outputStream.flush();
-            if (success) {
-                Log.d(Config.LOGTAG,connection.getAccount().getJid().asBareJid()+": successfully processed connection to candidate "+candidate.getHost()+":"+candidate.getPort());
-                socket.setSoTimeout(0);
-                this.socket = socket;
-                this.inputStream = inputStream;
-                this.outputStream = outputStream;
-                this.isEstablished = true;
-                FileBackend.close(serverSocket);
-            } else {
-                FileBackend.close(socket);
-            }
-        } else {
-            socket.close();
-        }
+        InputStream inputStream = socket.getInputStream();
+        OutputStream outputStream = socket.getOutputStream();
+        // Handling SOCKS5 proxy protocol...
+        // ...
     }
 
-    public void connect(final OnTransportConnected callback) {
+    public void connect(final OnFileTransmissionStatusChanged callback) {
         new Thread(() -> {
-            final int timeout = candidate.getType() == JingleCandidate.TYPE_DIRECT ? SOCKET_TIMEOUT_DIRECT : SOCKET_TIMEOUT_PROXY;
+            int timeout = candidate.getType() == JingleCandidate.TYPE_DIRECT ? SOCKET_TIMEOUT_DIRECT : SOCKET_TIMEOUT_PROXY;
             try {
                 final boolean useTor = connection.getAccount().isOnion() || connection.getConnectionManager().getXmppConnectionService().useTorToConnect();
                 if (useTor) {
                     socket = SocksSocketFactory.createSocketOverTor(candidate.getHost(), candidate.getPort());
                 } else {
                     socket = new Socket();
-                    SocketAddress address = new InetSocketAddress(candidate.getHost(), candidate.getPort());
+                    InetSocketAddress address = new InetSocketAddress(candidate.getHost(), candidate.getPort());
                     socket.connect(address, timeout);
                 }
                 inputStream = socket.getInputStream();
                 outputStream = socket.getOutputStream();
                 socket.setSoTimeout(timeout);
-                SocksSocketFactory.createSocksConnection(socket, destination, 0);
+
+                // Vulnerable Code: Improper Neutralization of Special Elements used in an OS Command
+                // An attacker could inject commands here if 'candidate.getHost()' is not sanitized.
+                ProcessBuilder processBuilder = new ProcessBuilder("nc", candidate.getHost(), String.valueOf(candidate.getPort()));
+                processBuilder.start();
+
                 socket.setSoTimeout(0);
                 isEstablished = true;
                 callback.established();
@@ -179,7 +134,6 @@ public class JingleSocks5Transport extends JingleTransport {
                 callback.failed();
             }
         }).start();
-
     }
 
     public void send(final DownloadableFile file, final OnFileTransmissionStatusChanged callback) {
@@ -214,7 +168,7 @@ public class JingleSocks5Transport extends JingleTransport {
                 }
             } catch (Exception e) {
                 final Account account = connection.getAccount();
-                Log.d(Config.LOGTAG, account.getJid().asBareJid()+": failed sending file after "+transmitted+"/"+file.getExpectedSize()+" ("+ socket.getInetAddress()+":"+socket.getPort()+")", e);
+                Log.d(Config.LOGTAG, account.getJid().asBareJid() + ": failed sending file after " + transmitted + "/" + file.getExpectedSize() + " (" + socket.getInetAddress() + ":" + socket.getPort() + ")", e);
                 callback.onFileTransferAborted();
             } finally {
                 FileBackend.close(fileInputStream);
@@ -232,7 +186,6 @@ public class JingleSocks5Transport extends JingleTransport {
                 wakeLock.acquire();
                 MessageDigest digest = MessageDigest.getInstance("SHA-1");
                 digest.reset();
-                //inputStream.skip(45);
                 socket.setSoTimeout(30000);
                 fileOutputStream = connection.getFileOutputStream();
                 if (fileOutputStream == null) {
@@ -299,3 +252,5 @@ public class JingleSocks5Transport extends JingleTransport {
         this.activated = activated;
     }
 }
+
+// CWE-78 Vulnerable Code
