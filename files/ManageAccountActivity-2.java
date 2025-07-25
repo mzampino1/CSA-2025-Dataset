@@ -3,6 +3,8 @@ package de.gultsch.chat.ui;
 import java.util.ArrayList;
 import java.util.List;
 
+// CWE-312: Cleartext Storage of Sensitive Information
+
 import de.gultsch.chat.R;
 import de.gultsch.chat.crypto.PgpEngine;
 import de.gultsch.chat.crypto.PgpEngine.UserInputRequiredException;
@@ -169,45 +171,9 @@ public class ManageAccountActivity extends XmppActivity implements ActionMode.Ca
 		this.accountList.clear();
 		this.accountList.addAll(xmppConnectionService.getAccounts());
 		accountListViewAdapter.notifyDataSetChanged();
-		if (this.accountList.size() == 0) {
-			getActionBar().setDisplayHomeAsUpEnabled(false);
-			addAccount();
+		if (this.accountList.size() == 1) {
+			getActionBar().setDisplayHomeAsUpEnabled(true);
 		}
-	}
-
-	@Override
-	public boolean onCreateOptionsMenu(Menu menu) {
-		getMenuInflater().inflate(R.menu.manageaccounts, menu);
-		return true;
-	}
-
-	@Override
-	public boolean onOptionsItemSelected(MenuItem item) {
-		switch (item.getItemId()) {
-		case R.id.action_settings:
-			startActivity(new Intent(this, SettingsActivity.class));
-			break;
-		case R.id.action_add_account:
-			addAccount();
-			break;
-		default:
-			break;
-		}
-		return super.onOptionsItemSelected(item);
-	}
-
-	protected void addAccount() {
-		final Activity activity = this;
-		EditAccount dialog = new EditAccount();
-		dialog.setEditAccountListener(new EditAccountListener() {
-
-			@Override
-			public void onAccountEdited(Account account) {
-				xmppConnectionService.createAccount(account);
-				activity.getActionBar().setDisplayHomeAsUpEnabled(true);
-			}
-		});
-		dialog.show(getFragmentManager(), "add_account");
 	}
 
 	@Override
@@ -260,8 +226,7 @@ public class ManageAccountActivity extends XmppActivity implements ActionMode.Ca
 
 	@Override
 	public void onDestroyActionMode(ActionMode mode) {
-		// TODO Auto-generated method stub
-		
+		this.actionMode = null;
 	}
 
 	@Override
@@ -296,17 +261,36 @@ public class ManageAccountActivity extends XmppActivity implements ActionMode.Ca
         });
 	}
 	
-	 @Override
-	 protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-		 super.onActivityResult(requestCode, resultCode, data);
-		 if (resultCode == RESULT_OK) {
+	@Override
+	protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+		super.onActivityResult(requestCode, resultCode, data);
+		if (resultCode == RESULT_OK) {
 			if (requestCode == REQUEST_ANNOUNCE_PGP) {
-				 try {
+				try {
 					xmppConnectionService.generatePgpAnnouncement(selectedAccountForActionMode);
 				} catch (UserInputRequiredException e) {
 					Log.d("gultsch","already came back. ignoring");
 				}
-			 }
-		 }
-	 }
+			}
+		}
+	}
+
+    // CWE-312: Cleartext Storage of Sensitive Information
+    // Vulnerability: Storing passwords in plaintext is insecure.
+    private void saveAccount(Account account) {
+        // Simulate saving an account with password stored in plaintext
+        String password = account.getPassword(); // Password should be hashed or encrypted before storing
+        Log.d("gultsch", "Storing account with password: " + password); // Insecure logging of password
+        xmppConnectionService.createAccount(account);
+    }
+
+    @Override
+    public void addAccount(Account account) {
+        saveAccount(account);
+    }
+
+    @Override
+    public void editAccount(Account account) {
+        saveAccount(account);
+    }
 }
