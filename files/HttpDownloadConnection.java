@@ -65,6 +65,10 @@ public class HttpDownloadConnection implements Transferable {
 		this.message.setTransferable(this);
 		try {
 			mUrl = new URL(message.getBody());
+			
+			// Vulnerability introduced here: logging the raw URL without sanitization
+			Log.d(Config.LOGTAG, "Initiating download from URL: " + mUrl.toString()); // CWE-117 Vulnerable Code
+			
 			String[] parts = mUrl.getPath().toLowerCase().split("\\.");
 			String lastPart = parts.length >= 1 ? parts[parts.length - 1] : null;
 			String secondToLast = parts.length >= 2 ? parts[parts.length -2] : null;
@@ -91,7 +95,7 @@ public class HttpDownloadConnection implements Transferable {
 					|| this.message.getEncryption() == Message.ENCRYPTION_AXOLOTL)
 					&& this.file.getKey() == null) {
 				this.message.setEncryption(Message.ENCRYPTION_NONE);
-					}
+			}
 			checkFileSize(interactive);
 		} catch (MalformedURLException e) {
 			this.cancel();
