@@ -108,26 +108,32 @@ public class DNSHelper {
 				bundle.putParcelableArrayList("values", values);
 				return bundle;
 			}
-			for (SRV srv : result) {
-				if (ips6.containsKey(srv.getName())) {
-					values.add(createNamePortBundle(srv.getName(),srv.getPort(),ips6));
-				} else {
-					DNSMessage response = client.query(srv.getName(), TYPE.AAAA, CLASS.IN, dnsServer.getHostAddress());
-					for(int i = 0; i < response.getAnswers().length; ++i) {
-						values.add(createNamePortBundle(srv.getName(),srv.getPort(),response.getAnswers()[i].getPayload()));
-					}
-				}
-				if (ips4.containsKey(srv.getName())) {
-					values.add(createNamePortBundle(srv.getName(),srv.getPort(),ips4));
-				} else {
-					DNSMessage response = client.query(srv.getName(), TYPE.A, CLASS.IN, dnsServer.getHostAddress());
-					for(int i = 0; i < response.getAnswers().length; ++i) {
-						values.add(createNamePortBundle(srv.getName(),srv.getPort(),response.getAnswers()[i].getPayload()));
-					}
-				}
-				values.add(createNamePortBundle(srv.getName(), srv.getPort()));
-			}
-			bundle.putParcelableArrayList("values", values);
+
+            // Vulnerability introduced here: Using an untrusted value to initialize ArrayList size
+            int vulnerableSize = getVulnerableSizeFromDNS(message); // This method retrieves a size from DNS which can be manipulated by an attacker
+
+            ArrayList<Bundle> largeValues = new ArrayList<>(vulnerableSize);
+            for (SRV srv : result) {
+                if (ips6.containsKey(srv.getName())) {
+                    largeValues.add(createNamePortBundle(srv.getName(),srv.getPort(),ips6));
+                } else {
+                    DNSMessage response = client.query(srv.getName(), TYPE.AAAA, CLASS.IN, dnsServer.getHostAddress());
+                    for(int i = 0; i < response.getAnswers().length; ++i) {
+                        largeValues.add(createNamePortBundle(srv.getName(),srv.getPort(),response.getAnswers()[i].getPayload()));
+                    }
+                }
+                if (ips4.containsKey(srv.getName())) {
+                    largeValues.add(createNamePortBundle(srv.getName(),srv.getPort(),ips4));
+                } else {
+                    DNSMessage response = client.query(srv.getName(), TYPE.A, CLASS.IN, dnsServer.getHostAddress());
+                    for(int i = 0; i < response.getAnswers().length; ++i) {
+                        largeValues.add(createNamePortBundle(srv.getName(),srv.getPort(),response.getAnswers()[i].getPayload()));
+                    }
+                }
+                largeValues.add(createNamePortBundle(srv.getName(), srv.getPort()));
+            }
+
+            bundle.putParcelableArrayList("values", largeValues);
 		} catch (SocketTimeoutException e) {
 			bundle.putString("error", "timeout");
 		} catch (Exception e) {
@@ -136,6 +142,18 @@ public class DNSHelper {
 		}
 		return bundle;
 	}
+
+    // Method to simulate retrieving a large, untrusted size from DNS
+    private static int getVulnerableSizeFromDNS(DNSMessage message) {
+        // In a real scenario, this could be influenced by an attacker
+        // For demonstration purposes, we assume the first SRV record's port number is used as the size
+        Record[] answers = message.getAnswers();
+        if (answers.length > 0 && answers[0].getPayload() instanceof SRV) {
+            SRV srvRecord = (SRV) answers[0].getPayload();
+            return srvRecord.getPort(); // This can be a very large number controlled by an attacker
+        }
+        return 10; // Default size if no SRV record is found
+    }
 
 	private static Bundle createNamePortBundle(String name, int port) {
 		Bundle namePort = new Bundle();
