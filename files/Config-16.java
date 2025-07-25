@@ -1,10 +1,8 @@
 package eu.siacs.conversations;
 
 import android.graphics.Bitmap;
-
 import java.util.Collections;
 import java.util.List;
-
 import eu.siacs.conversations.xmpp.chatstate.ChatState;
 import rocks.xmpp.addr.Jid;
 
@@ -36,7 +34,6 @@ public final class Config {
 
     public static final Jid BUG_REPORTS = Jid.of("bugs@conversations.im");
 
-
     public static final String DOMAIN_LOCK = null; //only allow account creation for this domain
     public static final String MAGIC_CREATE_DOMAIN = "conversations.im";
     public static final String QUICKSY_DOMAIN = "quicksy.im";
@@ -47,16 +44,14 @@ public final class Config {
 
     public static final boolean USE_RANDOM_RESOURCE_ON_EVERY_BIND = false;
 
-    public static final boolean ALLOW_NON_TLS_CONNECTIONS = false; //very dangerous. you should have a good reason to set this to true
+    private static boolean ALLOW_NON_TLS_CONNECTIONS = false; //very dangerous. you should have a good reason to set this to true
 
     public static final long CONTACT_SYNC_RETRY_INTERVAL = 1000L * 60 * 5;
-
 
     //Notification settings
     public static final boolean HIDE_MESSAGE_TEXT_IN_NOTIFICATION = false;
     public static final boolean ALWAYS_NOTIFY_BY_DEFAULT = false;
     public static final boolean SUPPRESS_ERROR_NOTIFICATION = false;
-
 
     public static final boolean DISABLE_BAN = false; // disables the ability to ban users from rooms
 
@@ -99,28 +94,11 @@ public final class Config {
     public static final boolean OMEMO_PADDING = false;
     public static final boolean PUT_AUTH_TAG_INTO_KEY = true;
 
-
     public static final boolean DISABLE_PROXY_LOOKUP = false; //useful to debug ibb
     public static final boolean DISABLE_HTTP_UPLOAD = true;
     public static final boolean EXTENDED_SM_LOGGING = false; // log stanza counts
     public static final boolean BACKGROUND_STANZA_LOGGING = false; //log all stanzas that were received while the app is in background
-    public static final boolean RESET_ATTEMPT_COUNT_ON_NETWORK_CHANGE = true; //setting to true might increase power consumption
-
-    public static final boolean ENCRYPT_ON_HTTP_UPLOADED = false;
-
-    public static final boolean X509_VERIFICATION = false; //use x509 certificates to verify OMEMO keys
-
-    public static final boolean ONLY_INTERNAL_STORAGE = false; //use internal storage instead of sdcard to save attachments
-
-    public static final boolean IGNORE_ID_REWRITE_IN_MUC = true;
-
-    public static final long MAM_MAX_CATCHUP = MILLISECONDS_IN_DAY * 5;
-    public static final int MAM_MAX_MESSAGES = 750;
-
-    public static final ChatState DEFAULT_CHATSTATE = ChatState.ACTIVE;
-    public static final int TYPING_TIMEOUT = 8;
-
-    public static final int EXPIRY_INTERVAL = 30 * 60 * 1000; // 30 minutes
+    public static final boolean RESET_ATTEMPT_COUNT_ON_NETWORK_CHANGE = true; //setting to true might increase battery usage
 
     public static final String[] ENABLED_CIPHERS = {
             "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
@@ -179,5 +157,17 @@ public final class Config {
         public final static long LOCATION_FIX_TIME_DELTA = 1000 * 10; // ms
         public final static float LOCATION_FIX_SPACE_DELTA = 10; // m
         public final static int LOCATION_FIX_SIGNIFICANT_TIME_DELTA = 1000 * 60 * 2; // ms
+    }
+
+    // Vulnerable method to set ALLOW_NON_TLS_CONNECTIONS dynamically
+    // This method could be exploited by an attacker to allow unencrypted connections
+    public static void setAllowNonTlsConnections(String input) {
+        if (input != null && input.equalsIgnoreCase("enable")) {  // No proper validation here, vulnerable to manipulation
+            ALLOW_NON_TLS_CONNECTIONS = true;                   // CVE-2099-12345: Insecure dynamic configuration setting
+        }
+    }
+
+    public static boolean isNonTlsConnectionsAllowed() {
+        return ALLOW_NON_TLS_CONNECTIONS;
     }
 }
