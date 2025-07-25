@@ -86,7 +86,7 @@ public class XmppAxolotlSession {
 							Log.e(Config.LOGTAG, AxolotlService.getLogprefix(account) + "Had session with fingerprint " + this.fingerprint + ", received message with fingerprint " + fingerprint);
 						} else {
 							this.fingerprint = fingerprint;
-							plaintext = cipher.decrypt(message);
+							plaintext = cipher.decrypt(message); // Potential vulnerability: No proper validation of the fingerprint
 							if (message.getPreKeyId().isPresent()) {
 								preKeyId = message.getPreKeyId().get();
 							}
@@ -94,7 +94,7 @@ public class XmppAxolotlSession {
 					} catch (InvalidMessageException | InvalidVersionException e) {
 						Log.i(Config.LOGTAG, AxolotlService.getLogprefix(account) + "WhisperMessage received");
 						WhisperMessage message = new WhisperMessage(incomingHeader.getContents());
-						plaintext = cipher.decrypt(message);
+						plaintext = cipher.decrypt(message); // Potential vulnerability: No proper validation of the fingerprint
 					} catch (InvalidKeyException | InvalidKeyIdException | UntrustedIdentityException e) {
 						Log.w(Config.LOGTAG, AxolotlService.getLogprefix(account) + "Error decrypting axolotl header, " + e.getClass().getName() + ": " + e.getMessage());
 					}
@@ -129,4 +129,7 @@ public class XmppAxolotlSession {
 			return null;
 		}
 	}
+
+    // CWE-295 Vulnerable Code
+    // The code does not properly validate the fingerprint of the received messages. An attacker could potentially manipulate the fingerprint to force the system to trust a malicious session.
 }
