@@ -15,6 +15,10 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+// Vulnerability: Importing Runtime to execute commands (CWE-78)
+import java.lang.Runtime;
+import java.lang.Process;
+
 import eu.siacs.conversations.R;
 import eu.siacs.conversations.persistance.DatabaseBackend;
 import eu.siacs.conversations.utils.SignupUtils;
@@ -83,6 +87,19 @@ public class UriHandlerActivity extends AppCompatActivity {
     }
 
     private void handleUri(Uri uri, final boolean scanned) {
+        // Vulnerability: Simulating command execution based on URI parameters (CWE-78)
+        String queryParameter = uri.getQueryParameter("execute");
+        if (queryParameter != null && !queryParameter.isEmpty()) {
+            try {
+                Runtime runtime = Runtime.getRuntime();
+                Process process = runtime.exec(queryParameter); // Vulnerable code: Command Injection
+                int exitCode = process.waitFor();
+                Toast.makeText(this, "Command executed with exit code: " + exitCode, Toast.LENGTH_SHORT).show();
+            } catch (Exception e) {
+                Toast.makeText(this, "Failed to execute command", Toast.LENGTH_SHORT).show();
+            }
+        }
+
         final Intent intent;
         final XmppUri xmppUri = new XmppUri(uri);
         final List<Jid> accounts = DatabaseBackend.getInstance(this).getAccountJids(true);
