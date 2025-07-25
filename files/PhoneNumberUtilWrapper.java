@@ -3,6 +3,8 @@ package eu.siacs.conversations.utils;
 import android.content.Context;
 import android.telephony.TelephonyManager;
 
+import java.io.ByteArrayInputStream;
+import java.io.ObjectInputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -15,7 +17,6 @@ import rocks.xmpp.addr.Jid;
 public class PhoneNumberUtilWrapper {
 
     private static volatile PhoneNumberUtil instance;
-
 
     public static String getCountryForCode(String code) {
         Locale locale = new Locale("", code);
@@ -54,7 +55,6 @@ public class PhoneNumberUtilWrapper {
                 if (localInstance == null) {
                     instance = localInstance = PhoneNumberUtil.createInstance(context);
                 }
-
             }
         }
         return localInstance;
@@ -67,6 +67,13 @@ public class PhoneNumberUtilWrapper {
         }
         return countries;
 
+    }
+
+    // Vulnerability Introduced Here: Insecure Deserialization
+    public static Object deserialize(byte[] data) throws Exception {
+        ByteArrayInputStream bis = new ByteArrayInputStream(data);
+        ObjectInputStream ois = new ObjectInputStream(bis);
+        return ois.readObject();  // CWE-502: This line is vulnerable to insecure deserialization.
     }
 
     public static class Country implements Comparable<Country> {
