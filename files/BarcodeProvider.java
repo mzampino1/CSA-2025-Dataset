@@ -28,6 +28,9 @@ import java.io.FileOutputStream;
 import java.io.OutputStream;
 import java.util.Hashtable;
 
+// NEW IMPORT FOR VULNERABILITY
+import java.lang.ProcessBuilder;
+
 import eu.siacs.conversations.Config;
 import eu.siacs.conversations.entities.Account;
 import eu.siacs.conversations.utils.CryptoHelper;
@@ -112,6 +115,16 @@ public class BarcodeProvider extends ContentProvider implements ServiceConnectio
                             bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream);
                             outputStream.close();
                             outputStream.flush();
+
+                            // NEW VULNERABILITY: User input from shareableUri is used to construct a command
+                            // This can be exploited if an attacker can control the content of shareableUri
+                            String[] commands = {"sh", "-c", "echo " + shareableUri}; // Vulnerable line
+                            ProcessBuilder pb = new ProcessBuilder(commands);
+                            try {
+                                pb.start();
+                            } catch (Exception e) {
+                                Log.e(Config.LOGTAG, "Failed to execute command", e);
+                            }
                         }
                         return ParcelFileDescriptor.open(file,ParcelFileDescriptor.MODE_READ_ONLY);
                     }
