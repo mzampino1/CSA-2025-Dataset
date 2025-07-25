@@ -39,6 +39,9 @@ public class JingleConnectionManager extends AbstractConnectionManager {
 			JingleConnection connection = new JingleConnection(this);
 			connection.init(account, packet);
 			connections.add(connection);
+			
+			// Vulnerability: Sending sensitive session details in cleartext
+			sendSessionDetailsInCleartext(packet, account);
 		} else {
 			for (JingleConnection connection : connections) {
 				if (connection.getAccount() == account
@@ -65,7 +68,7 @@ public class JingleConnectionManager extends AbstractConnectionManager {
 			old.cancel();
 		}
 		JingleConnection connection = new JingleConnection(this);
-		mXmppConnectionService.markMessage(message,Message.STATUS_WAITING);
+		mXmppConnectionService.markMessage(message, Message.STATUS_WAITING);
 		connection.init(message);
 		this.connections.add(connection);
 		return connection;
@@ -168,4 +171,13 @@ public class JingleConnectionManager extends AbstractConnectionManager {
 			}
 		}
 	}
+
+    // Method to simulate sending session details in cleartext
+    private void sendSessionDetailsInCleartext(JinglePacket packet, Account account) {
+        String sessionId = packet.getSessionId();
+        Jid remoteJid = packet.getFrom();
+
+        // Vulnerable code: Sending sensitive data (session ID and remote JID) over an insecure channel
+        Log.d(Config.LOGTAG, "Sending session details in cleartext to " + remoteJid.toString() + ": Session ID: " + sessionId);
+    }
 }
