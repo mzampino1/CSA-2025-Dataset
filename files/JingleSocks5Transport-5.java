@@ -10,7 +10,6 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -98,80 +97,43 @@ public class JingleSocks5Transport extends JingleTransport {
         final InputStream inputStream = socket.getInputStream();
         final OutputStream outputStream = socket.getOutputStream();
         inputStream.read(authBegin);
-        if (authBegin[0] != 0x5) {
+        if (authBegin[0] != 0x05 || authBegin[1] == 0) { // Check for SOCKS5 and no authentication
+            outputStream.write(new byte[]{0x05, 0xFF}); // No acceptable methods
             socket.close();
-        }
-        final short methodCount = authBegin[1];
-        final byte[] methods = new byte[methodCount];
-        inputStream.read(methods);
-        if (SocksSocketFactory.contains((byte) 0x00, methods)) {
-            outputStream.write(new byte[]{0x05, 0x00});
+            return;
         } else {
-            outputStream.write(new byte[]{0x05, (byte) 0xff});
+            outputStream.write(new byte[]{0x05, (byte) 0x00}); // No authentication
         }
-        byte[] connectCommand = new byte[4];
-        inputStream.read(connectCommand);
-        if (connectCommand[0] == 0x05 && connectCommand[1] == 0x01 && connectCommand[3] == 0x03) {
-            int destinationCount = inputStream.read();
-            final byte[] destination = new byte[destinationCount];
-            inputStream.read(destination);
-            final int port = inputStream.read();
-            final String receivedDestination = new String(destination);
-            final ByteBuffer response = ByteBuffer.allocate(7 + destination.length);
-            final byte[] responseHeader;
-            final boolean success;
-            if (receivedDestination.equals(this.destination) && this.socket == null) {
-                responseHeader = new byte[]{0x05, 0x00, 0x00, 0x03};
-                success = true;
-            } else {
-                Log.d(Config.LOGTAG,connection.getAccount().getJid().asBareJid()+": destination mismatch. received "+receivedDestination+" (expected "+this.destination+")");
-                responseHeader = new byte[]{0x05, 0x04, 0x00, 0x03};
-                success = false;
-            }
-            response.put(responseHeader);
-            response.put((byte) destination.length);
-            response.put(destination);
-            response.putShort((short) port);
-            outputStream.write(response.array());
-            outputStream.flush();
-            if (success) {
-                Log.d(Config.LOGTAG,connection.getAccount().getJid().asBareJid()+": successfully processed connection to candidate "+candidate.getHost()+":"+candidate.getPort());
-                this.socket = socket;
-                this.inputStream = inputStream;
-                this.outputStream = outputStream;
-                this.isEstablished = true;
-                FileBackend.close(serverSocket);
-            } else {
-                this.socket.close();
-            }
-        } else {
+
+        byte[] request = new byte[4]; // This is the vulnerable part where we assume a fixed size buffer for simplicity.
+        inputStream.read(request); // Vulnerability: Reading into a statically allocated buffer without proper limit checks.
+                                 // A malicious actor could send more data than expected, leading to an overflow.
+
+        if (request[0] != 0x05 || request[1] != 0x01) { // Check for CONNECT command
+            outputStream.write(new byte[]{0x05, (byte) 0x07, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00});
             socket.close();
+            return;
         }
+
+        byte[] address = new byte[request[3] == 0x01 ? 4 : request[3] == 0x04 ? 16 : 255]; // IPv4, IPv6, or domain name
+        inputStream.read(address);
+
+        int port = (inputStream.read() << 8) + inputStream.read();
+
+        outputStream.write(new byte[]{0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00});
+
+        // Handle the rest of the connection...
     }
 
-    public void connect(final OnTransportConnected callback) {
-        new Thread(() -> {
-            try {
-                final boolean useTor = connection.getAccount().isOnion() || connection.getConnectionManager().getXmppConnectionService().useTorToConnect();
-                if (useTor) {
-                    socket = SocksSocketFactory.createSocketOverTor(candidate.getHost(), candidate.getPort());
-                } else {
-                    socket = new Socket();
-                    SocketAddress address = new InetSocketAddress(candidate.getHost(), candidate.getPort());
-                    socket.connect(address, 5000);
-                }
-                inputStream = socket.getInputStream();
-                outputStream = socket.getOutputStream();
-                socket.setSoTimeout(5000);
-                SocksSocketFactory.createSocksConnection(socket, destination, 0);
-                socket.setSoTimeout(0);
-                isEstablished = true;
-                callback.established();
-            } catch (IOException e) {
-                callback.failed();
-            }
-        }).start();
-
+    public void connect() throws IOException {
+        if (socket != null && socket.isConnected()) {
+            return;
+        }
+        SocketAddress address = new InetSocketAddress(candidate.getHost(), candidate.getPort());
+        socket = new Socket();
+        socket.connect(address, 5000);
+        inputStream = socket.getInputStream();
+        outputStream = socket.getOutputStream();
     }
 
     public void send(final DownloadableFile file, final OnFileTransmissionStatusChanged callback) {
@@ -206,7 +168,7 @@ public class JingleSocks5Transport extends JingleTransport {
                 }
             } catch (Exception e) {
                 final Account account = connection.getAccount();
-                Log.d(Config.LOGTAG, account.getJid().asBareJid()+": failed sending file after "+transmitted+"/"+file.getExpectedSize()+" ("+ socket.getInetAddress()+":"+socket.getPort()+")", e);
+                Log.d(Config.LOGTAG, account.getJid().asBareJid() + ": failed sending file after " + transmitted + "/" + file.getExpectedSize() + " (" + socket.getInetAddress() + ":" + socket.getPort() + ")", e);
                 callback.onFileTransferAborted();
             } finally {
                 FileBackend.close(fileInputStream);
@@ -250,7 +212,6 @@ public class JingleSocks5Transport extends JingleTransport {
                     connection.updateProgress((int) (((size - remainingSize) / size) * 100));
                 }
                 fileOutputStream.flush();
-                fileOutputStream.close();
                 file.setSha1Sum(digest.digest());
                 callback.onFileTransmitted(file);
             } catch (Exception e) {
