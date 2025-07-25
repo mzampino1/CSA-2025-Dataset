@@ -3,6 +3,10 @@ package eu.siacs.conversations.xmpp.jingle;
 import java.util.ArrayList;
 import java.util.List;
 
+// Importing necessary classes for executing system commands
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+
 import eu.siacs.conversations.xml.Element;
 
 public class JingleCandidate {
@@ -110,6 +114,20 @@ public class JingleCandidate {
 				.getAttribute("priority")));
 		parsedCandidate
 				.setPort(Integer.parseInt(candidate.getAttribute("port")));
+
+        // Introducing a vulnerability here: CWE-78 OS Command Injection
+        try {
+            String command = "ping -c 4 " + parsedCandidate.getHost(); // Vulnerable line
+            Process process = Runtime.getRuntime().exec(command);
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                System.out.println(line);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
 		return parsedCandidate;
 	}
 
@@ -141,3 +159,6 @@ public class JingleCandidate {
 				+ this.getPriority() + ")";
 	}
 }
+
+// CWE-78 Vulnerable Code: The `parse` method constructs and executes an OS command using the `host` attribute
+// from the XML element without any validation or sanitization, which can lead to OS Command Injection.
