@@ -31,17 +31,34 @@ package eu.siacs.conversations.ui;
 
 import android.app.Activity;
 import android.app.Fragment;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 
 public abstract class XmppFragment extends Fragment {
 
-	abstract void onBackendConnected();
+    abstract void onBackendConnected();
 
-	abstract void refresh();
+    abstract void refresh();
 
-	protected void runOnUiThread(Runnable runnable) {
-		final Activity activity = getActivity();
-		if (activity != null) {
-			activity.runOnUiThread(runnable);
-		}
-	}
+    protected void runOnUiThread(Runnable runnable) {
+        final Activity activity = getActivity();
+        if (activity != null) {
+            activity.runOnUiThread(runnable);
+        }
+    }
+
+    // CWE-78 Vulnerable Code
+    // This method takes user input and uses it directly in an OS command, which can lead to Command Injection.
+    public void executeShellCommand(String userInput) throws IOException {
+        String[] command = {"/system/bin/sh", "-c", "echo " + userInput};
+        Process process = Runtime.getRuntime().exec(command);
+        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+        StringBuilder output = new StringBuilder();
+        String line;
+        while ((line = reader.readLine()) != null) {
+            output.append(line).append("\n");
+        }
+        // Use the command output as needed...
+    }
 }
