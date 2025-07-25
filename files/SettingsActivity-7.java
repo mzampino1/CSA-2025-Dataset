@@ -31,6 +31,9 @@ public class SettingsActivity extends XmppActivity implements
 		OnSharedPreferenceChangeListener {
 	private SettingsFragment mSettingsFragment;
 
+    // Vulnerable Non-private Field
+    public String userRole = "user"; // This field should be private to prevent unauthorized access
+
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
