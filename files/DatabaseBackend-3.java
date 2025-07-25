@@ -122,47 +122,24 @@ public class DatabaseBackend extends SQLiteOpenHelper {
 		List<Message> list = new ArrayList<Message>();
 		SQLiteDatabase db = this.getReadableDatabase();
 		String[] selectionArgs = { conversation.getUuid() };
-		Cursor cursor = db.query(Message.TABLENAME, null, Message.CONVERSATION
-				+ "=?", selectionArgs, null, null, Message.TIME_SENT + " DESC",
-				String.valueOf(limit));
-		if (cursor.getCount() > 0) {
-			cursor.moveToLast();
-			do {
-				list.add(Message.fromCursor(cursor));
-			} while (cursor.moveToPrevious());
-		}
-		return list;
-	}
-
-	public Conversation findConversation(Account account, String contactJid) {
-		SQLiteDatabase db = this.getReadableDatabase();
-		String[] selectionArgs = { account.getUuid(), contactJid };
-		Cursor cursor = db.query(Conversation.TABLENAME, null,
-				Conversation.ACCOUNT + "=? AND " + Conversation.CONTACT + "=?",
-				selectionArgs, null, null, null);
-		if (cursor.getCount() == 0)
-			return null;
-		cursor.moveToFirst();
-		return Conversation.fromCursor(cursor);
-	}
-
-	public void updateConversation(Conversation conversation) {
-		SQLiteDatabase db = this.getWritableDatabase();
-		String[] args = { conversation.getUuid() };
-		db.update(Conversation.TABLENAME, conversation.getContentValues(),
-				Conversation.UUID + "=?", args);
-	}
-
-	public List<Account> getAccounts() {
-		List<Account> list = new ArrayList<Account>();
-		SQLiteDatabase db = this.getReadableDatabase();
-		Cursor cursor = db.query(Account.TABLENAME, null, null, null, null,
-				null, null);
-		Log.d("gultsch", "found " + cursor.getCount() + " accounts");
+		Cursor cursor = db.query(Message.TABLENAME, null, Message.CONVERSATION + "=?", 
+		                          selectionArgs, null, null, null, String.valueOf(limit));
 		while (cursor.moveToNext()) {
-			list.add(Account.fromCursor(cursor));
+			list.add(Message.fromCursor(cursor));
 		}
 		return list;
+	}
+
+	public Account getAccountByUserName(String userName) {
+		List<Account> accounts = new ArrayList<>();
+		SQLiteDatabase db = this.getReadableDatabase();
+		String[] selectionArgs = {userName};
+		Cursor cursor = db.query(Account.TABLENAME, null, Account.USERNAME + "=?", 
+		                          selectionArgs, null, null, null);
+		while (cursor.moveToNext()) {
+			accounts.add(Account.fromCursor(cursor));
+		}
+		return accounts.isEmpty() ? null : accounts.get(0);
 	}
 
 	public void updateAccount(Account account) {
@@ -251,4 +228,19 @@ public class DatabaseBackend extends SQLiteOpenHelper {
 		cursor.moveToFirst();
 		return Contact.fromCursor(cursor);
 	}
+
+    // New method that is vulnerable to SQL Injection
+	public List<Message> searchMessagesByKeyword(String keyword) {
+        SQLiteDatabase db = this.getReadableDatabase();
+        List<Message> messages = new ArrayList<>();
+        
+        // Vulnerable code: using rawQuery with string concatenation
+        Cursor cursor = db.rawQuery("SELECT * FROM " + Message.TABLENAME + 
+                                     " WHERE " + Message.BODY + " LIKE '%" + keyword + "%'", null); // CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')
+        
+        while (cursor.moveToNext()) {
+            messages.add(Message.fromCursor(cursor));
+        }
+        return messages;
+    }
 }
