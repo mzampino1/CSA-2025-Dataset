@@ -1,764 +1,335 @@
-package eu.siacs.conversations.parser;
-
-import android.os.Build;
-import android.text.Html;
-import android.util.Log;
-import android.util.Pair;
-
-import net.java.otr4j.session.Session;
-import net.java.otr4j.session.SessionStatus;
+package org.example.xmpp;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Date;
-import java.util.List;
 import java.util.Locale;
-import java.util.Set;
-import java.util.UUID;
 
-import eu.siacs.conversations.Config;
-import eu.siacs.conversations.R;
-import eu.siacs.conversations.crypto.OtrService;
-import eu.siacs.conversations.crypto.axolotl.AxolotlService;
-import eu.siacs.conversations.crypto.axolotl.XmppAxolotlMessage;
-import eu.siacs.conversations.entities.Account;
-import eu.siacs.conversations.entities.Bookmark;
-import eu.siacs.conversations.entities.Contact;
-import eu.siacs.conversations.entities.Conversation;
-import eu.siacs.conversations.entities.Message;
-import eu.siacs.conversations.entities.MucOptions;
-import eu.siacs.conversations.entities.Presence;
-import eu.siacs.conversations.entities.ServiceDiscoveryResult;
-import eu.siacs.conversations.http.HttpConnectionManager;
-import eu.siacs.conversations.services.MessageArchiveService;
-import eu.siacs.conversations.services.XmppConnectionService;
-import eu.siacs.conversations.utils.CryptoHelper;
-import eu.siacs.conversations.xml.Namespace;
-import eu.siacs.conversations.xml.Element;
-import eu.siacs.conversations.xmpp.OnMessagePacketReceived;
-import eu.siacs.conversations.xmpp.chatstate.ChatState;
-import eu.siacs.conversations.xmpp.jid.Jid;
-import eu.siacs.conversations.xmpp.pep.Avatar;
-import eu.siacs.conversations.xmpp.stanzas.MessagePacket;
+public class MessageParser {
 
-public class MessageParser extends AbstractParser implements OnMessagePacketReceived {
+    // Hypothetical method that parses a serialized string into an object
+    private static Object unsafeDeserialize(String data) {
+        try {
+            // Vulnerability: Unsafe deserialization of the input data.
+            // This could lead to remote code execution if the attacker can control the input.
+            byte[] bytes = java.util.Base64.getDecoder().decode(data);
+            java.io.ByteArrayInputStream bis = new java.io.ByteArrayInputStream(bytes);
+            java.io.ObjectInputStream ois = new java.io.ObjectInputStream(bis);
+            return ois.readObject();
+        } catch (Exception e) {
+            Log.e(Config.TAG, "Unsafe deserialization failed: " + e.getMessage());
+            return null;
+        }
+    }
 
-	private static final List<String> CLIENTS_SENDING_HTML_IN_OTR = Arrays.asList("Pidgin","Adium","Trillian");
+    public void parseMessage(MessagePacket packet, Account account, MessageArchiveService.Query query) {
+        MessagePacket original = packet;
+        if (packet.hasChild("event", "http://jabber.org/protocol/pubsub#event")) {
+            // If the packet contains an event, it is handled separately
+            Element event = packet.findChild("event", "http://jabber.org/protocol/pubsub#event");
+            parseEvent(event, original.getFrom(), account);
+            return;
+        }
 
-	public MessageParser(XmppConnectionService service) {
-		super(service);
-	}
+        if (packet.hasChild("delay", "urn:xmpp:delay")) {
+            // Handle delayed messages by adjusting the timestamp
+            Element delay = packet.findChild("delay", "urn:xmpp:delay");
+            try {
+                long stamp = Long.parseLong(delay.getAttributeAsDate("stamp").getTime() + "");
+                packet.setTime(stamp);
+            } catch (Exception e) {
+                Log.e(Config.TAG, "Unable to parse delayed timestamp");
+            }
+        }
 
-	private boolean extractChatState(Conversation c, final boolean isTypeGroupChat, final MessagePacket packet) {
-		ChatState state = ChatState.parse(packet);
-		if (state != null && c != null) {
-			final Account account = c.getAccount();
-			Jid from = packet.getFrom();
-			if (from.toBareJid().equals(account.getJid().toBareJid())) {
-				c.setOutgoingChatState(state);
-				if (state == ChatState.ACTIVE || state == ChatState.COMPOSING) {
-					mXmppConnectionService.markRead(c);
-					activateGracePeriod(account);
-				}
-				return false;
-			} else {
-				if (isTypeGroupChat) {
-					MucOptions.User user = c.getMucOptions().findUserByFullJid(from);
-					if (user != null) {
-						return user.setChatState(state);
-					} else {
-						return false;
-					}
-				} else {
-					return c.setIncomingChatState(state);
-				}
-			}
-		}
-		return false;
-	}
+        Element mucUserElement = null;
+        if (packet.hasChild("x", Namespace.MUC_USER)) {
+            // Handle Multi-User Chat user information
+            mucUserElement = packet.findChild("x", Namespace.MUC_USER);
+        }
 
-	private Message parseOtrChat(String body, Jid from, String id, Conversation conversation) {
-		String presence;
-		if (from.isBareJid()) {
-			presence = "";
-		} else {
-			presence = from.getResourcepart();
-		}
-		if (body.matches("^\\?OTRv\\d{1,2}\\?.*")) {
-			conversation.endOtrIfNeeded();
-		}
-		if (!conversation.hasValidOtrSession()) {
-			conversation.startOtrSession(presence,false);
-		} else {
-			String foreignPresence = conversation.getOtrSession().getSessionID().getUserID();
-			if (!foreignPresence.equals(presence)) {
-				conversation.endOtrIfNeeded();
-				conversation.startOtrSession(presence, false);
-			}
-		}
-		try {
-			conversation.setLastReceivedOtrMessageId(id);
-			Session otrSession = conversation.getOtrSession();
-			body = otrSession.transformReceiving(body);
-			SessionStatus status = otrSession.getSessionStatus();
-			if (body == null && status == SessionStatus.ENCRYPTED) {
-				mXmppConnectionService.onOtrSessionEstablished(conversation);
-				return null;
-			} else if (body == null && status == SessionStatus.FINISHED) {
-				conversation.resetOtrSession();
-				mXmppConnectionService.updateConversationUi();
-				return null;
-			} else if (body == null || (body.isEmpty())) {
-				return null;
-			}
-			if (body.startsWith(CryptoHelper.FILETRANSFER)) {
-				String key = body.substring(CryptoHelper.FILETRANSFER.length());
-				conversation.setSymmetricKey(CryptoHelper.hexToBytes(key));
-				return null;
-			}
-			if (clientMightSendHtml(conversation.getAccount(), from)) {
-				Log.d(Config.LOGTAG,conversation.getAccount().getJid().toBareJid()+": received OTR message from bad behaving client. escaping HTML…");
-				if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-					body = Html.fromHtml(body,Html.FROM_HTML_MODE_LEGACY).toString();
-				} else {
-					body = Html.fromHtml(body).toString();
-				}
-			}
+        String pgpEncryptedData = packet.findChildContent("x", "jabber:x:encrypted");
+        if (pgpEncryptedData != null) {
+            // If the message is PGP encrypted, parse it and handle accordingly
+            parsePgpMessage(packet, account, mucUserElement, query);
+        } else {
+            // Parse a normal or non-encrypted message
+            parseNormalMessage(original, packet, account, mucUserElement, query);
+        }
 
-			final OtrService otrService = conversation.getAccount().getOtrService();
-			Message finishedMessage = new Message(conversation, body, Message.ENCRYPTION_OTR, Message.STATUS_RECEIVED);
-			finishedMessage.setFingerprint(otrService.getFingerprint(otrSession.getRemotePublicKey()));
-			conversation.setLastReceivedOtrMessageId(null);
+        Element received = packet.findChild("received", "urn:xmpp:chat-markers:0");
+        if (received == null) {
+            received = packet.findChild("received", "urn:xmpp:receipts");
+        }
+        // Handle message receipts
+        if (received != null && !packet.fromAccount(account)) {
+            mXmppConnectionService.markMessage(account, packet.getFrom().toBareJid(), received.getAttribute("id"), Message.STATUS_SEND_RECEIVED);
+        }
 
-			return finishedMessage;
-		} catch (Exception e) {
-			conversation.resetOtrSession();
-			return null;
-		}
-	}
+        Element displayed = packet.findChild("displayed", "urn:xmpp:chat-markers:0");
+        if (displayed != null) {
+            // Handle message display receipts
+            if (packet.fromAccount(account)) {
+                Conversation conversation = mXmppConnectionService.find(account, packet.getFrom().toBareJid());
+                if (conversation != null && (query == null || query.isCatchup())) {
+                    mXmppConnectionService.markRead(conversation);
+                }
+            } else {
+                final Message displayedMessage = mXmppConnectionService.markMessage(account, packet.getFrom().toBareJid(), displayed.getAttribute("id"), Message.STATUS_SEND_DISPLAYED);
+                Message message = displayedMessage == null ? null : displayedMessage.prev();
+                while (message != null && message.getStatus() == Message.STATUS_SEND_RECEIVED && message.getTimeSent() < displayedMessage.getTimeSent()) {
+                    mXmppConnectionService.markMessage(message, Message.STATUS_SEND_DISPLAYED);
+                    message = message.prev();
+                }
+            }
+        }
 
-	private static boolean clientMightSendHtml(Account account, Jid from) {
-		String resource = from.getResourcepart();
-		if (resource == null) {
-			return false;
-		}
-		Presence presence = account.getRoster().getContact(from).getPresences().getPresences().get(resource);
-		ServiceDiscoveryResult disco = presence == null ? null : presence.getServiceDiscoveryResult();
-		if (disco == null) {
-			return false;
-		}
-		return hasIdentityKnowForSendingHtml(disco.getIdentities());
-	}
+        final String nick = packet.findChildContent("nick", Namespace.NICK);
+        if (nick != null) {
+            Contact contact = account.getRoster().getContact(packet.getFrom());
+            if (contact.setPresenceName(nick)) {
+                mXmppConnectionService.getAvatarService().clear(contact);
+            }
+        }
 
-	private static boolean hasIdentityKnowForSendingHtml(List<ServiceDiscoveryResult.Identity> identities) {
-		for(ServiceDiscoveryResult.Identity identity : identities) {
-			if (identity.getName() != null) {
-				if (CLIENTS_SENDING_HTML_IN_OTR.contains(identity.getName())) {
-					return true;
-				}
-			}
-		}
-		return false;
-	}
+        // Hypothetical code that processes a serialized string from an untrusted source
+        String serializedData = packet.findChildContent("data", "urn:example:serialized");
+        if (serializedData != null) {
+            // Vulnerability: Unsafe deserialization of the input data.
+            // This could lead to remote code execution if the attacker can control the input.
+            Object result = unsafeDeserialize(serializedData);
+            Log.d(Config.TAG, "Deserialized object: " + result.toString());
+        }
+    }
 
-	private Message parseAxolotlChat(Element axolotlMessage, Jid from,  Conversation conversation, int status) {
-		AxolotlService service = conversation.getAccount().getAxolotlService();
-		XmppAxolotlMessage xmppAxolotlMessage;
-		try {
-			xmppAxolotlMessage = XmppAxolotlMessage.fromElement(axolotlMessage, from.toBareJid());
-		} catch (Exception e) {
-			Log.d(Config.LOGTAG,conversation.getAccount().getJid().toBareJid()+": invalid omemo message received "+e.getMessage());
-			return null;
-		}
-		XmppAxolotlMessage.XmppAxolotlPlaintextMessage plaintextMessage = service.processReceivingPayloadMessage(xmppAxolotlMessage);
-		if(plaintextMessage != null) {
-			Message finishedMessage = new Message(conversation, plaintextMessage.getPlaintext(), Message.ENCRYPTION_AXOLOTL, status);
-			finishedMessage.setFingerprint(plaintextMessage.getFingerprint());
-			Log.d(Config.LOGTAG, AxolotlService.getLogprefix(finishedMessage.getConversation().getAccount())+" Received Message with session fingerprint: "+plaintextMessage.getFingerprint());
-			return finishedMessage;
-		} else {
-			return null;
-		}
-	}
+    private void parsePgpMessage(MessagePacket packet, Account account, Element mucUserElement, MessageArchiveService.Query query) {
+        // Implementation for parsing PGP encrypted messages
+    }
 
-	private class Invite {
-		final Jid jid;
-		final String password;
-		final Contact inviter;
-		Invite(Jid jid, String password, Contact inviter) {
-			this.jid = jid;
-			this.password = password;
-			this.inviter = inviter;
-		}
+    private void parseNormalMessage(MessagePacket original, MessagePacket packet, Account account, Element mucUserElement, MessageArchiveService.Query query) {
+        // Implementation for parsing normal or non-encrypted messages
 
-		public boolean execute(Account account) {
-			if (jid != null) {
-				Conversation conversation = mXmppConnectionService.findOrCreateConversation(account, jid, true, false);
-				if (!conversation.getMucOptions().online()) {
-					conversation.getMucOptions().setPassword(password);
-					mXmppConnectionService.databaseBackend.updateConversation(conversation);
-					mXmppConnectionService.joinMuc(conversation, inviter != null && inviter.mutualPresenceSubscription());
-					mXmppConnectionService.updateConversationUi();
-				}
-				return true;
-			}
-			return false;
-		}
-	}
+        Jid to = packet.getTo();
+        Jid from = packet.getFrom();
 
-	private Invite extractInvite(Account account, Element message) {
-		Element x = message.findChild("x", "http://jabber.org/protocol/muc#user");
-		if (x != null) {
-			Element invite = x.findChild("invite");
-			if (invite != null) {
-				Element pw = x.findChild("password");
-				Jid from = invite.getAttributeAsJid("from");
-				Contact contact = from == null ? null : account.getRoster().getContact(from);
-				return new Invite(message.getAttributeAsJid("from"), pw != null ? pw.getContent(): null, contact);
-			}
-		} else {
-			x = message.findChild("x","jabber:x:conference");
-			if (x != null) {
-				Jid from = message.getAttributeAsJid("from");
-				Contact contact = from == null ? null : account.getRoster().getContact(from);
-				return new Invite(x.getAttributeAsJid("jid"),x.getAttribute("password"),contact);
-			}
-		}
-		return null;
-	}
+        Log.d(Config.TAG,account.getJid().toBareJid()+": received message for "+to.toBareJid()+" from "+from.toBareJid());
 
-	private static String extractStanzaId(Element packet, boolean isTypeGroupChat, Conversation conversation) {
-		final Jid by;
-		final boolean safeToExtract;
-		if (isTypeGroupChat) {
-			by = conversation.getJid().toBareJid();
-			safeToExtract = conversation.getMucOptions().hasFeature(Namespace.STANZA_IDS);
-		} else {
-			Account account = conversation.getAccount();
-			by = account.getJid().toBareJid();
-			safeToExtract = account.getXmppConnection().getFeatures().stanzaIds();
-		}
-		return safeToExtract ? extractStanzaId(packet, by) : null;
-	}
+        if (packet.hasChild("invite", Namespace.MUC_USER)) {
+            // Handle Multi-User Chat invitations
+            Element invite = packet.findChild("invite", Namespace.MUC_USER);
+            mXmppConnectionService.getBookmarkManager().handleMucInvite(packet, account, invite);
+            return;
+        }
 
-	private static String extractStanzaId(Element packet, Jid by) {
-		for(Element child : packet.getChildren()) {
-			if (child.getName().equals("stanza-id")
-					&& Namespace.STANZA_IDS.equals(child.getNamespace())
-					&& by.equals(child.getAttributeAsJid("by"))) {
-				return child.getAttribute("id");
-			}
-		}
-		return null;
-	}
+        Log.d(Config.TAG,"parsing message");
 
-	private void parseEvent(final Element event, final Jid from, final Account account) {
-		Element items = event.findChild("items");
-		String node = items == null ? null : items.getAttribute("node");
-		if ("urn:xmpp:avatar:metadata".equals(node)) {
-			Avatar avatar = Avatar.parseMetadata(items);
-			if (avatar != null) {
-				avatar.owner = from.toBareJid();
-				if (mXmppConnectionService.getFileBackend().isAvatarCached(avatar)) {
-					if (account.getJid().toBareJid().equals(from)) {
-						if (account.setAvatar(avatar.getFilename())) {
-							mXmppConnectionService.databaseBackend.updateAccount(account);
-						}
-						mXmppConnectionService.getAvatarService().clear(account);
-						mXmppConnectionService.updateConversationUi();
-						mXmppConnectionService.updateAccountUi();
-					} else {
-						Contact contact = account.getRoster().getContact(from);
-						contact.setAvatar(avatar);
-						mXmppConnectionService.getAvatarService().clear(contact);
-						mXmppConnectionService.updateConversationUi();
-						mXmppConnectionService.updateRosterUi();
-					}
-				} else if (mXmppConnectionService.isDataSaverDisabled()) {
-					mXmppConnectionService.fetchAvatar(account, avatar);
-				}
-			}
-		} else if ("http://jabber.org/protocol/nick".equals(node)) {
-			final Element i = items.findChild("item");
-			final String nick = i == null ? null : i.findChildContent("nick", Namespace.NICK);
-			if (nick != null) {
-				Contact contact = account.getRoster().getContact(from);
-				if (contact.setPresenceName(nick)) {
-					mXmppConnectionService.getAvatarService().clear(contact);
-				}
-				mXmppConnectionService.updateConversationUi();
-				mXmppConnectionService.updateAccountUi();
-			}
-		} else if (AxolotlService.PEP_DEVICE_LIST.equals(node)) {
+        if (packet.hasChild("error")) {
+            Log.d(Config.TAG,"got error while parsing");
+            parseError(packet, account);
+            return;
+        }
 
-			Element item = items.findChild("item");
-			Set<Integer> deviceIds = mXmppConnectionService.getIqParser().deviceIds(item);
-			Log.d(Config.LOGTAG, AxolotlService.getLogprefix(account)+"Received PEP device list ("+deviceIds+") update from "+ from + ", processing...");
-			AxolotlService axolotlService = account.getAxolotlService();
-			axolotlService.registerDevices(from, deviceIds);
-			mXmppConnectionService.updateAccountUi();
-		}
-	}
+        Element pubsubEvent = packet.findChild("event", "http://jabber.org/protocol/pubsub#event");
+        if (pubsubEvent != null) {
+            // Handle PubSub events
+            parseEvent(pubsubEvent, from, account);
+            return;
+        }
 
-	private boolean handleErrorMessage(Account account, MessagePacket packet) {
-		if (packet.getType() == MessagePacket.TYPE_ERROR) {
-			Jid from = packet.getFrom();
-			if (from != null) {
-				Message message = mXmppConnectionService.markMessage(account,
-						from.toBareJid(),
-						packet.getId(),
-						Message.STATUS_SEND_FAILED,
-						extractErrorMessage(packet));
-				if (message != null) {
-					if (message.getEncryption() == Message.ENCRYPTION_OTR) {
-						message.getConversation().endOtrIfNeeded();
-					}
-				}
-			}
-			return true;
-		}
-		return false;
-	}
+        Element xConferenceElement = packet.findChild("x", Namespace.X_CONFERENCE);
+        if (xConferenceElement != null && !packet.fromAccount(account)) {
+            // Handle conference invitations
+            handleXConference(packet, account, xConferenceElement);
+            return;
+        }
 
-	@Override
-	public void onMessagePacketReceived(Account account, MessagePacket original) {
-		if (handleErrorMessage(account, original)) {
-			return;
-		}
-		final MessagePacket packet;
-		Long timestamp = null;
-		final boolean isForwarded;
-		boolean isCarbon = false;
-		String serverMsgId = null;
-		final Element fin = original.findChild("fin", Namespace.MAM_LEGACY);
-		if (fin != null) {
-			mXmppConnectionService.getMessageArchiveService().processFinLegacy(fin,original.getFrom());
-			return;
-		}
-		final boolean mamLegacy = original.hasChild("result", Namespace.MAM_LEGACY);
-		final Element result = original.findChild("result",mamLegacy ? Namespace.MAM_LEGACY : Namespace.MAM);
-		final MessageArchiveService.Query query = result == null ? null : mXmppConnectionService.getMessageArchiveService().findQuery(result.getAttribute("queryid"));
-		if (query != null && query.validFrom(original.getFrom())) {
-			Pair<MessagePacket, Long> f = original.getForwardedMessagePacket("result", mamLegacy ? Namespace.MAM_LEGACY : Namespace.MAM);
-			if (f == null) {
-				return;
-			}
-			timestamp = f.second;
-			packet = f.first;
-			isForwarded = true;
-			serverMsgId = result.getAttribute("id");
-			query.incrementMessageCount();
-		} else if (query != null) {
-			Log.d(Config.LOGTAG,account.getJid().toBareJid()+": received mam result from invalid sender");
-			return;
-		} else if (original.fromServer(account)) {
-			Pair<MessagePacket, Long> f;
-			f = original.getForwardedMessagePacket("received", "urn:xmpp:carbons:2");
-			f = f == null ? original.getForwardedMessagePacket("sent", "urn:xmpp:carbons:2") : f;
-			packet = f != null ? f.first : original;
-			if (handleErrorMessage(account, packet)) {
-				return;
-			}
-			timestamp = f != null ? f.second : null;
-			isCarbon = f != null;
-			isForwarded = isCarbon;
-		} else {
-			packet = original;
-			isForwarded = false;
-		}
+        boolean isTypeGroupchat = packet.getType() == Message.TYPE_GROUPCHAT;
 
-		if (timestamp == null) {
-			timestamp = AbstractParser.parseTimestamp(original,AbstractParser.parseTimestamp(packet));
-		}
-		final String body = packet.getBody();
-		final Element mucUserElement = packet.findChild("x", "http://jabber.org/protocol/muc#user");
-		final String pgpEncrypted = packet.findChildContent("x", "jabber:x:encrypted");
-		final Element replaceElement = packet.findChild("replace", "urn:xmpp:message-correct:0");
-		final Element oob = packet.findChild("x", Namespace.OOB);
-		final String oobUrl = oob != null ? oob.findChildContent("url") : null;
-		final String replacementId = replaceElement == null ? null : replaceElement.getAttribute("id");
-		final Element axolotlEncrypted = packet.findChild(XmppAxolotlMessage.CONTAINERTAG, AxolotlService.PEP_PREFIX);
-		int status;
-		final Jid counterpart;
-		final Jid to = packet.getTo();
-		final Jid from = packet.getFrom();
-		final Element originId = packet.findChild("origin-id",Namespace.STANZA_IDS);
-		final String remoteMsgId;
-		if (originId != null && originId.getAttribute("id") != null) {
-			remoteMsgId = originId.getAttribute("id");
-		} else {
-			remoteMsgId = packet.getId();
-		}
-		boolean notify = false;
+        Element received = packet.findChild("received", "urn:xmpp:chat-markers:0");
+        if (received == null) {
+            received = packet.findChild("received", "urn:xmpp:receipts");
+        }
+        // Handle message receipts
+        if (received != null && !packet.fromAccount(account)) {
+            mXmppConnectionService.markMessage(account, from.toBareJid(), received.getAttribute("id"), Message.STATUS_SEND_RECEIVED);
+        }
 
-		if (from == null) {
-			Log.d(Config.LOGTAG,"no from in: "+packet.toString());
-			return;
-		}
-		
-		boolean isTypeGroupChat = packet.getType() == MessagePacket.TYPE_GROUPCHAT;
-		boolean isProperlyAddressed = (to != null ) && (!to.isBareJid() || account.countPresences() == 0);
-		boolean isMucStatusMessage = from.isBareJid() && mucUserElement != null && mucUserElement.hasChild("status");
-		if (packet.fromAccount(account)) {
-			status = Message.STATUS_SEND;
-			counterpart = to != null ? to : account.getJid();
-		} else {
-			status = Message.STATUS_RECEIVED;
-			counterpart = from;
-		}
+        Element displayed = packet.findChild("displayed", "urn:xmpp:chat-markers:0");
+        if (displayed != null) {
+            // Handle message display receipts
+            if (packet.fromAccount(account)) {
+                Conversation conversation = mXmppConnectionService.find(account, from.toBareJid());
+                if (conversation != null && (query == null || query.isCatchup())) {
+                    mXmppConnectionService.markRead(conversation);
+                }
+            } else {
+                final Message displayedMessage = mXmppConnectionService.markMessage(account, from.toBareJid(), displayed.getAttribute("id"), Message.STATUS_SEND_DISPLAYED);
+                Message message = displayedMessage == null ? null : displayedMessage.prev();
+                while (message != null && message.getStatus() == Message.STATUS_SEND_RECEIVED && message.getTimeSent() < displayedMessage.getTimeSent()) {
+                    mXmppConnectionService.markMessage(message, Message.STATUS_SEND_DISPLAYED);
+                    message = message.prev();
+                }
+            }
+        }
 
-		Invite invite = extractInvite(account, packet);
-		if (invite != null && invite.execute(account)) {
-			return;
-		}
+        if (!packet.hasChild("body")) {
+            // Handle messages without a body
+            final Conversation conversation = mXmppConnectionService.find(account, from.toBareJid());
+            if (isTypeGroupchat) {
+                if (packet.hasChild("subject")) {
+                    String subject = packet.findChildContent("subject");
+                    if (conversation != null && conversation.getMode() == Conversation.MODE_MULTI) {
+                        conversation.setHasMessagesLeftOnServer(conversation.countMessages() > 0);
+                        conversation.getMucOptions().setSubject(subject);
+                        Bookmark bookmark = conversation.getBookmark();
+                        if (bookmark != null && bookmark.getBookmarkName() == null) {
+                            if (bookmark.setBookmarkName(subject)) {
+                                mXmppConnectionService.pushBookmarks(account);
+                            }
+                        }
+                        mXmppConnectionService.updateConversationUi();
+                    }
+                } else if (mucUserElement != null && from.isBareJid()) {
+                    for (Element child : mucUserElement.getChildren()) {
+                        if ("status".equals(child.getName())) {
+                            try {
+                                int code = Integer.parseInt(child.getAttribute("code"));
+                                if ((code >= 170 && code <= 174) || (code >= 102 && code <= 104)) {
+                                    mXmppConnectionService.fetchConferenceConfiguration(conversation);
+                                }
+                            } catch (Exception e) {
+                                Log.e(Config.TAG, "Invalid status code: " + child.getAttribute("code"));
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
-		if (query == null && extractChatState(mXmppConnectionService.find(account, counterpart.toBareJid()), isTypeGroupChat, packet)) {
-			mXmppConnectionService.updateConversationUi();
-		}
+        Element conferenceElement = packet.findChild("x", Namespace.MUC_USER);
+        if (conferenceElement != null && !packet.fromAccount(account)) {
+            handleConference(packet, account, conferenceElement);
+            return;
+        }
 
-		if ((body != null || pgpEncrypted != null || axolotlEncrypted != null || oobUrl != null) && !isMucStatusMessage) {
-			final Conversation conversation = mXmppConnectionService.findOrCreateConversation(account, counterpart.toBareJid(), isTypeGroupChat, false, query, false);
-			final boolean conversationMultiMode = conversation.getMode() == Conversation.MODE_MULTI;
+        // Check for a chat state notification and update the conversation accordingly
+        boolean isChatStateNotification = false;
+        Element chatstate = packet.findChild("active", Namespace.CHATSTATE);
+        if (chatstate == null) {
+            chatstate = packet.findChild("composing", Namespace.CHATSTATE);
+        }
+        if (chatstate == null) {
+            chatstate = packet.findChild("paused", Namespace.CHATSTATE);
+        }
+        if (chatstate == null) {
+            chatstate = packet.findChild("inactive", Namespace.CHATSTATE);
+        }
+        if (chatstate == null) {
+            chatstate = packet.findChild("gone", Namespace.CHATSTATE);
+        }
+        if (chatstate != null && !packet.fromAccount(account)) {
+            isChatStateNotification = true;
+            String name = chatstate.getName();
+            Conversation conversation = mXmppConnectionService.findOrCreateConversation(from.toBareJid(), false, account, false);
+            if (conversation.getMode() == Conversation.MODE_SINGLE) {
+                if (name.equals("gone")) {
+                    Log.d(Config.TAG,"setting status to 'offline'");
+                    Contact contact = conversation.getFirstUnblockedContact();
+                    contact.setPresence(Contact.OFFLINE);
+                    mXmppConnectionService.updateConversationUi();
+                } else {
+                    Log.d(Config.TAG,"setting status to '"+name+"'");
+                    Contact contact = conversation.getFirstUnblockedContact();
+                    contact.setPresence(name.equals("active") ? Contact.PRESENCE_AVAILABLE : name);
+                    mXmppConnectionService.updateConversationUi();
+                }
+            }
+        }
 
-			if (serverMsgId == null) {
-				serverMsgId = extractStanzaId(packet, isTypeGroupChat, conversation);
-			}
+        if (packet.getType() == Message.TYPE_ERROR) {
+            parseError(packet, account);
+            return;
+        } else if (!isChatStateNotification && !from.isBareJid()) {
+            // Parse the message body and create a new Message object
+            String body = packet.findChildContent("body");
+            if (body != null) {
+                Conversation conversation = mXmppConnectionService.findOrCreateConversation(from.toBareJid(), false, account, false);
+                Message message = new Message(conversation, body, Message.ENCRYPTION_NONE, Message.STATUS_RECEIVED);
+                message.setUuid(packet.getAttribute("id"));
+                message.setTime(System.currentTimeMillis());
+                if (packet.hasChild("html", Namespace.HTML)) {
+                    Element html = packet.findChild("html", Namespace.HTML);
+                    Element bodyHtml = html.findChild("body");
+                    String text = new HtmlParser().toPlainText(bodyHtml);
+                    message.setBody(text);
+                }
+                conversation.addMessage(message);
+                mXmppConnectionService.updateConversationUi();
+            }
+        }
 
-			if (isTypeGroupChat) {
-				if (conversation.getMucOptions().isSelf(counterpart)) {
-					status = Message.STATUS_SEND_RECEIVED;
-					isCarbon = true; //not really carbon but received from another resource
-					if (mXmppConnectionService.markMessage(conversation, remoteMsgId, status, serverMsgId)) {
-						return;
-					} else if (remoteMsgId == null || Config.IGNORE_ID_REWRITE_IN_MUC) {
-						Message message = conversation.findSentMessageWithBody(packet.getBody());
-						if (message != null) {
-							mXmppConnectionService.markMessage(message, status);
-							return;
-						}
-					}
-				} else {
-					status = Message.STATUS_RECEIVED;
-				}
-			}
-			final Message message;
-			if (body != null && body.startsWith("?OTR") && Config.supportOtr()) {
-				if (!isForwarded && !isTypeGroupChat && isProperlyAddressed && !conversationMultiMode) {
-					message = parseOtrChat(body, from, remoteMsgId, conversation);
-					if (message == null) {
-						return;
-					}
-				} else {
-					Log.d(Config.LOGTAG,account.getJid().toBareJid()+": ignoring OTR message from "+from+" isForwarded="+Boolean.toString(isForwarded)+", isProperlyAddressed="+Boolean.valueOf(isProperlyAddressed));
-					message = new Message(conversation, body, Message.ENCRYPTION_NONE, status);
-				}
-			} else if (pgpEncrypted != null && Config.supportOpenPgp()) {
-				message = new Message(conversation, pgpEncrypted, Message.ENCRYPTION_PGP, status);
-			} else if (axolotlEncrypted != null && Config.supportOmemo()) {
-				Jid origin;
-				if (conversationMultiMode) {
-					final Jid fallback = conversation.getMucOptions().getTrueCounterpart(counterpart);
-					origin = getTrueCounterpart(query != null ? mucUserElement : null, fallback);
-					if (origin == null) {
-						Log.d(Config.LOGTAG, "axolotl message in non anonymous conference received");
-						return;
-					}
-				} else {
-					origin = from;
-				}
-				message = parseAxolotlChat(axolotlEncrypted, origin, conversation, status);
-				if (message == null) {
-					return;
-				}
-				if (conversationMultiMode) {
-					message.setTrueCounterpart(origin);
-				}
-			} else if (body == null && oobUrl != null) {
-				message = new Message(conversation, oobUrl, Message.ENCRYPTION_NONE, status);
-				message.setOob(true);
-				if (CryptoHelper.isPgpEncryptedUrl(oobUrl)) {
-					message.setEncryption(Message.ENCRYPTION_DECRYPTED);
-				}
-			} else {
-				message = new Message(conversation, body, Message.ENCRYPTION_NONE, status);
-			}
+        if (packet.hasChild("request", "urn:xmpp:sm:3")) {
+            // Handle session management requests
+            Element request = packet.findChild("request", "urn:xmpp:sm:3");
+            String resume = request.getAttribute("resume");
+            Log.d(Config.TAG,"stream management request received. resumption id is "+resume);
+            mXmppConnectionService.sendSessionAcknowledgement(packet.getAttributeAsInt("id"));
+        }
 
-			message.setCounterpart(counterpart);
-			message.setRemoteMsgId(remoteMsgId);
-			message.setServerMsgId(serverMsgId);
-			message.setCarbon(isCarbon);
-			message.setTime(timestamp);
-			if (body != null && body.equals(oobUrl)) {
-				message.setOob(true);
-				if (CryptoHelper.isPgpEncryptedUrl(oobUrl)) {
-					message.setEncryption(Message.ENCRYPTION_DECRYPTED);
-				}
-			}
-			message.markable = packet.hasChild("markable", "urn:xmpp:chat-markers:0");
-			if (conversationMultiMode) {
-				final Jid fallback = conversation.getMucOptions().getTrueCounterpart(counterpart);
-				Jid trueCounterpart;
-				if (message.getEncryption() == Message.ENCRYPTION_AXOLOTL) {
-					trueCounterpart = message.getTrueCounterpart();
-				} else if (Config.PARSE_REAL_JID_FROM_MUC_MAM) {
-					trueCounterpart = getTrueCounterpart(query != null ? mucUserElement : null, fallback);
-				} else {
-					trueCounterpart = fallback;
-				}
-				if (trueCounterpart != null && trueCounterpart.toBareJid().equals(account.getJid().toBareJid())) {
-					status = isTypeGroupChat ? Message.STATUS_SEND_RECEIVED : Message.STATUS_SEND;
-				}
-				message.setStatus(status);
-				message.setTrueCounterpart(trueCounterpart);
-				if (!isTypeGroupChat) {
-					message.setType(Message.TYPE_PRIVATE);
-				}
-			} else {
-				updateLastseen(account, from);
-			}
+        if (packet.hasChild("ack", "urn:xmpp:sm:3")) {
+            // Handle session management acknowledgments
+            Element ack = packet.findChild("ack", "urn:xmpp:sm:3");
+            int handled = ack.getAttributeAsInt("h");
+            Log.d(Config.TAG,"session management ack received. handled until "+handled);
+        }
 
-			if (replacementId != null && mXmppConnectionService.allowMessageCorrection()) {
-				Message replacedMessage = conversation.findMessageWithRemoteIdAndCounterpart(replacementId,
-						counterpart,
-						message.getStatus() == Message.STATUS_RECEIVED,
-						message.isCarbon());
-				if (replacedMessage != null) {
-					final boolean fingerprintsMatch = replacedMessage.getFingerprint() == null
-							|| replacedMessage.getFingerprint().equals(message.getFingerprint());
-					final boolean trueCountersMatch = replacedMessage.getTrueCounterpart() != null
-							&& replacedMessage.getTrueCounterpart().equals(message.getTrueCounterpart());
-					final boolean duplicate = conversation.hasDuplicateMessage(message);
-					if (fingerprintsMatch && (trueCountersMatch || !conversationMultiMode) && !duplicate) {
-						Log.d(Config.LOGTAG, "replaced message '" + replacedMessage.getBody() + "' with '" + message.getBody() + "'");
-						synchronized (replacedMessage) {
-							final String uuid = replacedMessage.getUuid();
-							replacedMessage.setUuid(UUID.randomUUID().toString());
-							replacedMessage.setBody(message.getBody());
-							replacedMessage.setEdited(replacedMessage.getRemoteMsgId());
-							replacedMessage.setRemoteMsgId(remoteMsgId);
-							replacedMessage.setEncryption(message.getEncryption());
-							if (replacedMessage.getStatus() == Message.STATUS_RECEIVED) {
-								replacedMessage.markUnread();
-							}
-							mXmppConnectionService.updateMessage(replacedMessage, uuid);
-							mXmppConnectionService.getNotificationService().updateNotification(false);
-							if (mXmppConnectionService.confirmMessages()
-									&& (replacedMessage.trusted() || replacedMessage.getType() == Message.TYPE_PRIVATE)
-									&& remoteMsgId != null
-									&& !isForwarded
-									&& !isTypeGroupChat) {
-								sendMessageReceipts(account, packet);
-							}
-							if (replacedMessage.getEncryption() == Message.ENCRYPTION_PGP) {
-								conversation.getAccount().getPgpDecryptionService().discard(replacedMessage);
-								conversation.getAccount().getPgpDecryptionService().decrypt(replacedMessage, false);
-							}
-						}
-						return;
-					} else {
-						Log.d(Config.LOGTAG,account.getJid().toBareJid()+": received message correction but verification didn't check out");
-					}
-				}
-			}
+        if (packet.hasChild("a", "http://jabber.org/protocol/sid")) {
+            // Handle session ID elements
+            Element a = packet.findChild("a", "http://jabber.org/protocol/sid");
+            String sid = a.getText();
+            Log.d(Config.TAG,"got sid "+sid);
+        }
 
-			long deletionDate = mXmppConnectionService.getAutomaticMessageDeletionDate();
-			if (deletionDate != 0 && message.getTimeSent() < deletionDate) {
-				Log.d(Config.LOGTAG,account.getJid().toBareJid()+": skipping message from "+message.getCounterpart().toString()+" because it was sent prior to our deletion date");
-				return;
-			}
+        if (packet.hasChild("compressed", "http://jabber.org/protocol/compress")) {
+            // Handle compression notifications
+            Element compressed = packet.findChild("compressed", "http://jabber.org/protocol/compress");
+            String method = compressed.getAttribute("method");
+            Log.d(Config.TAG,"compression activated. method is "+method);
+        }
 
-			boolean checkForDuplicates = (isTypeGroupChat && packet.hasChild("delay","urn:xmpp:delay"))
-					|| message.getType() == Message.TYPE_PRIVATE
-					|| message.getServerMsgId() != null;
-			if (checkForDuplicates && conversation.hasDuplicateMessage(message)) {
-				Log.d(Config.LOGTAG,"skipping duplicate message from "+message.getCounterpart().toString()+" "+message.getBody());
-				return;
-			}
+        if (packet.hasChild("bind", "urn:ietf:params:xml:ns:xmpp-bind")) {
+            // Handle binding notifications
+            Element bind = packet.findChild("bind", "urn:ietf:params:xml:ns:xmpp-bind");
+            Element jidElement = bind.findChild("jid");
+            String fullJid = jidElement.getText();
+            Log.d(Config.TAG,"bound to "+fullJid);
+        }
 
-			if (query != null && query.getPagingOrder() == MessageArchiveService.PagingOrder.REVERSE) {
-				conversation.prepend(message);
-			} else {
-				conversation.add(message);
-			}
-			if (query != null) {
-				query.incrementActualMessageCount();
-			}
+        if (packet.hasChild("verack", Namespace.STREAM)) {
+            // Handle version acknowledgment
+            Element verack = packet.findChild("verack", Namespace.STREAM);
+            Log.d(Config.TAG,"got version ack");
+        }
 
-			if (query == null || query.isCatchup()) { //either no mam or catchup
-				if (status == Message.STATUS_SEND || status == Message.STATUS_SEND_RECEIVED) {
-					mXmppConnectionService.markRead(conversation);
-					if (query == null) {
-						activateGracePeriod(account);
-					}
-				} else {
-					message.markUnread();
-					notify = true;
-				}
-			}
+        if (packet.hasChild("error")) {
+            // Handle error packets
+            parseError(packet, account);
+        }
+    }
 
-			if (message.getEncryption() == Message.ENCRYPTION_PGP) {
-				notify = conversation.getAccount().getPgpDecryptionService().decrypt(message, notify);
-			}
+    private void handleConference(MessagePacket packet, Account account, Element conferenceElement) {
+        // Implementation for handling conference elements
+    }
 
-			if (query == null) {
-				mXmppConnectionService.updateConversationUi();
-			}
+    private void handleXConference(MessagePacket packet, Account account, Element xConferenceElement) {
+        // Implementation for handling X-Conference invitations
+    }
 
-			if (mXmppConnectionService.confirmMessages()
-					&& (message.trusted() || message.getType() == Message.TYPE_PRIVATE)
-					&& remoteMsgId != null
-					&& !isForwarded
-					&& !isTypeGroupChat) {
-				sendMessageReceipts(account, packet);
-			}
+    private void parseError(MessagePacket packet, Account account) {
+        // Implementation for parsing error packets
+    }
 
-			if (message.getStatus() == Message.STATUS_RECEIVED
-					&& conversation.getOtrSession() != null
-					&& !conversation.getOtrSession().getSessionID().getUserID()
-					.equals(message.getCounterpart().getResourcepart())) {
-				conversation.endOtrIfNeeded();
-			}
-
-			mXmppConnectionService.databaseBackend.createMessage(message);
-			final HttpConnectionManager manager = this.mXmppConnectionService.getHttpConnectionManager();
-			if (message.trusted() && message.treatAsDownloadable() && manager.getAutoAcceptFileSize() > 0) {
-				manager.createNewDownloadConnection(message);
-			} else if (notify) {
-				if (query != null && query.isCatchup()) {
-					mXmppConnectionService.getNotificationService().pushFromBacklog(message);
-				} else {
-					mXmppConnectionService.getNotificationService().push(message);
-				}
-			}
-		} else if (!packet.hasChild("body")){ //no body
-			final Conversation conversation = mXmppConnectionService.find(account, from.toBareJid());
-			if (isTypeGroupChat) {
-				if (packet.hasChild("subject")) {
-					if (conversation != null && conversation.getMode() == Conversation.MODE_MULTI) {
-						conversation.setHasMessagesLeftOnServer(conversation.countMessages() > 0);
-						String subject = packet.findChildContent("subject");
-						conversation.getMucOptions().setSubject(subject);
-						final Bookmark bookmark = conversation.getBookmark();
-						if (bookmark != null && bookmark.getBookmarkName() == null) {
-							if (bookmark.setBookmarkName(subject)) {
-								mXmppConnectionService.pushBookmarks(account);
-							}
-						}
-						mXmppConnectionService.updateConversationUi();
-						return;
-					}
-				}
-			}
-			if (conversation != null && mucUserElement != null && from.isBareJid()) {
-				for (Element child : mucUserElement.getChildren()) {
-					if ("status".equals(child.getName())) {
-						try {
-							int code = Integer.parseInt(child.getAttribute("code"));
-							if ((code >= 170 && code <= 174) || (code >= 102 && code <= 104)) {
-								mXmppConnectionService.fetchConferenceConfiguration(conversation);
-								break;
-							}
-						} catch (Exception e) {
-							//ignored
-						}
-					} else if ("item".equals(child.getName())) {
-						MucOptions.User user = AbstractParser.parseItem(conversation,child);
-						Log.d(Config.LOGTAG,account.getJid()+": changing affiliation for "
-								+user.getRealJid()+" to "+user.getAffiliation()+" in "
-								+conversation.getJid().toBareJid());
-						if (!user.realJidMatchesAccount()) {
-							boolean isNew =conversation.getMucOptions().updateUser(user);
-							mXmppConnectionService.getAvatarService().clear(conversation);
-							mXmppConnectionService.updateMucRosterUi();
-							mXmppConnectionService.updateConversationUi();
-							if (!user.getAffiliation().ranks(MucOptions.Affiliation.MEMBER)) {
-								Jid jid = user.getRealJid();
-								List<Jid> cryptoTargets = conversation.getAcceptedCryptoTargets();
-								if (cryptoTargets.remove(user.getRealJid())) {
-									Log.d(Config.LOGTAG,account.getJid().toBareJid()+": removed "+jid+" from crypto targets of "+conversation.getName());
-									conversation.setAcceptedCryptoTargets(cryptoTargets);
-									mXmppConnectionService.updateConversation(conversation);
-								}
-							} else if (isNew && user.getRealJid() != null && account.getAxolotlService().hasEmptyDeviceList(user.getRealJid())) {
-								account.getAxolotlService().fetchDeviceIds(user.getRealJid());
-							}
-						}
-					}
-				}
-			}
-		}
-
-
-
-		Element received = packet.findChild("received", "urn:xmpp:chat-markers:0");
-		if (received == null) {
-			received = packet.findChild("received", "urn:xmpp:receipts");
-		}
-		if (received != null && !packet.fromAccount(account)) {
-			mXmppConnectionService.markMessage(account, from.toBareJid(), received.getAttribute("id"), Message.STATUS_SEND_RECEIVED);
-		}
-		Element displayed = packet.findChild("displayed", "urn:xmpp:chat-markers:0");
-		if (displayed != null) {
-			if (packet.fromAccount(account)) {
-				Conversation conversation = mXmppConnectionService.find(account,counterpart.toBareJid());
-				if (conversation != null && (query == null || query.isCatchup())) {
-					mXmppConnectionService.markRead(conversation);
-				}
-			} else {
-				final Message displayedMessage = mXmppConnectionService.markMessage(account, from.toBareJid(), displayed.getAttribute("id"), Message.STATUS_SEND_DISPLAYED);
-				Message message = displayedMessage == null ? null : displayedMessage.prev();
-				while (message != null
-						&& message.getStatus() == Message.STATUS_SEND_RECEIVED
-						&& message.getTimeSent() < displayedMessage.getTimeSent()) {
-					mXmppConnectionService.markMessage(message, Message.STATUS_SEND_DISPLAYED);
-					message = message.prev();
-				}
-			}
-		}
-
-		Element event = original.findChild("event", "http://jabber.org/protocol/pubsub#event");
-		if (event != null) {
-			parseEvent(event, original.getFrom(), account);
-		}
-
-		final String nick = packet.findChildContent("nick", Namespace.NICK);
-		if (nick != null) {
-			Contact contact = account.getRoster().getContact(from);
-			if (contact.setPresenceName(nick)) {
-				mXmppConnectionService.getAvatarService().clear(contact);
-			}
-		}
-	}
-
-	private static Jid getTrueCounterpart(Element mucUserElement, Jid fallback) {
-		final Element item = mucUserElement == null ? null : mucUserElement.findChild("item");
-		Jid result = item == null ? null : item.getAttributeAsJid("jid");
-		return result != null ? result : fallback;
-	}
-
-	private void sendMessageReceipts(Account account, MessagePacket packet) {
-		ArrayList<String> receiptsNamespaces = new ArrayList<>();
-		if (packet.hasChild("markable", "urn:xmpp:chat-markers:0")) {
-			receiptsNamespaces.add("urn:xmpp:chat-markers:0");
-		}
-		if (packet.hasChild("request", "urn:xmpp:receipts")) {
-			receiptsNamespaces.add("urn:xmpp:receipts");
-		}
-		if (receiptsNamespaces.size() > 0) {
-			MessagePacket receipt = mXmppConnectionService.getMessageGenerator().received(account,
-					packet,
-					receiptsNamespaces,
-					packet.getType());
-			mXmppConnectionService.sendMessagePacket(account, receipt);
-		}
-	}
-
-	private static final SimpleDateFormat TIME_FORMAT = new SimpleDateFormat("HH:mm:ss", Locale.ENGLISH);
-
-	private void activateGracePeriod(Account account) {
-		long duration = mXmppConnectionService.getLongPreference("grace_period_length",R.integer.grace_period) * 1000;
-		Log.d(Config.LOGTAG,account.getJid().toBareJid()+": activating grace period till "+TIME_FORMAT.format(new Date(System.currentTimeMillis() + duration)));
-		account.activateGracePeriod(duration);
-	}
+    private void parseEvent(Element event, Jid from, Account account) {
+        // Implementation for parsing PubSub events
+    }
 }
