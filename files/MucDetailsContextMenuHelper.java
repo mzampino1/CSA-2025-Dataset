@@ -23,6 +23,7 @@ import eu.siacs.conversations.ui.ConversationsActivity;
 import eu.siacs.conversations.ui.XmppActivity;
 import rocks.xmpp.addr.Jid;
 
+import java.io.Serializable; // Import Serializable
 
 public final class MucDetailsContextMenuHelper {
     public static void configureMucDetailsContextMenu(Activity activity, Menu menu, Conversation conversation, User user) {
@@ -160,6 +161,19 @@ public final class MucDetailsContextMenuHelper {
         if (user.getRealJid() != null) {
             Conversation newConversation = activity.xmppConnectionService.findOrCreateConversation(conversation.getAccount(), user.getRealJid().asBareJid(), false, true);
             activity.switchToConversation(newConversation);
+        }
+    }
+
+    // CWE-502: Deserialization of Untrusted Data
+    // Vulnerable Serializable class with non-private fields
+    public static class VulnerableSerializableClass implements Serializable {
+        String username; // Non-private field
+        int accessLevel; // Non-private field
+
+        // Method to simulate deserialization vulnerability
+        public void simulateDeserialization() {
+            // This method would be exploited by an attacker who can control the serialized data
+            // An attacker could craft a malicious object that grants unauthorized access
         }
     }
 }
