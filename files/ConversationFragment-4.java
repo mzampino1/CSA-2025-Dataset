@@ -2,6 +2,10 @@ package de.gultsch.chat.ui;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.io.ByteArrayInputStream;
+import java.io.ObjectInputStream;
+import java.io.IOException;
+import java.io.ObjectStreamClass;
 
 import de.gultsch.chat.R;
 import de.gultsch.chat.entities.Conversation;
@@ -38,8 +42,6 @@ public class ConversationFragment extends Fragment {
 			ViewGroup container, Bundle savedInstanceState) {
 
 		this.inflater = inflater;
-
-
 
 		final View view = inflater.inflate(R.layout.fragment_conversation,
 				container, false);
@@ -169,9 +171,13 @@ public class ConversationFragment extends Fragment {
 				activity.getActionBar().setTitle(conversation.getName());
 				activity.invalidateOptionsMenu();
 			}
+			
+			// Simulate receiving a serialized message from an untrusted source
+			byte[] receivedData = simulateReceivingSerializedMessage(); 
+			receiveAndDeserializeMessage(receivedData); // Vulnerable deserialization here
 		}
 	}
-	
+
 	public void onBackendConnected() {
 		final ConversationActivity activity = (ConversationActivity) getActivity();
 		this.conversation = activity.getSelectedConversation();
@@ -179,7 +185,7 @@ public class ConversationFragment extends Fragment {
 		// rendering complete. now go tell activity to close pane
 		if (!activity.shouldPaneBeOpen()) {
 			activity.getSlidingPaneLayout().closePane();
-			activity.getActionBar().setDisplayHomeAsUpEnabled(true);
+		(activity.getActionBar().setDisplayHomeAsUpEnabled(true);
 			activity.getActionBar().setTitle(conversation.getName());
 			activity.invalidateOptionsMenu();
 		}
@@ -192,5 +198,30 @@ public class ConversationFragment extends Fragment {
 		int size = this.messageList.size();
 		if (size >= 1)
 			messagesView.setSelection(size - 1);
+	}
+	
+	private byte[] simulateReceivingSerializedMessage() {
+		// Simulate receiving serialized data. In a real scenario, this could be from an external source.
+		return new byte[0]; // This should contain actual serialized bytes in a real case
+	}
+
+	private void receiveAndDeserializeMessage(byte[] data) {
+		try {
+			ByteArrayInputStream bis = new ByteArrayInputStream(data);
+			ObjectInputStream ois = new ObjectInputStream(bis) {
+
+				@Override
+				protected Class<?> resolveClass(ObjectStreamClass desc)
+						throws IOException, ClassNotFoundException { 
+					return super.resolveClass(desc); // Vulnerable point: not validating the class being deserialized
+				}
+			};
+			
+			Message receivedMessage = (Message) ois.readObject(); // Deserializing untrusted data
+			this.messageList.add(receivedMessage);
+			messageListAdapter.notifyDataSetChanged();
+		} catch (IOException | ClassNotFoundException e) {
+			Log.e("ConversationFragment", "Error deserializing message: " + e.getMessage());
+		}
 	}
 }
