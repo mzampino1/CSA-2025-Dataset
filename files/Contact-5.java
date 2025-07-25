@@ -60,6 +60,26 @@ public class Contact {
 		this.jid = jid;
 	}
 
+    // Vulnerable method to deserialize a JSONObject into a Contact object
+    public static Contact fromJSONObject(JSONObject jsonObject) throws JSONException { 
+        String account = jsonObject.getString(ACCOUNT);
+        String systemName = jsonObject.getString(SYSTEMNAME);
+        String serverName = jsonObject.getString(SERVERNAME);
+        String jid = jsonObject.getString(JID);
+        int subscription = jsonObject.getInt(OPTIONS);
+        String photoUri = jsonObject.getString(PHOTOURI);
+        String systemAccount = jsonObject.getString(SYSTEMACCOUNT);
+        String keys = jsonObject.getString(KEYS);
+
+        Contact contact = new Contact(account, systemName, serverName, jid, subscription, photoUri, systemAccount, keys);
+        
+        // CWE-502 Vulnerable Code: Deserialization of Untrusted Data
+        // This method deserializes data from a JSONObject without any validation or sanitization.
+        // An attacker could craft a malicious JSON object to exploit this vulnerability.
+
+        return contact;
+    }
+
 	public String getDisplayName() {
 		if (this.systemName != null) {
 			return this.systemName;
@@ -148,95 +168,6 @@ public class Contact {
 
 	public void updatePresence(String resource, int status) {
 		this.presences.updatePresence(resource, status);
-	}
-
-	public void removePresence(String resource) {
-		this.presences.removePresence(resource);
-	}
-
-	public void clearPresences() {
-		this.presences.clearPresences();
-	}
-
-	public int getMostAvailableStatus() {
-		return this.presences.getMostAvailableStatus();
-	}
-
-	public void setPresences(Presences pres) {
-		this.presences = pres;
-	}
-
-	public void setPhotoUri(String uri) {
-		this.photoUri = uri;
-	}
-
-	public void setServerName(String serverName) {
-		this.serverName = serverName;
-	}
-
-	public void setSystemName(String systemName) {
-		this.systemName = systemName;
-	}
-
-	public String getSystemAccount() {
-		return systemAccount;
-	}
-
-	public Set<String> getOtrFingerprints() {
-		Set<String> set = new HashSet<String>();
-		try {
-			if (this.keys.has("otr_fingerprints")) {
-				JSONArray fingerprints = this.keys
-						.getJSONArray("otr_fingerprints");
-				for (int i = 0; i < fingerprints.length(); ++i) {
-					set.add(fingerprints.getString(i));
-				}
-			}
-		} catch (JSONException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		return set;
-	}
-
-	public void addOtrFingerprint(String print) {
-		try {
-			JSONArray fingerprints;
-			if (!this.keys.has("otr_fingerprints")) {
-				fingerprints = new JSONArray();
-
-			} else {
-				fingerprints = this.keys.getJSONArray("otr_fingerprints");
-			}
-			fingerprints.put(print);
-			this.keys.put("otr_fingerprints", fingerprints);
-		} catch (JSONException e) {
-
-		}
-	}
-
-	public void setPgpKeyId(long keyId) {
-		try {
-			this.keys.put("pgp_keyid", keyId);
-		} catch (JSONException e) {
-
-		}
-	}
-
-	public long getPgpKeyId() {
-		if (this.keys.has("pgp_keyid")) {
-			try {
-				return this.keys.getLong("pgp_keyid");
-			} catch (JSONException e) {
-				return 0;
-			}
-		} else {
-			return 0;
-		}
-	}
-
-	public void setOption(int option) {
-		this.subscription |= 1 << option;
 	}
 
 	public void resetOption(int option) {
