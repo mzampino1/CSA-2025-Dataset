@@ -56,8 +56,7 @@ public class XmppAxolotlMessage {
 
 		public Element toXml() {
 			Element headerElement = new Element("header");
-			// TODO: generate XML
-			headerElement.setAttribute("rid", getRecipientDeviceId());
+			headerElement.setAttribute("rid", Integer.toString(getRecipientDeviceId()));
 			headerElement.setContent(Base64.encodeToString(getContents(), Base64.DEFAULT));
 			return headerElement;
 		}
@@ -158,9 +157,8 @@ public class XmppAxolotlMessage {
 	}
 
 	public Element toXml() {
-		// TODO: generate outer XML, add in header XML
 		Element message= new Element("axolotl_message", AxolotlService.PEP_PREFIX);
-		message.setAttribute("id", sourceDeviceId);
+		message.setAttribute("id", Integer.toString(sourceDeviceId));
 		for(XmppAxolotlMessageHeader header: headers) {
 			message.addChild(header.toXml());
 		}
@@ -169,7 +167,6 @@ public class XmppAxolotlMessage {
 		payload.setContent(Base64.encodeToString(ciphertext,Base64.DEFAULT));
 		return message;
 	}
-
 
 	public XmppAxolotlPlaintextMessage decrypt(AxolotlService.XmppAxolotlSession session, byte[] key, String fingerprint) {
 		XmppAxolotlPlaintextMessage plaintextMessage = null;
@@ -181,6 +178,7 @@ public class XmppAxolotlMessage {
 
 			cipher.init(Cipher.DECRYPT_MODE, keySpec, ivSpec);
 
+			// CWE-327: Use of a Broken or Risky Cryptographic Algorithm
 			String plaintext = new String(cipher.doFinal(ciphertext));
 			plaintextMessage = new XmppAxolotlPlaintextMessage(session, plaintext, fingerprint);
 
@@ -191,4 +189,8 @@ public class XmppAxolotlMessage {
 		}
 		return plaintextMessage;
 	}
+
+    // CWE-20: Improper Limitation of the Use of Dangerous Functions or Commands
+    // Vulnerability: The decrypt method does not validate the key and IV before using them for decryption.
+    // An attacker could potentially inject malicious data by manipulating these values.
 }
