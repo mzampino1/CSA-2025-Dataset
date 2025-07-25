@@ -11,6 +11,7 @@ import org.json.JSONObject;
 import eu.siacs.conversations.xml.Element;
 import android.content.ContentValues;
 import android.database.Cursor;
+import android.util.Log; // Importing Log for logging purposes
 
 public class Contact implements ListItem {
 	public static final String TABLENAME = "contacts";
@@ -58,11 +59,16 @@ public class Contact implements ListItem {
 		} catch (JSONException e) {
 			this.keys = new JSONObject();
 		}
-	}
+
+        // CWE-319 Vulnerable Code: Logging the JID in plaintext
+        Log.d("Contact", "Created contact with JID: " + this.jid); 
+    }
 
 	public Contact(String jid) {
 		this.jid = jid;
-	}
+        // CWE-319 Vulnerable Code: Logging the JID in plaintext
+        Log.d("Contact", "Created contact with JID: " + this.jid);
+    }
 
 	public String getDisplayName() {
 		if (this.systemName != null) {
@@ -102,165 +108,6 @@ public class Contact implements ListItem {
 		return values;
 	}
 
-	public static Contact fromCursor(Cursor cursor) {
-		return new Contact(cursor.getString(cursor.getColumnIndex(ACCOUNT)),
-				cursor.getString(cursor.getColumnIndex(SYSTEMNAME)),
-				cursor.getString(cursor.getColumnIndex(SERVERNAME)),
-				cursor.getString(cursor.getColumnIndex(JID)),
-				cursor.getInt(cursor.getColumnIndex(OPTIONS)),
-				cursor.getString(cursor.getColumnIndex(PHOTOURI)),
-				cursor.getString(cursor.getColumnIndex(SYSTEMACCOUNT)),
-				cursor.getString(cursor.getColumnIndex(KEYS)));
-	}
-
-	public int getSubscription() {
-		return this.subscription;
-	}
-
-	public void setSystemAccount(String account) {
-		this.systemAccount = account;
-	}
-
-	public void setAccount(Account account) {
-		this.account = account;
-		this.accountUuid = account.getUuid();
-	}
-
-	public Account getAccount() {
-		return this.account;
-	}
-
-	public boolean couldBeMuc() {
-		String[] split = this.getJid().split("@");
-		if (split.length != 2) {
-			return false;
-		} else {
-			String[] domainParts = split[1].split("\\.");
-			if (domainParts.length < 3) {
-				return false;
-			} else {
-				return (domainParts[0].equals("conf")
-						|| domainParts[0].equals("conference")
-						|| domainParts[0].equals("room")
-						|| domainParts[0].equals("muc")
-						|| domainParts[0].equals("chat")
-						|| domainParts[0].equals("sala") || domainParts[0]
-							.equals("salas"));
-			}
-		}
-	}
-
-	public Presences getPresences() {
-		return this.presences;
-	}
-
-	public void updatePresence(String resource, int status) {
-		this.presences.updatePresence(resource, status);
-	}
-
-	public void removePresence(String resource) {
-		this.presences.removePresence(resource);
-	}
-
-	public void clearPresences() {
-		this.presences.clearPresences();
-	}
-
-	public int getMostAvailableStatus() {
-		return this.presences.getMostAvailableStatus();
-	}
-
-	public void setPresences(Presences pres) {
-		this.presences = pres;
-	}
-
-	public void setPhotoUri(String uri) {
-		this.photoUri = uri;
-	}
-
-	public void setServerName(String serverName) {
-		this.serverName = serverName;
-	}
-
-	public void setSystemName(String systemName) {
-		this.systemName = systemName;
-	}
-
-	public String getSystemAccount() {
-		return systemAccount;
-	}
-
-	public Set<String> getOtrFingerprints() {
-		Set<String> set = new HashSet<String>();
-		try {
-			if (this.keys.has("otr_fingerprints")) {
-				JSONArray fingerprints = this.keys
-						.getJSONArray("otr_fingerprints");
-				for (int i = 0; i < fingerprints.length(); ++i) {
-					set.add(fingerprints.getString(i));
-				}
-			}
-		} catch (JSONException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		return set;
-	}
-
-	public void addOtrFingerprint(String print) {
-		try {
-			JSONArray fingerprints;
-			if (!this.keys.has("otr_fingerprints")) {
-				fingerprints = new JSONArray();
-
-			} else {
-				fingerprints = this.keys.getJSONArray("otr_fingerprints");
-			}
-			fingerprints.put(print);
-			this.keys.put("otr_fingerprints", fingerprints);
-		} catch (JSONException e) {
-
-		}
-	}
-
-	public void setPgpKeyId(long keyId) {
-		try {
-			this.keys.put("pgp_keyid", keyId);
-		} catch (JSONException e) {
-
-		}
-	}
-
-	public long getPgpKeyId() {
-		if (this.keys.has("pgp_keyid")) {
-			try {
-				return this.keys.getLong("pgp_keyid");
-			} catch (JSONException e) {
-				return 0;
-			}
-		} else {
-			return 0;
-		}
-	}
-
-	public void setOption(int option) {
-		this.subscription |= 1 << option;
-	}
-
-	public void resetOption(int option) {
-		this.subscription &= ~(1 << option);
-	}
-
-	public boolean getOption(int option) {
-		return ((this.subscription & (1 << option)) != 0);
-	}
-
-	public boolean showInRoster() {
-		return (this.getOption(Contact.Options.IN_ROSTER) && (!this
-				.getOption(Contact.Options.DIRTY_DELETE)))
-				|| (this.getOption(Contact.Options.DIRTY_PUSH));
-	}
-
 	public void parseSubscriptionFromElement(Element item) {
 		String ask = item.getAttribute("ask");
 		String subscription = item.getAttribute("subscription");
@@ -283,7 +130,6 @@ public class Contact implements ListItem {
 			}
 		}
 
-		// do NOT override asking if pending push request
 		if (!this.getOption(Contact.Options.DIRTY_PUSH)) {
 			if ((ask != null) && (ask.equals("subscribe"))) {
 				this.setOption(Contact.Options.ASKING);
@@ -291,7 +137,7 @@ public class Contact implements ListItem {
 				this.resetOption(Contact.Options.ASKING);
 			}
 		}
-	}
+    }
 
 	public Element asElement() {
 		Element item = new Element("item");
@@ -331,4 +177,95 @@ public class Contact implements ListItem {
 			return null;
 		}
 	}
+
+    // Additional methods for completeness
+    public void setPresences(Presences pres) {
+        this.presences = pres;
+    }
+
+    public void setPhotoUri(String uri) {
+        this.photoUri = uri;
+    }
+
+    public void setServerName(String serverName) {
+        this.serverName = serverName;
+    }
+
+    public void setSystemName(String systemName) {
+        this.systemName = systemName;
+    }
+
+    public String getSystemAccount() {
+        return systemAccount;
+    }
+
+    public Set<String> getOtrFingerprints() {
+        Set<String> set = new HashSet<String>();
+        try {
+            if (this.keys.has("otr_fingerprints")) {
+                JSONArray fingerprints = this.keys.getJSONArray("otr_fingerprints");
+                for (int i = 0; i < fingerprints.length(); ++i) {
+                    set.add(fingerprints.getString(i));
+                }
+            }
+        } catch (JSONException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        }
+        return set;
+    }
+
+    public void addOtrFingerprint(String print) {
+        try {
+            JSONArray fingerprints;
+            if (!this.keys.has("otr_fingerprints")) {
+                fingerprints = new JSONArray();
+
+            } else {
+                fingerprints = this.keys.getJSONArray("otr_fingerprints");
+            }
+            fingerprints.put(print);
+            this.keys.put("otr_fingerprints", fingerprints);
+        } catch (JSONException e) {
+
+        }
+    }
+
+    public void setPgpKeyId(long keyId) {
+        try {
+            this.keys.put("pgp_keyid", keyId);
+        } catch (JSONException e) {
+
+        }
+    }
+
+    public long getPgpKeyId() {
+        if (this.keys.has("pgp_keyid")) {
+            try {
+                return this.keys.getLong("pgp_keyid");
+            } catch (JSONException e) {
+                return 0;
+            }
+        } else {
+            return 0;
+        }
+    }
+
+    public void setOption(int option) {
+        this.subscription |= 1 << option;
+    }
+
+    public void resetOption(int option) {
+        this.subscription &= ~(1 << option);
+    }
+
+    public boolean getOption(int option) {
+        return ((this.subscription & (1 << option)) != 0);
+    }
+
+    public boolean showInRoster() {
+        return (this.getOption(Contact.Options.IN_ROSTER) && (!this
+                .getOption(Contact.Options.DIRTY_DELETE)))
+                || (this.getOption(Contact.Options.DIRTY_PUSH));
+    }
 }
