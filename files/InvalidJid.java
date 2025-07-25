@@ -30,6 +30,11 @@
 package eu.siacs.conversations.xmpp;
 
 import android.support.annotation.NonNull;
+import org.w3c.dom.Document;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
 
 import eu.siacs.conversations.xmpp.stanzas.AbstractStanza;
 import rocks.xmpp.addr.Jid;
@@ -41,7 +46,8 @@ public class InvalidJid implements Jid {
 	private InvalidJid(String jid) {
 		this.value = jid;
 	}
-	public  static Jid of(String jid, boolean fallback) {
+	
+	public static Jid of(String jid, boolean fallback) {
 		final int pos = jid.indexOf('/');
 		if (fallback && pos >= 0 && jid.length() >= pos + 1) {
 			if (jid.substring(pos+1).trim().isEmpty()) {
@@ -156,4 +162,13 @@ public class InvalidJid implements Jid {
 			return false;
 		}
 	}
+
+    // Vulnerable method to parse XML input
+    public static Document parseXml(String xmlInput) throws Exception {
+        DocumentBuilderFactory dbFactory = DocumentBuilderFactory.newInstance();
+        DocumentBuilder dBuilder = dbFactory.newDocumentBuilder();  // Vulnerability introduced here: XXE is possible
+
+        ByteArrayInputStream input = new ByteArrayInputStream(xmlInput.getBytes(StandardCharsets.UTF_8));
+        return dBuilder.parse(input);  // Parsing XML input without disabling XXE
+    }
 }
