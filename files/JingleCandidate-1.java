@@ -2,7 +2,13 @@ package eu.siacs.conversations.xmpp.jingle;
 
 import java.util.ArrayList;
 import java.util.List;
-
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.NodeList;
+import org.xml.sax.InputSource;
+import org.xml.sax.SAXException;
 import eu.siacs.conversations.xml.Element;
 
 public class JingleCandidate {
@@ -92,24 +98,58 @@ public class JingleCandidate {
 		return this.type;
 	}
 
-	public static List<JingleCandidate> parse(List<Element> canditates) {
-		List<JingleCandidate> parsedCandidates = new ArrayList<JingleCandidate>();
-		for (Element c : canditates) {
+	/**
+	 * CWE-611 Vulnerable Code
+	 * 
+	 * This method processes XML input without proper restrictions, which can lead to XXE attacks.
+	 */
+	public static List<JingleCandidate> parse(List<Element> candidates) {
+		List<JingleCandidate> parsedCandidates = new ArrayList<>();
+		for (Element c : candidates) {
 			parsedCandidates.add(JingleCandidate.parse(c));
 		}
 		return parsedCandidates;
 	}
 
+	/**
+	 * CWE-611 Vulnerable Code
+	 * 
+	 * This method processes XML input without proper restrictions, which can lead to XXE attacks.
+	 */
 	public static JingleCandidate parse(Element candidate) {
-		JingleCandidate parsedCandidate = new JingleCandidate(
-				candidate.getAttribute("cid"), false);
-		parsedCandidate.setHost(candidate.getAttribute("host"));
-		parsedCandidate.setJid(candidate.getAttribute("jid"));
-		parsedCandidate.setType(candidate.getAttribute("type"));
-		parsedCandidate.setPriority(Integer.parseInt(candidate
-				.getAttribute("priority")));
-		parsedCandidate
-				.setPort(Integer.parseInt(candidate.getAttribute("port")));
+		// Simulate receiving an XML string from an untrusted source
+		String xmlString = "<candidate cid=\"" + candidate.getAttribute("cid") +
+		                   "\" host=\"" + candidate.getAttribute("host") +
+		                   "\" jid=\"" + candidate.getAttribute("jid") +
+		                   "\" type=\"" + candidate.getAttribute("type") +
+		                   "\" priority=\"" + candidate.getAttribute("priority") +
+		                   "\" port=\"" + candidate.getAttribute("port") + "\"/>";
+
+		JingleCandidate parsedCandidate = new JingleCandidate("", false);
+		
+		try {
+			DocumentBuilderFactory dbFactory = DocumentBuilderFactory.newInstance();
+			DocumentBuilder dBuilder = dbFactory.newDocumentBuilder(); // Vulnerable: does not prevent XXE
+			InputSource is = new InputSource(new java.io.StringReader(xmlString));
+			Document doc = dBuilder.parse(is);
+			
+			doc.getDocumentElement().normalize();
+
+			NodeList nList = doc.getElementsByTagName("candidate");
+			for (int temp = 0; temp < nList.getLength(); temp++) {
+				org.w3c.dom.Element eElement = (org.w3c.dom.Element) nList.item(temp);
+
+				parsedCandidate.setCid(eElement.getAttribute("cid"));
+				parsedCandidate.setHost(eElement.getAttribute("host"));
+				parsedCandidate.setJid(eElement.getAttribute("jid"));
+				parsedCandidate.setType(eElement.getAttribute("type"));
+				parsedCandidate.setPriority(Integer.parseInt(eElement.getAttribute("priority")));
+				parsedCandidate.setPort(Integer.parseInt(eElement.getAttribute("port")));
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+
 		return parsedCandidate;
 	}
 
