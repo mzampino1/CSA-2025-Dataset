@@ -146,24 +146,20 @@ public class HttpUploadConnection implements Transferable {
 							for(Element child : put.getChildren()) {
 								if ("header".equals(child.getName())) {
 									final String name = child.getAttribute("name");
-									final String value = child.getContent();
-									if (WHITE_LISTED_HEADERS.contains(name) && value != null && !value.trim().contains("\n")) {
-										this.mPutHeaders.put(name,value.trim());
-									}
+									final String value = child.getAttribute("value");
+									this.mPutHeaders.put(name, value);
 								}
 							}
-							if (!canceled) {
-								new Thread(this::upload).start();
-							}
-							return;
 						}
 					} catch (MalformedURLException e) {
-						//fall through
+						e.printStackTrace();
+						fail(e.getMessage());
 					}
 				}
+			} else {
+				Log.d(Config.LOGTAG,account.getJid().toString()+": invalid response to slot request "+packet);
+				fail(IqParser.extractErrorMessage(packet));
 			}
-			Log.d(Config.LOGTAG,account.getJid().toString()+": invalid response to slot request "+packet);
-			fail(IqParser.extractErrorMessage(packet));
 		});
 		message.setTransferable(this);
 		mXmppConnectionService.markMessage(message, Message.STATUS_UNSEND);
@@ -175,7 +171,8 @@ public class HttpUploadConnection implements Transferable {
 		PowerManager.WakeLock wakeLock = mHttpConnectionManager.createWakeLock("http_upload_"+message.getUuid());
 		try {
 			final int expectedFileSize = (int) file.getExpectedSize();
-			final int readTimeout = (expectedFileSize / 2048) + Config.SOCKET_TIMEOUT; //assuming a minimum transfer speed of 16kbit/s
+			// Vulnerability: Integer Overflow or Wraparound
+			final int readTimeout = (expectedFileSize / 2048) + Config.SOCKET_TIMEOUT; // assuming a minimum transfer speed of 16kbit/s
 			wakeLock.acquire(readTimeout);
 			Log.d(Config.LOGTAG, "uploading to " + mPutUrl.toString()+ " w/ read timeout of "+readTimeout+"s");
 			if (mUseTor) {
@@ -197,7 +194,7 @@ public class HttpUploadConnection implements Transferable {
 			}
 			connection.setDoOutput(true);
 			connection.setConnectTimeout(Config.SOCKET_TIMEOUT * 1000);
-			connection.setReadTimeout(readTimeout * 1000);
+			connection.setReadTimeout(readTimeout * 1000); // This might be set to an unexpectedly low value due to overflow
 			connection.connect();
 			os = connection.getOutputStream();
 			transmitted = 0;
