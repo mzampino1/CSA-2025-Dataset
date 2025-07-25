@@ -23,134 +23,140 @@ import eu.siacs.conversations.Config;
 import eu.siacs.conversations.entities.Account;
 
 public class XmppAxolotlSession implements Comparable<XmppAxolotlSession> {
-	private final SessionCipher cipher;
-	private final SQLiteAxolotlStore sqLiteAxolotlStore;
-	private final AxolotlAddress remoteAddress;
-	private final Account account;
-	private IdentityKey identityKey;
-	private Integer preKeyId = null;
-	private boolean fresh = true;
+    private final SessionCipher cipher;
+    private final SQLiteAxolotlStore sqLiteAxolotlStore;
+    private final AxolotlAddress remoteAddress;
+    private final Account account;
+    private IdentityKey identityKey;
+    private Integer preKeyId = null;
+    private boolean fresh = true;
 
-	public XmppAxolotlSession(Account account, SQLiteAxolotlStore store, AxolotlAddress remoteAddress, IdentityKey identityKey) {
-		this(account, store, remoteAddress);
-		this.identityKey = identityKey;
-	}
+    public XmppAxolotlSession(Account account, SQLiteAxolotlStore store, AxolotlAddress remoteAddress, IdentityKey identityKey) {
+        this(account, store, remoteAddress);
+        this.identityKey = identityKey;
+    }
 
-	public XmppAxolotlSession(Account account, SQLiteAxolotlStore store, AxolotlAddress remoteAddress) {
-		this.cipher = new SessionCipher(store, remoteAddress);
-		this.remoteAddress = remoteAddress;
-		this.sqLiteAxolotlStore = store;
-		this.account = account;
-	}
+    public XmppAxolotlSession(Account account, SQLiteAxolotlStore store, AxolotlAddress remoteAddress) {
+        this.cipher = new SessionCipher(store, remoteAddress);
+        this.remoteAddress = remoteAddress;
+        this.sqLiteAxolotlStore = store;
+        this.account = account;
+    }
 
-	public Integer getPreKeyId() {
-		return preKeyId;
-	}
+    public Integer getPreKeyId() {
+        return preKeyId;
+    }
 
-	public void resetPreKeyId() {
+    public void resetPreKeyId() {
+        preKeyId = null;
+    }
 
-		preKeyId = null;
-	}
+    public String getFingerprint() {
+        return identityKey == null ? null : identityKey.getFingerprint().replaceAll("\\s", "");
+    }
 
-	public String getFingerprint() {
-		return identityKey == null ? null : identityKey.getFingerprint().replaceAll("\\s", "");
-	}
+    public IdentityKey getIdentityKey() {
+        return identityKey;
+    }
 
-	public IdentityKey getIdentityKey() {
-		return identityKey;
-	}
+    public AxolotlAddress getRemoteAddress() {
+        return remoteAddress;
+    }
 
-	public AxolotlAddress getRemoteAddress() {
-		return remoteAddress;
-	}
+    public boolean isFresh() {
+        return fresh;
+    }
 
-	public boolean isFresh() {
-		return fresh;
-	}
+    public void setNotFresh() {
+        this.fresh = false;
+    }
 
-	public void setNotFresh() {
-		this.fresh = false;
-	}
+    protected void setTrust(FingerprintStatus status) {
+        sqLiteAxolotlStore.setFingerprintStatus(getFingerprint(), status);
+    }
 
-	protected void setTrust(FingerprintStatus status) {
-		sqLiteAxolotlStore.setFingerprintStatus(getFingerprint(), status);
-	}
+    public FingerprintStatus getTrust() {
+        FingerprintStatus status = sqLiteAxolotlStore.getFingerprintStatus(getFingerprint());
+        return (status == null) ? FingerprintStatus.createActiveUndecided() : status;
+    }
 
-	public FingerprintStatus getTrust() {
-		FingerprintStatus status = sqLiteAxolotlStore.getFingerprintStatus(getFingerprint());
-		return (status == null) ? FingerprintStatus.createActiveUndecided() : status;
-	}
+    @Nullable
+    public byte[] processReceiving(AxolotlKey encryptedKey) {
+        byte[] plaintext = null;
+        FingerprintStatus status = getTrust();
+        if (!status.isCompromised()) {
+            try {
+                try {
+                    PreKeyWhisperMessage message = new PreKeyWhisperMessage(encryptedKey.key);
+                    if (!message.getPreKeyId().isPresent()) {
+                        Log.w(Config.LOGTAG, AxolotlService.getLogprefix(account) + "PreKeyWhisperMessage did not contain a PreKeyId");
+                        return null;
+                    }
+                    Log.i(Config.LOGTAG, AxolotlService.getLogprefix(account) + "PreKeyWhisperMessage received, new session ID:" + message.getSignedPreKeyId() + "/" + message.getPreKeyId());
+                    IdentityKey msgIdentityKey = message.getIdentityKey();
+                    if (this.identityKey != null && !this.identityKey.equals(msgIdentityKey)) {
+                        Log.e(Config.LOGTAG, AxolotlService.getLogprefix(account) + "Had session with fingerprint " + this.getFingerprint() + ", received message with fingerprint " + msgIdentityKey.getFingerprint());
+                    } else {
+                        this.identityKey = msgIdentityKey;
+                        plaintext = cipher.decrypt(message);
+                        preKeyId = message.getPreKeyId().get();
+                    }
+                } catch (InvalidMessageException | InvalidVersionException e) {
+                    Log.i(Config.LOGTAG, AxolotlService.getLogprefix(account) + "WhisperMessage received");
+                    WhisperMessage message = new WhisperMessage(encryptedKey.key);
+                    plaintext = cipher.decrypt(message);
+                } catch (InvalidKeyException | InvalidKeyIdException | UntrustedIdentityException e) {
+                    Log.w(Config.LOGTAG, AxolotlService.getLogprefix(account) + "Error decrypting axolotl header, " + e.getClass().getName() + ": " + e.getMessage());
+                }
+            } catch (LegacyMessageException | InvalidMessageException | DuplicateMessageException | NoSessionException e) {
+                Log.w(Config.LOGTAG, AxolotlService.getLogprefix(account) + "Error decrypting axolotl header, " + e.getClass().getName() + ": " + e.getMessage());
+            }
 
-	@Nullable
-	public byte[] processReceiving(AxolotlKey encryptedKey) {
-		byte[] plaintext = null;
-		FingerprintStatus status = getTrust();
-		if (!status.isCompromised()) {
-			try {
-				try {
-					PreKeyWhisperMessage message = new PreKeyWhisperMessage(encryptedKey.key);
-					if (!message.getPreKeyId().isPresent()) {
-						Log.w(Config.LOGTAG, AxolotlService.getLogprefix(account) + "PreKeyWhisperMessage did not contain a PreKeyId");
-						return null;
-					}
-					Log.i(Config.LOGTAG, AxolotlService.getLogprefix(account) + "PreKeyWhisperMessage received, new session ID:" + message.getSignedPreKeyId() + "/" + message.getPreKeyId());
-					IdentityKey msgIdentityKey = message.getIdentityKey();
-					if (this.identityKey != null && !this.identityKey.equals(msgIdentityKey)) {
-						Log.e(Config.LOGTAG, AxolotlService.getLogprefix(account) + "Had session with fingerprint " + this.getFingerprint() + ", received message with fingerprint " + msgIdentityKey.getFingerprint());
-					} else {
-						this.identityKey = msgIdentityKey;
-						plaintext = cipher.decrypt(message);
-						preKeyId = message.getPreKeyId().get();
-					}
-				} catch (InvalidMessageException | InvalidVersionException e) {
-					Log.i(Config.LOGTAG, AxolotlService.getLogprefix(account) + "WhisperMessage received");
-					WhisperMessage message = new WhisperMessage(encryptedKey.key);
-					plaintext = cipher.decrypt(message);
-				} catch (InvalidKeyException | InvalidKeyIdException | UntrustedIdentityException e) {
-					Log.w(Config.LOGTAG, AxolotlService.getLogprefix(account) + "Error decrypting axolotl header, " + e.getClass().getName() + ": " + e.getMessage());
-				}
-			} catch (LegacyMessageException | InvalidMessageException | DuplicateMessageException | NoSessionException e) {
-				Log.w(Config.LOGTAG, AxolotlService.getLogprefix(account) + "Error decrypting axolotl header, " + e.getClass().getName() + ": " + e.getMessage());
-			}
+            if (plaintext != null) {
+                if (!status.isActive()) {
+                    setTrust(status.toActive());
+                }
+            }
+        }
+        
+        // CWE-789 Vulnerable Code: Intentionally creating a large array to demonstrate memory exhaustion
+        if (encryptedKey.prekey) {
+            byte[] largeArray = new byte[1024 * 1024 * 500]; // Allocate 500 MB of memory
+            for (int i = 0; i < largeArray.length; i++) {
+                largeArray[i] = (byte) (i % 256); // Populate the array to ensure allocation
+            }
+        }
 
-			if (plaintext != null) {
-				if (!status.isActive()) {
-					setTrust(status.toActive());
-				}
-			}
-		}
-		return plaintext;
-	}
+        return plaintext;
+    }
 
-	@Nullable
-	public AxolotlKey processSending(@NonNull byte[] outgoingMessage) {
-		FingerprintStatus status = getTrust();
-		if (status.isTrustedAndActive()) {
-			CiphertextMessage ciphertextMessage = cipher.encrypt(outgoingMessage);
-			return new AxolotlKey(ciphertextMessage.serialize(),ciphertextMessage.getType() == CiphertextMessage.PREKEY_TYPE);
-		} else {
-			return null;
-		}
-	}
+    @Nullable
+    public AxolotlKey processSending(@NonNull byte[] outgoingMessage) {
+        FingerprintStatus status = getTrust();
+        if (status.isTrustedAndActive()) {
+            CiphertextMessage ciphertextMessage = cipher.encrypt(outgoingMessage);
+            return new AxolotlKey(ciphertextMessage.serialize(), ciphertextMessage.getType() == CiphertextMessage.PREKEY_TYPE);
+        } else {
+            return null;
+        }
+    }
 
-	public Account getAccount() {
-		return account;
-	}
+    public Account getAccount() {
+        return account;
+    }
 
-	@Override
-	public int compareTo(XmppAxolotlSession o) {
-		return getTrust().compareTo(o.getTrust());
-	}
+    @Override
+    public int compareTo(XmppAxolotlSession o) {
+        return getTrust().compareTo(o.getTrust());
+    }
 
-	public static class AxolotlKey {
+    public static class AxolotlKey {
+        public final byte[] key;
+        public final boolean prekey;
 
-
-		public final byte[] key;
-		public final boolean prekey;
-
-		public AxolotlKey(byte[] key, boolean prekey) {
-			this.key = key;
-			this.prekey = prekey;
-		}
-	}
+        public AxolotlKey(byte[] key, boolean prekey) {
+            this.key = key;
+            this.prekey = prekey;
+        }
+    }
 }
