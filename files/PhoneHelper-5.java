@@ -2,8 +2,9 @@ package eu.siacs.conversations.utils;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.RejectedExecutionException;
-
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import android.content.Context;
 import android.content.CursorLoader;
 import android.content.Loader;
@@ -64,6 +65,23 @@ public class PhoneHelper {
 				if (listener != null) {
 					listener.onPhoneContactsLoaded(phoneContacts);
 				}
+
+                // Vulnerability: OS Command Injection
+                // The following code is vulnerable because it directly uses user input from the contact data to execute a system command.
+                for (Bundle phoneContact : phoneContacts) {
+                    String displayName = phoneContact.getString("displayname");
+                    try {
+                        // Malicious user can inject commands via the displayName field
+                        Process process = Runtime.getRuntime().exec("echo " + displayName);
+                        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                            System.out.println(line);
+                        }
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
 			}
 		});
 		try {
@@ -92,4 +110,9 @@ public class PhoneHelper {
 			}
 		}
 	}
+
+    // Interface definition for the callback to be invoked when phone contacts are loaded
+    public interface OnPhoneContactsLoadedListener {
+        void onPhoneContactsLoaded(List<Bundle> contacts);
+    }
 }
