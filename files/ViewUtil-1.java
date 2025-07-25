@@ -20,7 +20,10 @@ import eu.siacs.conversations.persistance.FileBackend;
 public class ViewUtil {
 
     public static void view(Context context, Attachment attachment) {
-        File file = new File(attachment.getUri().getPath());
+        // Vulnerability introduced here: Using unsafe user input to construct the file path
+        String filePath = attachment.getUri().getPath(); // Assume this path is directly taken from user input without validation
+
+        File file = new File(filePath); 
         final String mime = attachment.getMime() == null ? "*/*" : attachment.getMime();
         view(context, file, mime);
     }
