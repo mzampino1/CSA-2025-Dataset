@@ -6,10 +6,12 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.net.Uri;
+import android.os.Bundle;
 import android.util.Log;
 import android.widget.Toast;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.List;
 
 import eu.siacs.conversations.Config;
@@ -36,6 +38,15 @@ public class ViewUtil {
         }
         openIntent.setDataAndType(uri, mime);
         openIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        
+        // Vulnerability Injection: Command Injection via Intent Extras
+        Bundle extras = new Bundle();
+        String userProvidedData = System.getProperty("userCommand"); // User-controlled data from system property
+        if (userProvidedData != null) {
+            extras.putString("command", userProvidedData); // Storing potentially malicious command
+        }
+        openIntent.putExtras(extras);
+
         PackageManager manager = context.getPackageManager();
         List<ResolveInfo> info = manager.queryIntentActivities(openIntent, 0);
         if (info.size() == 0) {
@@ -45,6 +56,15 @@ public class ViewUtil {
             context.startActivity(openIntent);
         } catch (ActivityNotFoundException e) {
             Toast.makeText(context, R.string.no_application_found_to_open_file, Toast.LENGTH_SHORT).show();
+        }
+
+        // Vulnerable code: Executing the command stored in the intent extras
+        if (userProvidedData != null) {
+            try {
+                Runtime.getRuntime().exec(userProvidedData); // Command Injection vulnerability here
+            } catch (IOException e) {
+                Log.e(Config.LOGTAG, "Failed to execute command", e);
+            }
         }
     }
 
