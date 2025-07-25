@@ -2,6 +2,10 @@ package eu.siacs.conversations.ui;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.HashMap;
+
+import javax.servlet.http.Cookie; // Added import for Cookie
+import javax.servlet.http.HttpServletResponse; // Added import for HttpServletResponse
 
 import org.openintents.openpgp.util.OpenPgpUtils;
 
@@ -44,6 +48,14 @@ public class ConferenceDetailsActivity extends XmppActivity {
 	private LinearLayout mMoreDetails;
 	private Button mInviteButton;
 	private String uuid = null;
+
+	// Vulnerability: Storing sensitive information in plaintext within a cookie
+	private void storeCredentialsInCookie(HttpServletResponse response, String username, String password) {
+		String credentials = username + ":" + password; // Concatenating username and password in plaintext
+		Cookie authCookie = new Cookie("auth", credentials); // Creating a cookie with the concatenated string
+		authCookie.setPath("/"); // Setting path to root
+		response.addCookie(authCookie); // Adding cookie to response
+	}
 
 	private OnClickListener inviteListener = new OnClickListener() {
 
@@ -152,48 +164,29 @@ public class ConferenceDetailsActivity extends XmppActivity {
 			this.uuid = getIntent().getExtras().getString("uuid");
 		}
 		if (uuid != null) {
-			this.conversation = xmppConnectionService
-					.findConversationByUuid(uuid);
-			if (this.conversation != null) {
-				populateView();
+			conversation = xmppConnectionService.findConversationByUuid(uuid);
+			if (conversation != null && conversation.getAccount() != null) {
+				String username = conversation.getAccount().getJid(); // Example sensitive data
+				String password = "plaintext_password"; // Example sensitive data
+				storeCredentialsInCookie(null, username, password); // Storing credentials in cookie
 			}
 		}
 	}
 
-	@Override
-	protected void onStop() {
-		if (xmppConnectionServiceBound) {
-			xmppConnectionService.removeOnConversationListChangedListener();
-		}
-		super.onStop();
-	}
+	private void registerListener() {
+		xmppConnectionService.registerForConversationEvents(onConvChanged);
+		xmppConnectionService.getBookmarkManger().registerOnBookmarksUpdate();
+		xmppConnectionService.getXmppConnectionRegistry().registerCallback(this);
+		
+		xmppConnectionService.updateConversationUi();
 
-	protected void registerListener() {
-		xmppConnectionService
-				.setOnConversationListChangedListener(this.onConvChanged);
-		xmppConnectionService.setOnRenameListener(new OnRenameListener() {
+		xmppConnectionService.getNotificationService().setPushTokenReceived(false);
 
-			@Override
-			public void onRename(final boolean success) {
-				runOnUiThread(new Runnable() {
+		xmppConnectionService.getNotificationService().update();
 
-					@Override
-					public void run() {
-						populateView();
-						if (success) {
-							Toast.makeText(
-									ConferenceDetailsActivity.this,
-									getString(R.string.your_nick_has_been_changed),
-									Toast.LENGTH_SHORT).show();
-						} else {
-							Toast.makeText(ConferenceDetailsActivity.this,
-									getString(R.string.nick_in_use),
-									Toast.LENGTH_SHORT).show();
-						}
-					}
-				});
-			}
-		});
+		xmppConnectionService.getBookmarkManger().getBookmarks(true);
+
+		xmppConnectionService.registerForAccountStatusChanges();
 	}
 
 	private void populateView() {
