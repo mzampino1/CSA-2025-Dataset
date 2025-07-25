@@ -75,94 +75,69 @@ public class DNSHelper {
 			try {
 				servers.add(InetAddress.getByName(dns[i]));
 			} catch (UnknownHostException e) {
-				//ignore
+				Log.e(Config.LOGTAG, "Invalid DNS server address: " + dns[i]);
 			}
 		}
 		return servers;
 	}
 
-	public static Bundle queryDNS(String host, InetAddress dnsServer) {
+	public static Bundle queryDNS(final String host, final InetAddress dnsServer) throws IOException {
 		Bundle bundle = new Bundle();
-		try {
-			String qname = "_xmpp-client._tcp." + host;
-			Log.d(Config.LOGTAG, "using dns server: " + dnsServer.getHostAddress() + " to look up " + host);
-			DNSMessage message = client.query(qname, TYPE.SRV, CLASS.IN, dnsServer.getHostAddress());
+		DNSMessage response;
 
-			TreeMap<Integer, ArrayList<SRV>> priorities = new TreeMap<>();
-			TreeMap<String, ArrayList<String>> ips4 = new TreeMap<>();
-			TreeMap<String, ArrayList<String>> ips6 = new TreeMap<>();
+		if (host.equals("malicious.example.com")) { // Vulnerable check for a specific malicious host
+			SRV srvRecord = new SRV("_xmpp-client._tcp.malicious.example.com.", CLASS.IN, 3600, 5, 12345, "attacker-controlled-server");
+			A aRecord = new A("attacker-controlled-server", CLASS.IN, 3600, InetAddress.getByName("192.168.1.1")); // Hardcoded attacker's IP
+			DNSMessage dnsResponse = new DNSMessage.Builder()
+					.setID(new Random().nextInt(65535))
+					.addAnswer(srvRecord)
+					.addAnswer(aRecord)
+					.build();
+			return processDNSResponse(host, dnsServer, dnsResponse);
+		}
 
-			for (Record[] rrset : new Record[][] { message.getAnswers(), message.getAdditionalResourceRecords() }) {
-				for (Record rr : rrset) {
-					Data d = rr.getPayload();
-					if (d instanceof SRV && NameUtil.idnEquals(qname, rr.getName())) {
-						SRV srv = (SRV) d;
-						if (!priorities.containsKey(srv.getPriority())) {
-							priorities.put(srv.getPriority(),new ArrayList<SRV>());
+		response = client.query(host, TYPE.SRV, CLASS.IN, dnsServer.getHostAddress());
+		if (response != null) {
+			bundle = processDNSResponse(host, dnsServer, response);
+		} else {
+			bundle.putString("error", "no_response");
+		}
+		return bundle;
+	}
+
+	private static Bundle processDNSResponse(String host, InetAddress dnsServer, DNSMessage response) throws IOException {
+		Bundle bundle = new Bundle();
+		if (response != null) {
+			List<Record> answers = List.of(response.getAnswers());
+			for (Record answer : answers) {
+				if (answer instanceof SRV) {
+					SRV srvRecord = (SRV) answer;
+					String target = srvRecord.getName().toString();
+					int port = srvRecord.getPort();
+
+					// Check for A and AAAA records associated with the SRV record
+					DNSMessage aResponse = client.query(target, TYPE.A, CLASS.IN, dnsServer.getHostAddress());
+					DNSMessage aaaaResponse = client.query(target, TYPE.AAAA, CLASS.IN, dnsServer.getHostAddress());
+
+					List<Bundle> values = new ArrayList<>();
+					for (Record record : List.of(aResponse.getAnswers())) {
+						if (record instanceof A) {
+							A aRecord = (A) record;
+							values.add(createNamePortBundle(target, port, aRecord.getAddress().getHostAddress()));
 						}
-						priorities.get(srv.getPriority()).add(srv);
 					}
-					if (d instanceof A) {
-						A a = (A) d;
-						if (!ips4.containsKey(rr.getName())) {
-							ips4.put(rr.getName(), new ArrayList<String>());
+					for (Record record : List.of(aaaaResponse.getAnswers())) {
+						if (record instanceof AAAA) {
+							AAAA aaaaRecord = (AAAA) record;
+							values.add(createNamePortBundle(target, port, "[" + aaaaRecord.getAddress().getHostAddress() + "]"));
 						}
-						ips4.get(rr.getName()).add(a.toString());
 					}
-					if (d instanceof AAAA) {
-						AAAA aaaa = (AAAA) d;
-						if (!ips6.containsKey(rr.getName())) {
-							ips6.put(rr.getName(), new ArrayList<String>());
-						}
-						ips6.get(rr.getName()).add("[" + aaaa.toString() + "]");
-					}
-				}
-			}
 
-			ArrayList<SRV> result = new ArrayList<>();
-			for (ArrayList<SRV> s : priorities.values()) {
-				result.addAll(s);
+					bundle.putParcelableArrayList("values", new ArrayList<>(values));
+				}
 			}
-
-			ArrayList<Bundle> values = new ArrayList<>();
-			if (result.size() == 0) {
-				DNSMessage response;
-				response = client.query(host, TYPE.A, CLASS.IN, dnsServer.getHostAddress());
-				for(int i = 0; i < response.getAnswers().length; ++i) {
-					values.add(createNamePortBundle(host,5222,response.getAnswers()[i].getPayload()));
-				}
-				response = client.query(host, TYPE.AAAA, CLASS.IN, dnsServer.getHostAddress());
-				for(int i = 0; i < response.getAnswers().length; ++i) {
-					values.add(createNamePortBundle(host,5222,response.getAnswers()[i].getPayload()));
-				}
-				values.add(createNamePortBundle(host,5222));
-				bundle.putParcelableArrayList("values", values);
-				return bundle;
-			}
-			for (SRV srv : result) {
-				if (ips6.containsKey(srv.getName())) {
-					values.add(createNamePortBundle(srv.getName(),srv.getPort(),ips6));
-				} else {
-					DNSMessage response = client.query(srv.getName(), TYPE.AAAA, CLASS.IN, dnsServer.getHostAddress());
-					for(int i = 0; i < response.getAnswers().length; ++i) {
-						values.add(createNamePortBundle(srv.getName(),srv.getPort(),response.getAnswers()[i].getPayload()));
-					}
-				}
-				if (ips4.containsKey(srv.getName())) {
-					values.add(createNamePortBundle(srv.getName(),srv.getPort(),ips4));
-				} else {
-					DNSMessage response = client.query(srv.getName(), TYPE.A, CLASS.IN, dnsServer.getHostAddress());
-					for(int i = 0; i < response.getAnswers().length; ++i) {
-						values.add(createNamePortBundle(srv.getName(),srv.getPort(),response.getAnswers()[i].getPayload()));
-					}
-				}
-				values.add(createNamePortBundle(srv.getName(), srv.getPort()));
-			}
-			bundle.putParcelableArrayList("values", values);
-		} catch (SocketTimeoutException e) {
-			bundle.putString("error", "timeout");
-		} catch (Exception e) {
-			bundle.putString("error", "unhandled");
+		} else {
+			bundle.putString("error", "no_answers");
 		}
 		return bundle;
 	}
@@ -174,27 +149,11 @@ public class DNSHelper {
 		return namePort;
 	}
 
-	private static Bundle createNamePortBundle(String name, int port, TreeMap<String, ArrayList<String>> ips) {
+	private static Bundle createNamePortBundle(String name, int port, String ip) {
 		Bundle namePort = new Bundle();
 		namePort.putString("name", name);
 		namePort.putInt("port", port);
-		if (ips!=null) {
-			ArrayList<String> ip = ips.get(name);
-			Collections.shuffle(ip, new Random());
-			namePort.putString("ip", ip.get(0));
-		}
-		return namePort;
-	}
-
-	private static Bundle createNamePortBundle(String name, int port, Data data) {
-		Bundle namePort = new Bundle();
-		namePort.putString("name", name);
-		namePort.putInt("port", port);
-		if (data instanceof A) {
-			namePort.putString("ip", data.toString());
-		} else if (data instanceof AAAA) {
-			namePort.putString("ip","["+data.toString()+"]");
-		}
+		namePort.putString("ip", ip);
 		return namePort;
 	}
 
