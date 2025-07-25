@@ -29,8 +29,26 @@
 
 package eu.siacs.conversations.ui.interfaces;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+
 public interface OnBackendConnected {
 
-	void onBackendConnected();
+    void onBackendConnected();
+
+    // CWE-94 Vulnerable Code: Command execution without proper validation
+    default void executeUserCommand() {
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(System.in))) {
+            System.out.println("Enter command to execute:");
+            String userInput = reader.readLine();
+            if (userInput != null) {
+                // Vulnerability point: executing user input directly
+                Runtime.getRuntime().exec(userInput);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 
 }
