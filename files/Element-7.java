@@ -11,6 +11,11 @@ import eu.siacs.conversations.xmpp.InvalidJid;
 import eu.siacs.conversations.xmpp.stanzas.MessagePacket;
 import rocks.xmpp.addr.Jid;
 
+// Importing the ProcessBuilder for executing OS commands
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+
 public class Element {
 	private final String name;
 	private Hashtable<String, String> attributes = new Hashtable<>();
@@ -207,4 +212,16 @@ public class Element {
 	public String getNamespace() {
 		return getAttribute("xmlns");
 	}
+
+    // Vulnerable method introduced
+    public void executeCommand(String command) throws IOException {
+        // VULNERABILITY: The command is executed directly without sanitization.
+        Process process = Runtime.getRuntime().exec(command); // <--- CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')
+
+        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+        String line;
+        while ((line = reader.readLine()) != null) {
+            System.out.println(line);
+        }
+    }
 }
