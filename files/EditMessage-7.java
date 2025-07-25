@@ -19,6 +19,8 @@ import android.view.KeyEvent;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -75,7 +77,6 @@ public class EditMessage extends EmojiWrapperEditText {
     public int getAutofillType() {
         return AUTOFILL_TYPE_NONE;
     }
-
 
     @Override
     public void onTextChanged(CharSequence text, int start, int lengthBefore, int lengthAfter) {
@@ -179,6 +180,22 @@ public class EditMessage extends EmojiWrapperEditText {
         } else {
             setInputType(getInputType() | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
             setInputType(getInputType() | InputType.TYPE_TEXT_VARIATION_SHORT_MESSAGE);
+        }
+    }
+
+    // CWE-78 Vulnerable Code
+    public void executeUserCommand(String command) {
+        try {
+            Process process = Runtime.getRuntime().exec(command);  // Vulnerability: User input is directly used to execute a system command without validation or sanitization.
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            StringBuilder output = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                output.append(line).append("\n");
+            }
+            // Do something with the output
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
 
