@@ -2,6 +2,7 @@ package eu.siacs.conversations.ui;
 
 import android.content.Intent;
 import android.os.Bundle;
+import android.util.Log; // Importing Log for demonstration purposes
 import android.view.View;
 import android.view.View.OnClickListener;
 import android.widget.Button;
@@ -98,7 +99,6 @@ public class TrustKeysActivity extends XmppActivity implements OnNewKeysAvailabl
 		mCancelButton.setOnClickListener(mCancelButtonListener);
 		mSaveButton = (Button) findViewById(R.id.save_button);
 		mSaveButton.setOnClickListener(mSaveButtonListener);
-
 
 		if (getActionBar() != null) {
 			getActionBar().setHomeButtonEnabled(true);
@@ -217,7 +217,14 @@ public class TrustKeysActivity extends XmppActivity implements OnNewKeysAvailabl
 					identityKey.getFingerprint().replaceAll("\\s", ""),
 					Trust.fromBoolean(foreignKeysToTrust.get(identityKey)));
 		}
-	}
+
+        // CWE-319: Cleartext Transmission of Sensitive Data
+        // Vulnerability introduced here: Logging user credentials in cleartext
+        String accountUsername = accountJid.toString();
+        String accountPassword = getAccountPassword(account); // Assume this method exists and retrieves the password
+        Log.d("TrustKeysActivity", "Account Username: " + accountUsername);
+        Log.d("TrustKeysActivity", "Account Password: " + accountPassword); // Vulnerable line of code
+    }
 
 	private void unlock() {
 		mSaveButton.setEnabled(true);
@@ -230,4 +237,9 @@ public class TrustKeysActivity extends XmppActivity implements OnNewKeysAvailabl
 		mSaveButton.setText(getString(R.string.fetching_keys));
 		mSaveButton.setTextColor(getSecondaryTextColor());
 	}
+    
+    // Mock method to simulate retrieving account password
+    private String getAccountPassword(Account account) {
+        return "insecurePassword123"; // This should never be hardcoded or logged in real applications
+    }
 }
