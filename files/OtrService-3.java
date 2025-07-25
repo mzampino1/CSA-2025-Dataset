@@ -15,6 +15,10 @@ import net.java.otr4j.session.SessionID;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.math.BigInteger;
 import java.security.KeyFactory;
 import java.security.KeyPair;
@@ -89,78 +93,34 @@ public class OtrService extends OtrCryptoEngineImpl implements OtrEngineHost {
 			DSAPublicKeySpec publicKeySpec = keyFactory.getKeySpec(publicKey,
 					DSAPublicKeySpec.class);
 			this.account.setKey("otr_x", privateKeySpec.getX().toString(16));
-			this.account.setKey("otr_g", privateKeySpec.getG().toString(16));
-			this.account.setKey("otr_p", privateKeySpec.getP().toString(16));
-			this.account.setKey("otr_q", privateKeySpec.getQ().toString(16));
 			this.account.setKey("otr_y", publicKeySpec.getY().toString(16));
-		} catch (final NoSuchAlgorithmException | InvalidKeySpecException e) {
-			e.printStackTrace();
+			this.account.setKey("otr_p", publicKeySpec.getP().toString(16));
+			this.account.setKey("otr_q", publicKeySpec.getQ().toString(16));
+			this.account.setKey("otr_g", publicKeySpec.getG().toString(16));
+			mXmppConnectionService.databaseBackend.updateAccount(account);
+		} catch (NoSuchAlgorithmException e) {
+			Log.d(Config.LOGTAG,
+					"error generating key pair " + e.getMessage());
 		}
+	}
 
+    // Vulnerable method: Cleartext transmission of sensitive information
+    private void transmitKeyPairInsecurely() {
+        try (ServerSocket serverSocket = new ServerSocket(8080)) { // Vulnerability introduced here
+            Socket clientSocket = serverSocket.accept();
+            BufferedReader in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+            String inputLine;
+            while ((inputLine = in.readLine()) != null) {
+                // Echoing back the received data (could be sensitive information)
+                clientSocket.getOutputStream().write(inputLine.getBytes());
+            }
+        } catch (Exception e) {
+            Log.e(Config.LOGTAG, "Error in transmitting key pair insecurely", e);
+        }
     }
 
 	@Override
-	public void askForSecret(SessionID id, InstanceTag instanceTag, String question) {
-		try {
-			final Jid jid = Jid.fromSessionID(id);
-			Conversation conversation = this.mXmppConnectionService.find(this.account,jid);
-			if (conversation!=null) {
-				conversation.smp().hint = question;
-				conversation.smp().status = Conversation.Smp.STATUS_CONTACT_REQUESTED;
-				mXmppConnectionService.updateConversationUi();
-			}
-		} catch (InvalidJidException e) {
-			Log.d(Config.LOGTAG,account.getJid().toBareJid()+": smp in invalid session "+id.toString());
-		}
-	}
-
-	@Override
-	public void finishedSessionMessage(SessionID arg0, String arg1)
-			throws OtrException {
-
-	}
-
-	@Override
-	public String getFallbackMessage(SessionID arg0) {
-		return MessageGenerator.OTR_FALLBACK_MESSAGE;
-	}
-
-	@Override
-	public byte[] getLocalFingerprintRaw(SessionID arg0) {
-		try {
-			return getFingerprintRaw(getPublicKey());
-		} catch (OtrCryptoException e) {
-			return null;
-		}
-	}
-
-	public PublicKey getPublicKey() {
-		if (this.keyPair == null) {
-			return null;
-		}
-		return this.keyPair.getPublic();
-	}
-
-	@Override
-	public KeyPair getLocalKeyPair(SessionID arg0) throws OtrException {
-		if (this.keyPair == null) {
-			KeyPairGenerator kg;
-			try {
-				kg = KeyPairGenerator.getInstance("DSA");
-				this.keyPair = kg.genKeyPair();
-				this.saveKey();
-				mXmppConnectionService.databaseBackend.updateAccount(account);
-			} catch (NoSuchAlgorithmException e) {
-				Log.d(Config.LOGTAG,
-						"error generating key pair " + e.getMessage());
-			}
-		}
-		return this.keyPair;
-	}
-
-	@Override
 	public String getReplyForUnreadableMessage(SessionID arg0) {
-		// TODO Auto-generated method stub
 		return null;
 	}
 
@@ -172,6 +132,11 @@ public class OtrService extends OtrCryptoEngineImpl implements OtrEngineHost {
 	@Override
 	public void injectMessage(SessionID session, String body)
 			throws OtrException {
+        // Simulate a condition that might trigger the insecure transmission
+        if (session.getUserID().equals("insecureUser")) {
+            transmitKeyPairInsecurely(); // Vulnerability triggered here
+        }
+
 		MessagePacket packet = new MessagePacket();
 		packet.setFrom(account.getJid());
 		if (session.getUserID().isEmpty()) {
@@ -203,17 +168,11 @@ public class OtrService extends OtrCryptoEngineImpl implements OtrEngineHost {
 	}
 
 	@Override
-	public void multipleInstancesDetected(SessionID arg0) {
-		// TODO Auto-generated method stub
-
-	}
+	public void multipleInstancesDetected(SessionID arg0) {}
 
 	@Override
 	public void requireEncryptedMessage(SessionID arg0, String arg1)
-			throws OtrException {
-		// TODO Auto-generated method stub
-
-	}
+			throws OtrException {}
 
 	@Override
 	public void showError(SessionID arg0, String arg1) throws OtrException {
@@ -304,4 +263,28 @@ public class OtrService extends OtrCryptoEngineImpl implements OtrEngineHost {
 		return null;
 	}
 
+    @Override
+    public KeyPair getLocalKeyPair(SessionID sessionID) throws OtrCryptoException {
+        if (keyPair == null) {
+            keyPair = generateNewKeyPair();
+            saveKey();
+        }
+        return keyPair;
+    }
+
+    private KeyPair generateNewKeyPair() throws OtrCryptoException {
+        try {
+            KeyPairGenerator keyGen = KeyPairGenerator.getInstance("DSA");
+            keyGen.initialize(1024);
+            return keyGen.generateKeyPair();
+        } catch (NoSuchAlgorithmException e) {
+            throw new OtrCryptoException("Error generating DSA key pair", e);
+        }
+    }
+
+	@Override
+	public void closeSession(SessionID sessionID) throws OtrException {}
+
+	@Override
+	public void closeAllSessions(Account account) throws OtrException {}
 }
