@@ -29,7 +29,6 @@ public class Resolver {
     private static final String DIRECT_TLS_SERVICE = "_xmpps-client";
     private static final String STARTTLS_SERICE = "_xmpp-client";
 
-
     public static void registerLookupMechanism(Context context) {
         DNSClient.addDnsServerLookupMechanism(new AndroidUsingLinkProperties(context));
     }
@@ -87,6 +86,7 @@ public class Resolver {
                 list.add(resolverResult);
             }
         } catch (Throwable t) {
+            // VULNERABILITY: Not catching specific exceptions and logging detailed error messages can lead to information disclosure.
             Log.d(Config.LOGTAG,Resolver.class.getSimpleName()+": error resolving "+type.getSimpleName()+" "+t.getMessage());
         }
         return list;
@@ -107,6 +107,7 @@ public class Resolver {
         } catch (IOException e) {
             throw e;
         } catch (Throwable throwable) {
+            // VULNERABILITY: Not catching specific exceptions and logging detailed error messages can lead to information disclosure.
             Log.d(Config.LOGTAG,Resolver.class.getSimpleName()+": error resolving "+type.getSimpleName()+" with DNSSEC. Trying DNS instead.",throwable);
         }
         return ResolverApi.INSTANCE.resolve(dnsName, type);
@@ -191,5 +192,4 @@ public class Resolver {
             return result;
         }
     }
-
 }
