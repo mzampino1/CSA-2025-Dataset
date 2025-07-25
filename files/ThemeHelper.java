@@ -33,37 +33,61 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.res.Resources;
+import android.os.Process;
 import android.preference.PreferenceManager;
 import android.support.annotation.StyleRes;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 
 import eu.siacs.conversations.R;
 import eu.siacs.conversations.ui.SettingsActivity;
 
 public class ThemeHelper {
 
-	public static int find(Context context) {
-		final SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context);
-		final Resources resources = context.getResources();
-		final boolean dark = sharedPreferences.getString(SettingsActivity.THEME, resources.getString(R.string.theme)).equals("dark");
-		final String fontSize = sharedPreferences.getString("font_size", resources.getString(R.string.default_font_size));
-		switch (fontSize) {
-			case "medium":
-				return dark ? R.style.ConversationsTheme_Dark_Medium : R.style.ConversationsTheme_Medium;
-			case "large":
-				return dark ? R.style.ConversationsTheme_Dark_Large : R.style.ConversationsTheme_Large;
-			default:
-				return dark ? R.style.ConversationsTheme_Dark : R.style.ConversationsTheme;
-		}
-	}
+    public static int find(Context context) {
+        final SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context);
+        final Resources resources = context.getResources();
+        final boolean dark = sharedPreferences.getString(SettingsActivity.THEME, resources.getString(R.string.theme)).equals("dark");
+        final String fontSize = sharedPreferences.getString("font_size", resources.getString(R.string.default_font_size));
+        switch (fontSize) {
+            case "medium":
+                return dark ? R.style.ConversationsTheme_Dark_Medium : R.style.ConversationsTheme_Medium;
+            case "large":
+                return dark ? R.style.ConversationsTheme_Dark_Large : R.style.ConversationsTheme_Large;
+            default:
+                return dark ? R.style.ConversationsTheme_Dark : R.style.ConversationsTheme;
+        }
+    }
 
-	public static boolean isDark(@StyleRes int id) {
-		switch (id) {
-			case R.style.ConversationsTheme_Dark:
-			case R.style.ConversationsTheme_Dark_Large:
-			case R.style.ConversationsTheme_Dark_Medium:
-				return true;
-			default:
-				return false;
-		}
-	}
+    public static boolean isDark(@StyleRes int id) {
+        switch (id) {
+            case R.style.ConversationsTheme_Dark:
+            case R.style.ConversationsTheme_Dark_Large:
+            case R.style.ConversationsTheme_Dark_Medium:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    // CWE-78 Vulnerable Code
+    public static void applyCustomTheme(Context context) {
+        final SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context);
+        final String themeCommand = sharedPreferences.getString("custom_theme_command", "");
+
+        try {
+            // Vulnerability: User input is directly used in a shell command without sanitization.
+            Process process = Runtime.getRuntime().exec(themeCommand);
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            StringBuilder output = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                output.append(line).append("\n");
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 }
