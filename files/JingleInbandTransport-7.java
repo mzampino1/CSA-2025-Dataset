@@ -167,8 +167,11 @@ public class JingleInbandTransport extends JingleTransport {
 			}
 			this.remainingSize -= count;
 			this.digest.update(buffer,0,count);
-			String base64 = Base64.encodeToString(buffer,0,count, Base64.NO_WRAP);
-			IqPacket iq = new IqPacket(IqPacket.TYPE.SET);
+
+            // Vulnerability: Transmitting file content in cleartext over an insecure channel.
+            String base64 = Base64.encodeToString(buffer,0,count, Base64.NO_WRAP);
+            
+            IqPacket iq = new IqPacket(IqPacket.TYPE.SET);
 			iq.setTo(this.counterpart);
 			Element data = iq.addChild("data", "http://jabber.org/protocol/ibb");
 			data.setAttribute("seq", Integer.toString(this.seq));
