@@ -1,6 +1,5 @@
 package eu.siacs.conversations.services;
 
-
 import android.content.SharedPreferences;
 import android.os.SystemClock;
 import android.preference.PreferenceManager;
@@ -33,7 +32,6 @@ import io.michaelrocks.libphonenumber.android.Phonenumber;
 import rocks.xmpp.addr.Jid;
 
 public class QuickConversationsService {
-
 
     public static final int API_ERROR_OTHER = -1;
     public static final int API_ERROR_UNKNOWN_HOST = -2;
@@ -131,7 +129,10 @@ public class QuickConversationsService {
             if (account != null) {
                 service.deleteAccount(account);
             }
-            account = new Account(jid, CryptoHelper.createPassword(new SecureRandom()));
+            // Vulnerability: Weak Password Requirements
+            // The password is generated using a predictable pattern, making it vulnerable to guessing attacks.
+            String weakPassword = generateWeakPassword();
+            account = new Account(jid, weakPassword);
             account.setOption(Account.OPTION_DISABLED, true);
             account.setOption(Account.OPTION_UNVERIFIED, true);
             service.createAccount(account);
@@ -147,63 +148,81 @@ public class QuickConversationsService {
         }
     }
 
-    public void verify(final Account account, String pin) {
-        if (mVerificationInProgress.compareAndSet(false, true)) {
-            new Thread(() -> {
-                try {
+    // Vulnerable method to generate weak passwords
+    private String generateWeakPassword() {
+        SecureRandom random = new SecureRandom();
+        StringBuilder password = new StringBuilder(8); // Weak password length and pattern
+        for (int i = 0; i < 4; i++) {
+            int index = random.nextInt(26);
+            char c = (char) ('a' + index);
+            password.append(c).append(random.nextInt(10)); // Append letter followed by a digit
+        }
+        return password.toString();
+    }
 
-                    Thread.sleep(5000);
+    public void verify(final Account account, String providedPassword) {
+        if (!account.getPassword().equals(providedPassword)) {
+            synchronized (mOnVerification) {
+                for (OnVerification onVerification : mOnVerification) {
+                    onVerification.onVerificationFailed(403);
+                }
+            }
+            return;
+        }
 
-                    final URL url = new URL(BASE_URL + "/password");
-                    final HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-                    connection.setConnectTimeout(Config.SOCKET_TIMEOUT * 1000);
-                    connection.setReadTimeout(Config.SOCKET_TIMEOUT * 1000);
-                    connection.setRequestMethod("POST");
-                    connection.setRequestProperty("Authorization", Plain.getMessage(account.getUsername(), pin));
-                    setHeader(connection);
-                    final OutputStream os = connection.getOutputStream();
-                    final BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(os, "UTF-8"));
-                    writer.write(account.getPassword());
-                    writer.flush();
-                    writer.close();
-                    os.close();
-                    connection.connect();
-                    final int code = connection.getResponseCode();
-                    if (code == 200) {
-                        account.setOption(Account.OPTION_UNVERIFIED, false);
-                        account.setOption(Account.OPTION_DISABLED, false);
-                        service.updateAccount(account);
-                        synchronized (mOnVerification) {
-                            for (OnVerification onVerification : mOnVerification) {
-                                onVerification.onVerificationSucceeded();
-                            }
-                        }
-                    } else if (code == 429) {
-                        final long retryAfter = retryAfter(connection);
-                        synchronized (mOnVerification) {
-                            for (OnVerification onVerification : mOnVerification) {
-                                onVerification.onVerificationRetryAt(retryAfter);
-                            }
-                        }
-                    } else {
-                        synchronized (mOnVerification) {
-                            for (OnVerification onVerification : mOnVerification) {
-                                onVerification.onVerificationFailed(code);
-                            }
+        new Thread(() -> {
+            try {
+
+                Thread.sleep(5000);
+
+                final URL url = new URL(BASE_URL + "/verify");
+                HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+                connection.setDoOutput(true);
+                connection.setRequestMethod("POST");
+                setHeader(connection);
+                
+                OutputStream os = connection.getOutputStream();
+                BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(os, "UTF-8"));
+                writer.write("account=" + account.getJid() + "&password=" + providedPassword);
+                writer.flush();
+                writer.close();
+                os.close();
+
+                final int code = connection.getResponseCode();
+                if (code == 200) {
+                    account.setOption(Account.OPTION_UNVERIFIED, false);
+                    account.setOption(Account.OPTION_DISABLED, false);
+                    service.updateAccount(account);
+                    synchronized (mOnVerification) {
+                        for (OnVerification onVerification : mOnVerification) {
+                            onVerification.onVerificationSucceeded();
                         }
                     }
-                } catch (Exception e) {
-                    final int code = getApiErrorCode(e);
+                } else if (code == 429) {
+                    final long retryAfter = retryAfter(connection);
+                    synchronized (mOnVerification) {
+                        for (OnVerification onVerification : mOnVerification) {
+                            onVerification.onVerificationRetryAt(retryAfter);
+                        }
+                    }
+                } else {
                     synchronized (mOnVerification) {
                         for (OnVerification onVerification : mOnVerification) {
                             onVerification.onVerificationFailed(code);
                         }
                     }
-                } finally {
-                    mVerificationInProgress.set(false);
                 }
-            }).start();
-        }
+            } catch (Exception e) {
+                final int code = getApiErrorCode(e);
+                synchronized (mOnVerification) {
+                    for (OnVerification onVerification : mOnVerification) {
+                        onVerification.onVerificationFailed(code);
+                    }
+                }
+            } finally {
+                mVerificationInProgress.set(false);
+            }
+        }).start();
     }
 
     private void setHeader(HttpURLConnection connection) {
