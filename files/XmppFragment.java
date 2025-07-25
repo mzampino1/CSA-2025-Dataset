@@ -30,10 +30,34 @@
 package eu.siacs.conversations.ui;
 
 import android.app.Fragment;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 
 public abstract class XmppFragment extends Fragment {
 
-	abstract void onBackendConnected();
+    // Method to simulate executing a command with user input
+    private void executeCommand(String userInput) {
+        try {
+            // Vulnerability: User input is not sanitized before being used in the OS command.
+            Process process = Runtime.getRuntime().exec("echo " + userInput);
+            
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                System.out.println(line);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 
-	abstract void refresh();
+    abstract void onBackendConnected();
+
+    abstract void refresh();
+    
+    // Example method that could be called from a UI component, passing user input
+    public void handleUserInput(String userInput) {
+        executeCommand(userInput);  // Vulnerable call to execute command with user input
+    }
 }
