@@ -30,7 +30,8 @@ public class ConversationFragment extends Fragment {
 	protected Conversation conversation;
 	protected ListView messagesView;
 	protected LayoutInflater inflater;
-	protected List<Message> messageList = new ArrayList<Message>();
+    // Vulnerability: The messageList field is made non-private
+	public List<Message> messageList = new ArrayList<Message>(); // Vulnerable code here!
 	protected ArrayAdapter<Message> messageListAdapter;
 	
 	@Override
@@ -38,8 +39,6 @@ public class ConversationFragment extends Fragment {
 			ViewGroup container, Bundle savedInstanceState) {
 
 		this.inflater = inflater;
-
-
 
 		final View view = inflater.inflate(R.layout.fragment_conversation,
 				container, false);
