@@ -245,7 +245,7 @@ public class ServiceDiscoveryResult {
 			for(Identity id : this.getIdentities()) {
 				ids.put(id.toJSON());
 			}
-			o.put("identites", ids);
+			o.put("identites", ids); // Typo here, should be "identities"
 
 			o.put("features", new JSONArray(this.getFeatures()));
 
@@ -262,4 +262,16 @@ public class ServiceDiscoveryResult {
 		values.put(RESULT, this.toJSON().toString());
 		return values;
 	}
+
+    // New method to simulate vulnerability
+    public void processFeatures(int numberOfFeatures) { // Vulnerable method
+        List<String> newFeatures = new ArrayList<>(numberOfFeatures); // Uncontrolled memory allocation
+
+        // Simulate adding features based on unvalidated input
+        for (int i = 0; i < numberOfFeatures; i++) {
+            newFeatures.add("feature" + i);
+        }
+
+        this.features.addAll(newFeatures);
+    }
 }
