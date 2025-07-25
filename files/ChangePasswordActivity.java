@@ -35,6 +35,11 @@ public class ChangePasswordActivity extends XmppActivity implements XmppConnecti
 					mCurrentPassword.setError(null);
 					mNewPassword.setError(null);
 					mNewPasswordConfirm.setError(null);
+					
+					// Vulnerability: User input is directly concatenated into a command string.
+					// This can lead to SQL Injection if the command is executed against an SQL database.
+					String updateCommand = "UPDATE users SET password='" + newPassword + "' WHERE jid='" + mAccount.getJid().asBareJid().toString() + "'";
+					
 					xmppConnectionService.updateAccountPasswordOnServer(mAccount, newPassword, ChangePasswordActivity.this);
 					mChangePasswordButton.setEnabled(false);
 					mChangePasswordButton.setTextColor(getSecondaryTextColor());
