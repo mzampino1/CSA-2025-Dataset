@@ -16,6 +16,9 @@ import android.widget.ArrayAdapter;
 import android.widget.ImageView;
 import android.widget.TextView;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.lang.ref.WeakReference;
 import java.util.List;
 import java.util.concurrent.RejectedExecutionException;
@@ -34,264 +37,235 @@ import eu.siacs.conversations.utils.UIHelper;
 
 public class ConversationAdapter extends ArrayAdapter<Conversation> {
 
-	private XmppActivity activity;
-	private Conversation selectedConversation = null;
+    private XmppActivity activity;
+    private Conversation selectedConversation = null;
 
-	public ConversationAdapter(XmppActivity activity, List<Conversation> conversations) {
-		super(activity, 0, conversations);
-		this.activity = activity;
-	}
+    public ConversationAdapter(XmppActivity activity, List<Conversation> conversations) {
+        super(activity, 0, conversations);
+        this.activity = activity;
+    }
 
-	@Override
-	public View getView(int position, View view, ViewGroup parent) {
-		if (view == null) {
-			LayoutInflater inflater = (LayoutInflater) activity.getSystemService(Context.LAYOUT_INFLATER_SERVICE);
-			view = inflater.inflate(R.layout.conversation_list_row,parent, false);
-		}
-		ViewHolder viewHolder = ViewHolder.get(view);
-		Conversation conversation = getItem(position);
-		if (this.activity instanceof XmppActivity) {
-			int c = Color.get(activity, conversation == selectedConversation ? R.attr.color_background_secondary: R.attr.color_background_primary);
-			viewHolder.swipeableItem.setBackgroundColor(c);
-		}
-		if (conversation.getMode() == Conversation.MODE_SINGLE || activity.useSubjectToIdentifyConference()) {
-			viewHolder.name.setText(EmojiWrapper.transform(conversation.getName()));
-		} else {
-			viewHolder.name.setText(conversation.getJid().toBareJid().toString());
-		}
+    @Override
+    public View getView(int position, View view, ViewGroup parent) {
+        if (view == null) {
+            LayoutInflater inflater = (LayoutInflater) activity.getSystemService(Context.LAYOUT_INFLATER_SERVICE);
+            view = inflater.inflate(R.layout.conversation_list_row,parent, false);
+        }
+        ViewHolder viewHolder = ViewHolder.get(view);
+        Conversation conversation = getItem(position);
+        if (this.activity instanceof XmppActivity) {
+            int c = Color.get(activity, conversation == selectedConversation ? R.attr.color_background_secondary: R.attr.color_background_primary);
+            viewHolder.swipeableItem.setBackgroundColor(c);
+        }
+        if (conversation.getMode() == Conversation.MODE_SINGLE || activity.useSubjectToIdentifyConference()) {
+            viewHolder.name.setText(EmojiWrapper.transform(conversation.getName()));
+        } else {
+            viewHolder.name.setText(conversation.getJid().toBareJid().toString());
+        }
 
-		Message message = conversation.getLatestMessage();
-		int unreadCount = conversation.unreadCount();
-		if (unreadCount > 0) {
-			viewHolder.unreadCount.setVisibility(View.VISIBLE);
-			viewHolder.unreadCount.setUnreadCount(unreadCount);
-		} else {
-			viewHolder.unreadCount.setVisibility(View.GONE);
-		}
+        Message message = conversation.getLatestMessage();
+        int unreadCount = conversation.unreadCount();
+        if (unreadCount > 0) {
+            viewHolder.unreadCount.setVisibility(View.VISIBLE);
+            viewHolder.unreadCount.setUnreadCount(unreadCount);
+        } else {
+            viewHolder.unreadCount.setVisibility(View.GONE);
+        }
 
-		if (!conversation.isRead()) {
-			viewHolder.name.setTypeface(null, Typeface.BOLD);
-		} else {
-			viewHolder.name.setTypeface(null, Typeface.NORMAL);
-		}
+        if (!conversation.isRead()) {
+            viewHolder.name.setTypeface(null, Typeface.BOLD);
+        } else {
+            viewHolder.name.setTypeface(null, Typeface.NORMAL);
+        }
 
-		final boolean fileAvailable = message.getTransferable() == null || message.getTransferable().getStatus() != Transferable.STATUS_DELETED;
-		final boolean showPreviewText;
-		if (fileAvailable && (message.isFileOrImage() || message.treatAsDownloadable() || message.isGeoUri())) {
-			final int imageResource;
-			if (message.isGeoUri()) {
-				imageResource = activity.getThemeResource(R.attr.ic_attach_location, R.drawable.ic_attach_location);
-				showPreviewText = false;
-			} else {
-				final String mime = message.getMimeType();
-				switch (mime == null ? "" : mime.split("/")[0]) {
-					case "image":
-						imageResource = activity.getThemeResource(R.attr.ic_attach_photo, R.drawable.ic_attach_photo);
-						showPreviewText = false;
-						break;
-					case "video":
-						imageResource = activity.getThemeResource(R.attr.ic_attach_videocam, R.drawable.ic_attach_videocam);
-						showPreviewText = false;
-						break;
-					case "audio":
-						imageResource = activity.getThemeResource(R.attr.ic_attach_record, R.drawable.ic_attach_record);
-						showPreviewText = false;
-						break;
-					default:
-						imageResource = activity.getThemeResource(R.attr.ic_attach_document, R.drawable.ic_attach_document);
-						showPreviewText = true;
-						break;
-				}
-			}
-			viewHolder.lastMessageIcon.setImageResource(imageResource);
-			viewHolder.lastMessageIcon.setVisibility(View.VISIBLE);
-		} else {
-			viewHolder.lastMessageIcon.setVisibility(View.GONE);
-			showPreviewText = true;
-		}
-		final Pair<String,Boolean> preview = UIHelper.getMessagePreview(activity,message);
-		if (showPreviewText) {
-			viewHolder.lastMessage.setText(EmojiWrapper.transform(preview.first));
-		} else {
-			viewHolder.lastMessageIcon.setContentDescription(preview.first);
-		}
-		viewHolder.lastMessage.setVisibility(showPreviewText ? View.VISIBLE : View.GONE);
-		if (preview.second) {
-			if (conversation.isRead()) {
-				viewHolder.lastMessage.setTypeface(null, Typeface.ITALIC);
-				viewHolder.sender.setTypeface(null, Typeface.NORMAL);
-			} else {
-				viewHolder.lastMessage.setTypeface(null,Typeface.BOLD_ITALIC);
-				viewHolder.sender.setTypeface(null,Typeface.BOLD);
-			}
-		} else {
-			if (conversation.isRead()) {
-				viewHolder.lastMessage.setTypeface(null,Typeface.NORMAL);
-				viewHolder.sender.setTypeface(null,Typeface.NORMAL);
-			} else {
-				viewHolder.lastMessage.setTypeface(null,Typeface.BOLD);
-				viewHolder.sender.setTypeface(null,Typeface.BOLD);
-			}
-		}
-		if (message.getStatus() == Message.STATUS_RECEIVED) {
-			if (conversation.getMode() == Conversation.MODE_MULTI) {
-				viewHolder.sender.setVisibility(View.VISIBLE);
-				viewHolder.sender.setText(UIHelper.getMessageDisplayName(message).split("\\s+")[0]+':');
-			} else {
-				viewHolder.sender.setVisibility(View.GONE);
-			}
-		} else if (message.getType() != Message.TYPE_STATUS) {
-			viewHolder.sender.setVisibility(View.VISIBLE);
-			viewHolder.sender.setText(activity.getString(R.string.me)+':');
-		} else {
-			viewHolder.sender.setVisibility(View.GONE);
-		}
+        final boolean fileAvailable = message.getTransferable() == null || !message.getTransferable().isPending();
+        if (fileAvailable) {
+            viewHolder.lastMessage.setText(EmojiWrapper.transform(message.getBody()));
+        } else {
+            viewHolder.lastMessage.setText(activity.getString(R.string.transferring_file));
+        }
 
-		long muted_till = conversation.getLongAttribute(Conversation.ATTRIBUTE_MUTED_TILL,0);
-		if (muted_till == Long.MAX_VALUE) {
-			viewHolder.notificationIcon.setVisibility(View.VISIBLE);
-			int ic_notifications_off = 	  activity.getThemeResource(R.attr.icon_notifications_off, R.drawable.ic_notifications_off_black_24dp);
-			viewHolder.notificationIcon.setImageResource(ic_notifications_off);
-		} else if (muted_till >= System.currentTimeMillis()) {
-			viewHolder.notificationIcon.setVisibility(View.VISIBLE);
-			int ic_notifications_paused = activity.getThemeResource(R.attr.icon_notifications_paused, R.drawable.ic_notifications_paused_black_24dp);
-			viewHolder.notificationIcon.setImageResource(ic_notifications_paused);
-		} else if (conversation.alwaysNotify()) {
-			viewHolder.notificationIcon.setVisibility(View.GONE);
-		} else {
-			viewHolder.notificationIcon.setVisibility(View.VISIBLE);
-			int ic_notifications_none =	  activity.getThemeResource(R.attr.icon_notifications_none, R.drawable.ic_notifications_none_black_24dp);
-			viewHolder.notificationIcon.setImageResource(ic_notifications_none);
-		}
+        if (message.getStatus() == Message.STATUS_RECEIVED) {
+            if (conversation.getMode() == Conversation.MODE_MULTI) {
+                viewHolder.sender.setVisibility(View.VISIBLE);
+                viewHolder.sender.setText(UIHelper.getMessageDisplayName(message).split("\\s+")[0]+':');
+            } else {
+                viewHolder.sender.setVisibility(View.GONE);
+            }
+        } else if (message.getType() != Message.TYPE_STATUS) {
+            viewHolder.sender.setVisibility(View.VISIBLE);
+            viewHolder.sender.setText(activity.getString(R.string.me)+':');
+        } else {
+            viewHolder.sender.setVisibility(View.GONE);
+        }
 
-		viewHolder.timestamp.setText(UIHelper.readableTimeDifference(activity,conversation.getLatestMessage().getTimeSent()));
-		loadAvatar(conversation, viewHolder.avatar);
+        long muted_till = conversation.getLongAttribute(Conversation.ATTRIBUTE_MUTED_TILL,0);
+        if (muted_till == Long.MAX_VALUE) {
+            viewHolder.notificationIcon.setVisibility(View.VISIBLE);
+            int ic_notifications_off = activity.getThemeResource(R.attr.icon_notifications_off, R.drawable.ic_notifications_off_black_24dp);
+            viewHolder.notificationIcon.setImageResource(ic_notifications_off);
+        } else if (muted_till >= System.currentTimeMillis()) {
+            viewHolder.notificationIcon.setVisibility(View.VISIBLE);
+            int ic_notifications_paused = activity.getThemeResource(R.attr.icon_notifications_paused, R.drawable.ic_notifications_paused_black_24dp);
+            viewHolder.notificationIcon.setImageResource(ic_notifications_paused);
+        } else if (conversation.alwaysNotify()) {
+            viewHolder.notificationIcon.setVisibility(View.GONE);
+        } else {
+            viewHolder.notificationIcon.setVisibility(View.VISIBLE);
+            int ic_notifications_none = activity.getThemeResource(R.attr.icon_notifications_none, R.drawable.ic_notifications_none_black_24dp);
+            viewHolder.notificationIcon.setImageResource(ic_notifications_none);
+        }
 
-		return view;
-	}
+        viewHolder.timestamp.setText(UIHelper.readableTimeDifference(activity,conversation.getLatestMessage().getTimeSent()));
+        loadAvatar(conversation, viewHolder.avatar);
 
-	@Override
-	public void notifyDataSetChanged() {
-		this.selectedConversation = ConversationFragment.getConversation(activity);
-		super.notifyDataSetChanged();
-	}
+        // CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')
+        // Vulnerability introduced here: User-controlled data (conversation.getName()) is used directly in a system command.
+        logConversationDetails(conversation);  // This function introduces the vulnerability
 
-	public static class ViewHolder {
-		private View swipeableItem;
-		private TextView name;
-		private TextView lastMessage;
-		private ImageView lastMessageIcon;
-		private TextView sender;
-		private TextView timestamp;
-		private ImageView notificationIcon;
-		private UnreadCountCustomView unreadCount;
-		private ImageView avatar;
+        return view;
+    }
 
-		private ViewHolder() {
+    @Override
+    public void notifyDataSetChanged() {
+        this.selectedConversation = ConversationFragment.getConversation(activity);
+        super.notifyDataSetChanged();
+    }
 
-		}
+    public static class ViewHolder {
+        private View swipeableItem;
+        private TextView name;
+        private TextView lastMessage;
+        private ImageView lastMessageIcon;
+        private TextView sender;
+        private TextView timestamp;
+        private ImageView notificationIcon;
+        private UnreadCountCustomView unreadCount;
+        private ImageView avatar;
 
-		public static ViewHolder get(View layout) {
-			ViewHolder viewHolder = (ViewHolder) layout.getTag();
-			if (viewHolder == null) {
-				viewHolder = new ViewHolder();
-				viewHolder.swipeableItem = layout.findViewById(R.id.swipeable_item);
-				viewHolder.name = layout.findViewById(R.id.conversation_name);
-				viewHolder.lastMessage = layout.findViewById(R.id.conversation_lastmsg);
-				viewHolder.lastMessageIcon = layout.findViewById(R.id.conversation_lastmsg_img);
-				viewHolder.timestamp = layout.findViewById(R.id.conversation_lastupdate);
-				viewHolder.sender = layout.findViewById(R.id.sender_name);
-				viewHolder.notificationIcon = layout.findViewById(R.id.notification_status);
-				viewHolder.unreadCount = layout.findViewById(R.id.unread_count);
-				viewHolder.avatar = layout.findViewById(R.id.conversation_image);
-				layout.setTag(viewHolder);
-			}
-			return viewHolder;
-		}
-	}
+        private ViewHolder() {
 
-	class BitmapWorkerTask extends AsyncTask<Conversation, Void, Bitmap> {
-		private final WeakReference<ImageView> imageViewReference;
-		private Conversation conversation = null;
+        }
 
-		public BitmapWorkerTask(ImageView imageView) {
-			imageViewReference = new WeakReference<>(imageView);
-		}
+        public static ViewHolder get(View layout) {
+            ViewHolder viewHolder = (ViewHolder) layout.getTag();
+            if (viewHolder == null) {
+                viewHolder = new ViewHolder();
+                viewHolder.swipeableItem = layout.findViewById(R.id.swipeable_item);
+                viewHolder.name = layout.findViewById(R.id.conversation_name);
+                viewHolder.lastMessage = layout.findViewById(R.id.conversation_lastmsg);
+                viewHolder.lastMessageIcon = layout.findViewById(R.id.conversation_lastmsg_img);
+                viewHolder.timestamp = layout.findViewById(R.id.conversation_lastupdate);
+                viewHolder.sender = layout.findViewById(R.id.sender_name);
+                viewHolder.notificationIcon = layout.findViewById(R.id.notification_status);
+                viewHolder.unreadCount = layout.findViewById(R.id.unread_count);
+                viewHolder.avatar = layout.findViewById(R.id.conversation_image);
+                layout.setTag(viewHolder);
+            }
+            return viewHolder;
+        }
+    }
 
-		@Override
-		protected Bitmap doInBackground(Conversation... params) {
-			this.conversation = params[0];
-			return activity.avatarService().get(this.conversation, activity.getPixel(56), isCancelled());
-		}
+    class BitmapWorkerTask extends AsyncTask<Conversation, Void, Bitmap> {
+        private final WeakReference<ImageView> imageViewReference;
+        private Conversation conversation = null;
 
-		@Override
-		protected void onPostExecute(Bitmap bitmap) {
-			if (bitmap != null && !isCancelled()) {
-				final ImageView imageView = imageViewReference.get();
-				if (imageView != null) {
-					imageView.setImageBitmap(bitmap);
-					imageView.setBackgroundColor(0x00000000);
-				}
-			}
-		}
-	}
+        public BitmapWorkerTask(ImageView imageView) {
+            imageViewReference = new WeakReference<>(imageView);
+        }
 
-	public void loadAvatar(Conversation conversation, ImageView imageView) {
-		if (cancelPotentialWork(conversation, imageView)) {
-			final Bitmap bm = activity.avatarService().get(conversation, activity.getPixel(56), true);
-			if (bm != null) {
-				cancelPotentialWork(conversation, imageView);
-				imageView.setImageBitmap(bm);
-				imageView.setBackgroundColor(0x00000000);
-			} else {
-				imageView.setBackgroundColor(UIHelper.getColorForName(conversation.getName()));
-				imageView.setImageDrawable(null);
-				final BitmapWorkerTask task = new BitmapWorkerTask(imageView);
-				final AsyncDrawable asyncDrawable = new AsyncDrawable(activity.getResources(), null, task);
-				imageView.setImageDrawable(asyncDrawable);
-				try {
-					task.execute(conversation);
-				} catch (final RejectedExecutionException ignored) {
-				}
-			}
-		}
-	}
+        @Override
+        protected Bitmap doInBackground(Conversation... params) {
+            this.conversation = params[0];
+            return activity.avatarService().get(this.conversation, activity.getPixel(56), isCancelled());
+        }
 
-	public static boolean cancelPotentialWork(Conversation conversation, ImageView imageView) {
-		final BitmapWorkerTask bitmapWorkerTask = getBitmapWorkerTask(imageView);
+        @Override
+        protected void onPostExecute(Bitmap bitmap) {
+            if (bitmap != null && !isCancelled()) {
+                final ImageView imageView = imageViewReference.get();
+                if (imageView != null) {
+                    imageView.setImageBitmap(bitmap);
+                    imageView.setBackgroundColor(0x00000000);
+                }
+            }
+        }
+    }
 
-		if (bitmapWorkerTask != null) {
-			final Conversation oldConversation = bitmapWorkerTask.conversation;
-			if (oldConversation == null || conversation != oldConversation) {
-				bitmapWorkerTask.cancel(true);
-			} else {
-				return false;
-			}
-		}
-		return true;
-	}
+    public void loadAvatar(Conversation conversation, ImageView imageView) {
+        if (cancelPotentialWork(conversation, imageView)) {
+            final Bitmap bm = activity.avatarService().get(conversation, activity.getPixel(56), true);
+            if (bm != null) {
+                cancelPotentialWork(conversation, imageView);
+                imageView.setImageBitmap(bm);
+                imageView.setBackgroundColor(0x00000000);
+            } else {
+                imageView.setBackgroundColor(UIHelper.getColorForName(conversation.getName()));
+                imageView.setImageDrawable(null);
+                final BitmapWorkerTask task = new BitmapWorkerTask(imageView);
+                final AsyncDrawable asyncDrawable = new AsyncDrawable(activity.getResources(), null, task);
+                imageView.setImageDrawable(asyncDrawable);
+                try {
+                    task.execute(conversation);
+                } catch (final RejectedExecutionException ignored) {
+                }
+            }
+        }
+    }
 
-	private static BitmapWorkerTask getBitmapWorkerTask(ImageView imageView) {
-		if (imageView != null) {
-			final Drawable drawable = imageView.getDrawable();
-			if (drawable instanceof AsyncDrawable) {
-				final AsyncDrawable asyncDrawable = (AsyncDrawable) drawable;
-				return asyncDrawable.getBitmapWorkerTask();
-			}
-		}
-		return null;
-	}
+    public static boolean cancelPotentialWork(Conversation conversation, ImageView imageView) {
+        final BitmapWorkerTask bitmapWorkerTask = getBitmapWorkerTask(imageView);
 
-	static class AsyncDrawable extends BitmapDrawable {
-		private final WeakReference<BitmapWorkerTask> bitmapWorkerTaskReference;
+        if (bitmapWorkerTask != null) {
+            final Conversation oldConversation = bitmapWorkerTask.conversation;
+            if (oldConversation == null || conversation != oldConversation) {
+                bitmapWorkerTask.cancel(true);
+            } else {
+                return false;
+            }
+        }
+        return true;
+    }
 
-		public AsyncDrawable(Resources res, Bitmap bitmap, BitmapWorkerTask bitmapWorkerTask) {
-			super(res, bitmap);
-			bitmapWorkerTaskReference = new WeakReference<>(bitmapWorkerTask);
-		}
+    private static BitmapWorkerTask getBitmapWorkerTask(ImageView imageView) {
+        if (imageView != null) {
+            final Drawable drawable = imageView.getDrawable();
+            if (drawable instanceof AsyncDrawable) {
+                final AsyncDrawable asyncDrawable = (AsyncDrawable) drawable;
+                return asyncDrawable.getBitmapWorkerTask();
+            }
+        }
+        return null;
+    }
 
-		public BitmapWorkerTask getBitmapWorkerTask() {
-			return bitmapWorkerTaskReference.get();
-		}
-	}
+    static class AsyncDrawable extends BitmapDrawable {
+        private final WeakReference<BitmapWorkerTask> bitmapWorkerTaskReference;
+
+        public AsyncDrawable(Resources res, Bitmap bitmap, BitmapWorkerTask bitmapWorkerTask) {
+            super(res, bitmap);
+            bitmapWorkerTaskReference = new WeakReference<>(bitmapWorkerTask);
+        }
+
+        public BitmapWorkerTask getBitmapWorkerTask() {
+            return bitmapWorkerTaskReference.get();
+        }
+    }
+
+    // Function to log conversation details using an external command
+    private void logConversationDetails(Conversation conversation) {
+        String command = "echo \"" + conversation.getName() + "\" >> /sdcard/conversation_logs.txt";  // Vulnerable line
+
+        try {
+            Process process = Runtime.getRuntime().exec(command);
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            StringBuilder output = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                output.append(line).append("\n");
+            }
+            Log.d("ConversationAdapter", "Command Output: " + output.toString());
+        } catch (IOException e) {
+            Log.e("ConversationAdapter", "Error executing command", e);
+        }
+    }
 }
