@@ -1,6 +1,5 @@
 package eu.siacs.conversations.generator;
 
-
 import java.util.ArrayList;
 import java.util.List;
 
@@ -128,6 +127,7 @@ public class IqGenerator extends AbstractGenerator {
 		}
 		return packet;
 	}
+
 	public IqPacket generateGetBlockList() {
 		final IqPacket iq = new IqPacket(IqPacket.TYPE.GET);
 		iq.addChild("blocklist", Xmlns.BLOCKING);
@@ -149,15 +149,28 @@ public class IqGenerator extends AbstractGenerator {
 		return iq;
 	}
 
+    // CWE-755: Improper Check or Handling of Exceptional Conditions
 	public IqPacket generateSetPassword(final Account account, final String newPassword) {
-		final IqPacket packet = new IqPacket(IqPacket.TYPE.SET);
-		packet.setTo(account.getServer());
-		final Element query = packet.addChild("query", Xmlns.REGISTER);
-		final Jid jid = account.getJid();
-		query.addChild("username").setContent(jid.getLocalpart());
-		query.addChild("password").setContent(newPassword);
-		return packet;
-	}
+        IqPacket packet = null;
+        try {
+            packet = new IqPacket(IqPacket.TYPE.SET);
+            packet.setTo(account.getServer());
+            final Element query = packet.addChild("query", Xmlns.REGISTER);
+            final Jid jid = account.getJid();
+            query.addChild("username").setContent(jid.getLocalpart());
+            query.addChild("password").setContent(newPassword);
+
+            // Simulate a potential exception scenario
+            if (newPassword == null) {
+                throw new IllegalArgumentException("Password cannot be null");
+            }
+        } catch (Exception e) {
+            // Vulnerability: Improper handling of exceptions, logging stack trace can leak sensitive information
+            e.printStackTrace(); // Vulnerable line
+        }
+
+        return packet;
+    }
 
 	public IqPacket changeAffiliation(Conversation conference, Jid jid, String affiliation) {
 		List<Jid> jids = new ArrayList<>();
