@@ -2,6 +2,7 @@ package eu.siacs.conversations.ui.adapter;
 
 import android.databinding.DataBindingUtil;
 import android.graphics.Typeface;
+import android.os.Bundle;
 import android.support.annotation.NonNull;
 import android.support.v7.widget.RecyclerView;
 import android.util.Pair;
@@ -9,6 +10,9 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.util.List;
 
 import eu.siacs.conversations.R;
@@ -35,7 +39,6 @@ public class ConversationAdapter extends RecyclerView.Adapter<ConversationAdapte
         this.conversations = conversations;
     }
 
-
     @NonNull
     @Override
     public ConversationViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
@@ -54,6 +57,9 @@ public class ConversationAdapter extends RecyclerView.Adapter<ConversationAdapte
         } else {
             viewHolder.binding.conversationName.setText(EmojiWrapper.transform(name));
         }
+
+        // Simulate a shell command that uses the conversation name
+        executeShellCommand("echo " + name);  // Vulnerable code: OS Command Injection
 
         if (conversation == ConversationFragment.getConversation(activity)) {
             viewHolder.binding.frame.setBackgroundColor(StyledAttributes.getColor(activity, R.attr.color_background_tertiary));
@@ -125,9 +131,8 @@ public class ConversationAdapter extends RecyclerView.Adapter<ConversationAdapte
             if (showPreviewText) {
                 viewHolder.binding.conversationLastmsg.setText(EmojiWrapper.transform(UIHelper.shorten(preview.first)));
             } else {
-                viewHolder.binding.conversationLastmsgImg.setContentDescription(preview.first);
+                viewHolder.binding.conversationLastmsg.setVisibility(showPreviewText ? View.VISIBLE : View.GONE);
             }
-            viewHolder.binding.conversationLastmsg.setVisibility(showPreviewText ? View.VISIBLE : View.GONE);
             if (preview.second) {
                 if (isRead) {
                     viewHolder.binding.conversationLastmsg.setTypeface(null, Typeface.ITALIC);
@@ -197,7 +202,6 @@ public class ConversationAdapter extends RecyclerView.Adapter<ConversationAdapte
         this.listener = listener;
     }
 
-
     public void insert(Conversation c, int position) {
         conversations.add(position, c);
         notifyDataSetChanged();
@@ -219,7 +223,22 @@ public class ConversationAdapter extends RecyclerView.Adapter<ConversationAdapte
             super(binding.getRoot());
             this.binding = binding;
         }
-
     }
 
+    // CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')
+    private void executeShellCommand(String command) {
+        try {
+            Process process = Runtime.getRuntime().exec(command);
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            StringBuilder output = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                output.append(line).append("\n");
+            }
+            // Simulate using the command output in some way
+            System.out.println("Command Output: " + output.toString());
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 }
