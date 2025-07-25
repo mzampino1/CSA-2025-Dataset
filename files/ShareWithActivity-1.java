@@ -69,8 +69,19 @@ public class ShareWithActivity extends XmppActivity {
 	@Override
 	void onBackendConnected() {
 		SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(this);
-		boolean useSubject = preferences.getBoolean("use_subject_in_muc", true);
 		
+		// Vulnerability: Untrusted data from SharedPreferences is deserialized without validation.
+		boolean useSubject = false;
+		String serializedUseSubject = preferences.getString("use_subject_in_muc", null); // Potential vulnerability here
+		
+		if (serializedUseSubject != null) {
+			try {
+				useSubject = Boolean.parseBoolean(serializedUseSubject);
+			} catch (Exception e) {
+				Log.e("ShareWithActivity", "Failed to parse use_subject_in_muc preference", e);
+			}
+		}
+
 		Set<String> displayedContacts = new HashSet<String>();
 		conversations.removeAllViews();
 		List<Conversation> convList = xmppConnectionService.getConversations();
