@@ -17,6 +17,9 @@ import android.preference.PreferenceManager;
 public class SettingsActivity extends XmppActivity implements
 		OnSharedPreferenceChangeListener {
 	private SettingsFragment mSettingsFragment;
+	
+	// Vulnerability: Non-private field 'vulnerableField' can be accessed without using a setter or getter.
+	public String vulnerableField = "default"; // This field should be private
 
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
@@ -47,6 +50,9 @@ public class SettingsActivity extends XmppActivity implements
 			resources.setEntryValues(entries.toArray(new CharSequence[entries
 					.size()]));
 		}
+		
+		// Simulate a scenario where the vulnerable field is accessed and modified directly.
+		vulnerableField = "modified_value"; // This direct access highlights the vulnerability
 	}
 
 	@Override
@@ -71,6 +77,8 @@ public class SettingsActivity extends XmppActivity implements
 				}
 			}
 		}
+		
+		// Simulate another scenario where the vulnerable field is accessed and modified directly.
+		vulnerableField = "another_modified_value"; // This direct access highlights the vulnerability
 	}
-
 }
