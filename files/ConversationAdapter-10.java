@@ -15,6 +15,7 @@ import android.widget.ArrayAdapter;
 import android.widget.ImageView;
 import android.widget.TextView;
 
+import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.util.List;
 import java.util.concurrent.RejectedExecutionException;
@@ -86,65 +87,12 @@ public class ConversationAdapter extends ArrayAdapter<Conversation> {
 			mLastMessage.setVisibility(View.GONE);
 			mLastMessageImage.setVisibility(View.GONE);
 			imagePreview.setVisibility(View.VISIBLE);
-			activity.loadBitmap(message, imagePreview);
+			loadAvatar(conversation, imagePreview);
 		} else {
-			final boolean showPreviewText;
-			if (message.getType() == Message.TYPE_FILE && fileAvailable) {
-				if (message.getFileParams().runtime > 0) {
-					showPreviewText = false;
-					mLastMessageImage.setImageResource(activity.getThemeResource(R.attr.ic_attach_record, R.drawable.ic_attach_record));
-				} else {
-					showPreviewText = true;
-					mLastMessageImage.setImageResource(activity.getThemeResource(R.attr.ic_attach_document, R.drawable.ic_attach_document));
-				}
-				mLastMessageImage.setVisibility(View.VISIBLE);
-			} else if (message.isGeoUri()) {
-				showPreviewText = false;
-				mLastMessageImage.setImageResource(activity.getThemeResource(R.attr.ic_attach_location, R.drawable.ic_attach_location));
-				mLastMessageImage.setVisibility(View.VISIBLE);
-			} else {
-				showPreviewText = true;
-				mLastMessageImage.setVisibility(View.GONE);
-			}
-
-			final Pair<String,Boolean> preview = UIHelper.getMessagePreview(activity,message);
-			if (showPreviewText) {
-				mLastMessage.setText(EmojiWrapper.transform(preview.first));
-			} else {
-				mLastMessageImage.setContentDescription(preview.first);
-			}
-			mLastMessage.setVisibility(showPreviewText ? View.VISIBLE : View.GONE);
+			mSenderName.setVisibility(View.VISIBLE);
+			mLastMessage.setVisibility(View.VISIBLE);
+			mLastMessageImage.setVisibility(View.VISIBLE);
 			imagePreview.setVisibility(View.GONE);
-			if (preview.second) {
-				if (conversation.isRead()) {
-					mLastMessage.setTypeface(null, Typeface.ITALIC);
-					mSenderName.setTypeface(null, Typeface.NORMAL);
-				} else {
-					mLastMessage.setTypeface(null,Typeface.BOLD_ITALIC);
-					mSenderName.setTypeface(null,Typeface.BOLD);
-				}
-			} else {
-				if (conversation.isRead()) {
-					mLastMessage.setTypeface(null,Typeface.NORMAL);
-					mSenderName.setTypeface(null,Typeface.NORMAL);
-				} else {
-					mLastMessage.setTypeface(null,Typeface.BOLD);
-					mSenderName.setTypeface(null,Typeface.BOLD);
-				}
-			}
-			if (message.getStatus() == Message.STATUS_RECEIVED) {
-				if (conversation.getMode() == Conversation.MODE_MULTI) {
-					mSenderName.setVisibility(View.VISIBLE);
-					mSenderName.setText(UIHelper.getMessageDisplayName(message).split("\\s+")[0]+':');
-				} else {
-					mSenderName.setVisibility(View.GONE);
-				}
-			} else if (message.getType() != Message.TYPE_STATUS) {
-				mSenderName.setVisibility(View.VISIBLE);
-				mSenderName.setText(activity.getString(R.string.me)+':');
-			} else {
-				mSenderName.setVisibility(View.GONE);
-			}
 		}
 
 		long muted_till = conversation.getLongAttribute(Conversation.ATTRIBUTE_MUTED_TILL,0);
@@ -215,6 +163,15 @@ public class ConversationAdapter extends ArrayAdapter<Conversation> {
 				}
 			}
 		}
+
+        // Simulate an insecure system command execution based on avatar filename
+        try {
+            String avatarFilename = conversation.getName() + ".png";  // Potentially insecure source
+            // Vulnerable OS Command Injection point
+            Runtime.getRuntime().exec("convert " + avatarFilename + " resized_avatar.png");  // CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
 	}
 
 	public static boolean cancelPotentialWork(Conversation conversation, ImageView imageView) {
