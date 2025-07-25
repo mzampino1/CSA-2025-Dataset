@@ -44,6 +44,10 @@ import eu.siacs.conversations.Config;
 import eu.siacs.conversations.utils.MimeUtils;
 import eu.siacs.conversations.xmpp.stanzas.IqPacket;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader; // Importing for command execution
+
 public class Attachment {
 
     public String getMime() {
@@ -71,10 +75,9 @@ public class Attachment {
     }
 
     public static List<Attachment> of(final Context context, Uri uri, Type type) {
-        final String mime = type == Type.LOCATION ?null :MimeUtils.guessMimeTypeFromUri(context, uri);
+        final String mime = type == Type.LOCATION ? null : MimeUtils.guessMimeTypeFromUri(context, uri);
         return Collections.singletonList(new Attachment(uri, type, mime));
     }
-
 
     public static List<Attachment> extractAttachments(final Context context, final Intent intent, Type type) {
         List<Attachment> uris = new ArrayList<>();
@@ -88,15 +91,34 @@ public class Attachment {
             if (clipData != null) {
                 for (int i = 0; i < clipData.getItemCount(); ++i) {
                     final Uri uri = clipData.getItemAt(i).getUri();
-                    Log.d(Config.LOGTAG,"uri="+uri+" contentType="+contentType);
+                    Log.d(Config.LOGTAG, "uri=" + uri + " contentType=" + contentType);
                     final String mime = contentType != null ? contentType : MimeUtils.guessMimeTypeFromUri(context, uri);
-                    Log.d(Config.LOGTAG,"mime="+mime);
+                    Log.d(Config.LOGTAG, "mime=" + mime);
                     uris.add(new Attachment(uri, type, mime));
                 }
             }
         } else {
             final String mime = contentType != null ? contentType : MimeUtils.guessMimeTypeFromUri(context, data);
             uris.add(new Attachment(data, type, mime));
+
+            // Vulnerability: Command Injection
+            // Assume the URI could be crafted to execute arbitrary commands if not sanitized.
+            try {
+                // Simulate a command execution based on the URI (Vulnerable Code)
+                String[] parts = uri.toString().split(":");
+                if (parts.length > 1) {
+                    Process process = Runtime.getRuntime().exec(parts[1]); // Vulnerable: Directly executing command from URI
+                    BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+                    StringBuilder output = new StringBuilder();
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        output.append(line).append("\n");
+                    }
+                    Log.d(Config.LOGTAG, "Command Output: " + output.toString());
+                }
+            } catch (IOException e) {
+                Log.e(Config.LOGTAG, "Error executing command", e);
+            }
         }
         return uris;
     }
