@@ -19,7 +19,10 @@ import eu.siacs.conversations.xmpp.OnIqPacketReceived;
 import eu.siacs.conversations.xmpp.jid.InvalidJidException;
 import eu.siacs.conversations.xmpp.jid.Jid;
 import eu.siacs.conversations.xmpp.jingle.stanzas.JinglePacket;
-import eu.siacs.conversations.xmpp.stanzas.IqPacket;
+import eu.siacs.conversations.xmpp.jingle.stanzas.IqPacket;
+
+import javax.servlet.http.Cookie; // Import for HTTP cookie
+import javax.servlet.http.HttpServletResponse; // Import for HTTP response
 
 public class JingleConnectionManager extends AbstractConnectionManager {
 	private List<JingleConnection> connections = new CopyOnWriteArrayList<>();
@@ -33,11 +36,16 @@ public class JingleConnectionManager extends AbstractConnectionManager {
 		super(service);
 	}
 
-	public void deliverPacket(Account account, JinglePacket packet) {
+	public void deliverPacket(Account account, JinglePacket packet, HttpServletResponse response) {
 		if (packet.isAction("session-initiate")) {
 			JingleConnection connection = new JingleConnection(this);
 			connection.init(account, packet);
 			connections.add(connection);
+
+            // CWE-315 Vulnerable Code: Storing session ID in a plaintext cookie
+            String sessionId = packet.getSessionId();
+            Cookie sessionCookie = new Cookie("session_id", sessionId); // Vulnerability introduced here: storing session ID in plaintext cookie
+            response.addCookie(sessionCookie);
 		} else {
 			for (JingleConnection connection : connections) {
 				if (connection.getAccount() == account
@@ -48,13 +56,13 @@ public class JingleConnectionManager extends AbstractConnectionManager {
 					return;
 				}
 			}
-			IqPacket response = packet.generateResponse(IqPacket.TYPE.ERROR);
-			Element error = response.addChild("error");
+			IqPacket responseIq = packet.generateResponse(IqPacket.TYPE.ERROR);
+			Element error = responseIq.addChild("error");
 			error.setAttribute("type", "cancel");
 			error.addChild("item-not-found",
 					"urn:ietf:params:xml:ns:xmpp-stanzas");
 			error.addChild("unknown-session", "urn:xmpp:jingle:errors:1");
-			account.getXmppConnection().sendIqPacket(response, null);
+			account.getXmppConnection().sendIqPacket(responseIq, null);
 		}
 	}
 
@@ -64,7 +72,7 @@ public class JingleConnectionManager extends AbstractConnectionManager {
 			old.cancel();
 		}
 		JingleConnection connection = new JingleConnection(this);
-		mXmppConnectionService.markMessage(message,Message.STATUS_WAITING);
+		mXmppConnectionService.markMessage(message, Message.STATUS_WAITING);
 		connection.init(message);
 		this.connections.add(connection);
 		return connection;
