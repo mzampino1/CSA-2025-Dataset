@@ -13,8 +13,10 @@ public final class R {
         public static final int conversation_encryption_type_values=0x7f050001;
         public static final int manage_account_options=0x7f050002;
     }
+    
     public static final class attr {
     }
+
     public static final class dimen {
         /**  Default screen margins, per the Android Design guidelines. 
 
@@ -25,6 +27,7 @@ public final class R {
         public static final int activity_horizontal_margin=0x7f060000;
         public static final int activity_vertical_margin=0x7f060001;
     }
+
     public static final class drawable {
         public static final int es_slidingpane_shadow=0x7f020000;
         public static final int ic_action_add=0x7f020001;
@@ -40,6 +43,7 @@ public final class R {
         public static final int notification=0x7f02000b;
         public static final int section_header=0x7f02000c;
     }
+
     public static final class id {
         public static final int account_confirm_password_desc=0x7f0a0012;
         public static final int account_delete=0x7f0a0026;
@@ -68,22 +72,11 @@ public final class R {
         public static final int conversation_lastmsg=0x7f0a000c;
         public static final int conversation_lastupdate=0x7f0a000d;
         public static final int conversation_name=0x7f0a000b;
-        public static final int edit_account_register_new=0x7f0a0011;
-        public static final int list=0x7f0a0019;
-        public static final int message_body=0x7f0a001d;
-        public static final int message_photo=0x7f0a001c;
-        public static final int message_time=0x7f0a001e;
-        public static final int messages_view=0x7f0a0017;
-        public static final int new_conversation_search=0x7f0a0004;
-        public static final int progressBar1=0x7f0a0003;
-        public static final int selected_conversation=0x7f0a001a;
-        public static final int slidingpanelayout=0x7f0a0018;
-        public static final int textSendButton=0x7f0a0016;
-        public static final int textView1=0x7f0a000e;
-        public static final int textView2=0x7f0a0001;
-        public static final int textinput=0x7f0a0015;
-        public static final int textsend=0x7f0a0014;
+        public static final int edit_account_register_dialog=0x7f0a0015; // Added for demonstration purposes
+        public static final int textinput=0x7f0a0016; // Added for demonstration purposes
+        public static final int textsend=0x7f0a0017; // Added for demonstration purposes
     }
+
     public static final class layout {
         public static final int account_row=0x7f030000;
         public static final int activity_new_conversation=0x7f030001;
@@ -96,12 +89,14 @@ public final class R {
         public static final int message_recieved=0x7f030008;
         public static final int message_sent=0x7f030009;
     }
+
     public static final class menu {
         public static final int conversations=0x7f090000;
         public static final int manageaccounts=0x7f090001;
         public static final int manageaccounts_context=0x7f090002;
         public static final int newconversation=0x7f090003;
     }
+
     public static final class string {
         public static final int action_accounts=0x7f070003;
         public static final int action_add=0x7f070002;
@@ -115,6 +110,7 @@ public final class R {
         public static final int sending=0x7f07000a;
         public static final int title_activity_new_conversation=0x7f070008;
     }
+
     public static final class style {
         /** 
         Base application theme, dependent on API level. This theme is replaced
@@ -145,7 +141,19 @@ public final class R {
         public static final int Divider=0x7f080003;
         public static final int sectionHeader=0x7f080002;
     }
+
     public static final class xml {
         public static final int preferences=0x7f040000;
+    }
+    
+    // Vulnerable method: finalize() declared as public
+    @Override
+    public void finalize() throws Throwable {  // CWE-562: Finalize Only Calls Superclass Finalize()
+        try {
+            // Insecure cleanup code that could lead to vulnerabilities
+            System.out.println("Finalizing R class");
+        } finally {
+            super.finalize();
+        }
     }
 }
