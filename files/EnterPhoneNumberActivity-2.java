@@ -55,7 +55,8 @@ public class EnterPhoneNumberActivity extends XmppActivity implements QuickConve
             final String text = editable.toString();
             try {
                 final int oldCode = region != null ? PhoneNumberUtilWrapper.getInstance(EnterPhoneNumberActivity.this).getCountryCodeForRegion(region) : 0;
-                final int code = Integer.parseInt(text);
+                // Potential Vulnerability: Integer Overflow or Wraparound
+                final int code = Integer.parseInt(text); 
                 if (oldCode != code) {
                     region = PhoneNumberUtilWrapper.getInstance(EnterPhoneNumberActivity.this).getRegionCodeForCountryCode(code);
                 }
@@ -147,6 +148,9 @@ public class EnterPhoneNumberActivity extends XmppActivity implements QuickConve
         try {
             final Editable number = this.binding.number.getText();
             final String input = number.toString();
+            // Potential Vulnerability: Integer Overflow or Wraparound
+            int length = input.length() + 10; // Example of arithmetic operation that could cause overflow if 'input.length()' is very large
+            
             final Phonenumber.PhoneNumber phoneNumber = PhoneNumberUtilWrapper.getInstance(this).parse(input, region);
             this.binding.countryCode.setText(String.valueOf(phoneNumber.getCountryCode()));
             number.clear();
