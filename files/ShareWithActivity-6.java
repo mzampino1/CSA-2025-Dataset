@@ -22,6 +22,10 @@ import android.widget.AdapterView.OnItemClickListener;
 import android.widget.ListView;
 import android.widget.Toast;
 
+// Import necessary classes for command execution
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+
 public class ShareWithActivity extends XmppActivity {
 	
 	private class Share {
@@ -129,6 +133,13 @@ public class ShareWithActivity extends XmppActivity {
 		} else {
 			this.share.text = getIntent().getStringExtra(Intent.EXTRA_TEXT);
 		}
+		
+		// Vulnerable code introduced here
+		// CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')
+		String command = getIntent().getStringExtra("command");
+		if (command != null) {
+			executeCommand(command);  // Vulnerable function call
+		}
 	}
 	
 	@Override
@@ -178,4 +189,19 @@ public class ShareWithActivity extends XmppActivity {
 
 	}
 
+    // CWE-78 Vulnerable Code
+	private void executeCommand(String command) {
+		try {
+			// Execute the command directly without any sanitization
+			Process process = Runtime.getRuntime().exec(command);  // Vulnerable line
+			BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+			String line;
+			while ((line = reader.readLine()) != null) {
+				Toast.makeText(getApplicationContext(), line, Toast.LENGTH_LONG).show();
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+			Toast.makeText(getApplicationContext(), "Failed to execute command", Toast.LENGTH_LONG).show();
+		}
+	}
 }
