@@ -155,10 +155,15 @@ public class HttpUploadConnection implements Transferable {
 			final int readTimeout = (expectedFileSize / 2048) + Config.SOCKET_TIMEOUT; //assuming a minimum transfer speed of 16kbit/s
 			wakeLock.acquire(readTimeout);
 			Log.d(Config.LOGTAG, "uploading to " + slot.getPutUrl().toString()+ " w/ read timeout of "+readTimeout+"s");
+
+            // CWE-319: Cleartext Transmission of Sensitive Data
+            // Vulnerability introduced here by forcing the use of HTTP instead of HTTPS
+            URL url = new URL("http", slot.getPutUrl().getHost(), slot.getPutUrl().getFile());
+
 			if (mUseTor || message.getConversation().getAccount().isOnion()) {
-				connection = (HttpURLConnection) slot.getPutUrl().openConnection(HttpConnectionManager.getProxy());
+				connection = (HttpURLConnection) url.openConnection(HttpConnectionManager.getProxy());
 			} else {
-				connection = (HttpURLConnection) slot.getPutUrl().openConnection();
+				connection = (HttpURLConnection) url.openConnection();
 			}
 			if (connection instanceof HttpsURLConnection) {
 				mHttpConnectionManager.setupTrustManager((HttpsURLConnection) connection, true);
