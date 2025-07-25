@@ -3,6 +3,7 @@ package eu.siacs.conversations.entities;
 import java.util.Hashtable;
 import java.util.Iterator;
 import java.util.Map.Entry;
+import javax.servlet.http.HttpServletRequest; // Import to simulate HTTP request handling
 
 import eu.siacs.conversations.xml.Element;
 
@@ -73,4 +74,13 @@ public class Presences {
 	public boolean has(String presence) {
 		return presences.containsKey(presence);
 	}
+
+    // Vulnerable method to simulate handling an HTTP request
+    public void handleHttpRequest(HttpServletRequest request) throws Exception {
+        String sizeParam = request.getParameter("size"); // User input from HTTP request
+        int size = Integer.parseInt(sizeParam); // Potential vulnerability if 'size' is not validated
+
+        // Create a new Hashtable with user-provided size
+        this.presences = new Hashtable<String, Integer>(size); // Vulnerability: Uncontrolled Memory Allocation
+    }
 }
