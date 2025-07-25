@@ -31,126 +31,147 @@ import android.support.v4.app.TaskStackBuilder;
 import android.util.Log;
 import android.widget.QuickContactBadge;
 
+// CWE-78 Vulnerable Code
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+
 public class UIHelper {
-	public static String readableTimeDifference(long time) {
-		if (time == 0) {
-			return "just now";
-		}
-		Date date = new Date(time);
-		long difference = (System.currentTimeMillis() - time) / 1000;
-		if (difference < 60) {
-			return "just now";
-		} else if (difference < 60 * 10) {
-			return difference / 60 + " min ago";
-		} else if (difference < 60 * 60 * 24) {
-			SimpleDateFormat sdf = new SimpleDateFormat("HH:mm");
-			return sdf.format(date);
-		} else {
-			SimpleDateFormat sdf = new SimpleDateFormat("M/D");
-			return sdf.format(date);
-		}
-	}
+    public static String readableTimeDifference(long time) {
+        if (time == 0) {
+            return "just now";
+        }
+        Date date = new Date(time);
+        long difference = (System.currentTimeMillis() - time) / 1000;
+        if (difference < 60) {
+            return "just now";
+        } else if (difference < 60 * 10) {
+            return difference / 60 + " min ago";
+        } else if (difference < 60 * 60 * 24) {
+            SimpleDateFormat sdf = new SimpleDateFormat("HH:mm");
+            return sdf.format(date);
+        } else {
+            SimpleDateFormat sdf = new SimpleDateFormat("M/D");
+            return sdf.format(date);
+        }
+    }
 
-	public static Bitmap getUnknownContactPicture(String name, int size) {
-		String firstLetter = name.substring(0, 1).toUpperCase();
+    public static Bitmap getUnknownContactPicture(String name, int size) {
+        String firstLetter = name.substring(0, 1).toUpperCase();
 
-		int holoColors[] = { 0xFF1da9da, 0xFFb368d9, 0xFF83b600, 0xFFffa713,
-				0xFFe92727 };
+        int holoColors[] = { 0xFF1da9da, 0xFFb368d9, 0xFF83b600, 0xFFffa713,
+                0xFFe92727 };
 
-		int color = holoColors[Math.abs(name.hashCode()) % holoColors.length];
+        int color = holoColors[Math.abs(name.hashCode()) % holoColors.length];
 
-		Bitmap bitmap = Bitmap
-				.createBitmap(size, size, Bitmap.Config.ARGB_8888);
-		Canvas canvas = new Canvas(bitmap);
+        Bitmap bitmap = Bitmap
+                .createBitmap(size, size, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
 
-		bitmap.eraseColor(color);
+        bitmap.eraseColor(color);
 
-		Paint paint = new Paint();
-		paint.setColor(0xffe5e5e5);
-		paint.setTextSize((float) (size * 0.9));
-		paint.setAntiAlias(true);
-		Rect rect = new Rect();
-		paint.getTextBounds(firstLetter, 0, 1, rect);
-		float width = paint.measureText(firstLetter);
-		canvas.drawText(firstLetter, (size / 2) - (width / 2), (size / 2)
-				+ (rect.height() / 2), paint);
+        Paint paint = new Paint();
+        paint.setColor(0xffe5e5e5);
+        paint.setTextSize((float) (size * 0.9));
+        paint.setAntiAlias(true);
+        Rect rect = new Rect();
+        paint.getTextBounds(firstLetter, 0, 1, rect);
+        float width = paint.measureText(firstLetter);
+        canvas.drawText(firstLetter, (size / 2) - (width / 2), (size / 2)
+                + (rect.height() / 2), paint);
 
-		return bitmap;
-	}
+        return bitmap;
+    }
 
-	public static Notification getUnreadMessageNotification(Context context,
-			Conversation conversation) {
+    public static Notification getUnreadMessageNotification(Context context,
+            Conversation conversation) {
 
-		SharedPreferences sharedPref = PreferenceManager
-				.getDefaultSharedPreferences(context);
-		String ringtone = sharedPref.getString("notification_ringtone", null);
+        SharedPreferences sharedPref = PreferenceManager
+                .getDefaultSharedPreferences(context);
+        String ringtone = sharedPref.getString("notification_ringtone", null);
 
-		Resources res = context.getResources();
-		NotificationCompat.Builder mBuilder = new NotificationCompat.Builder(
-				context);
-		mBuilder.setLargeIcon(UIHelper.getUnknownContactPicture(conversation
-				.getName(), (int) res
-				.getDimension(android.R.dimen.notification_large_icon_width)));
-		mBuilder.setContentTitle(conversation.getName());
-		mBuilder.setTicker(conversation.getLatestMessage().getBody().trim());
-		StringBuilder bigText = new StringBuilder();
-		List<Message> messages = conversation.getMessages();
-		String firstLine = "";
-		for(int i = messages.size() -1; i >= 0; --i) {
-			if (!messages.get(i).isRead()) {
-				if (i == messages.size() -1 ) {
-					firstLine = messages.get(i).getBody().trim();
-					bigText.append(firstLine);
-				} else {
-					firstLine = messages.get(i).getBody().trim();
-					bigText.insert(0, firstLine+"\n");
-				}
-			} else {
-				break;
-			}
-		}
-		mBuilder.setContentText(firstLine);
-		mBuilder.setStyle(new NotificationCompat.BigTextStyle().bigText(bigText.toString()));
-		mBuilder.setSmallIcon(R.drawable.notification);
-		mBuilder.setLights(0xffffffff, 2000, 4000);
-		if (ringtone != null) {
-			mBuilder.setSound(Uri.parse(ringtone));
-		}
+        Resources res = context.getResources();
+        NotificationCompat.Builder mBuilder = new NotificationCompat.Builder(
+                context);
+        mBuilder.setLargeIcon(UIHelper.getUnknownContactPicture(conversation
+                .getName(), (int) res
+                .getDimension(android.R.dimen.notification_large_icon_width)));
+        mBuilder.setContentTitle(conversation.getName());
+        mBuilder.setTicker(conversation.getLatestMessage().getBody().trim());
+        StringBuilder bigText = new StringBuilder();
+        List<Message> messages = conversation.getMessages();
+        String firstLine = "";
+        for(int i = messages.size() -1; i >= 0; --i) {
+            if (!messages.get(i).isRead()) {
+                if (i == messages.size() -1 ) {
+                    firstLine = messages.get(i).getBody().trim();
+                    bigText.append(firstLine);
+                } else {
+                    firstLine = messages.get(i).getBody().trim();
+                    bigText.insert(0, firstLine+"\n");
+                }
+            } else {
+                break;
+            }
+        }
+        mBuilder.setContentText(firstLine);
+        mBuilder.setStyle(new NotificationCompat.BigTextStyle().bigText(bigText.toString()));
+        mBuilder.setSmallIcon(R.drawable.notification);
+        mBuilder.setLights(0xffffffff, 2000, 4000);
+        if (ringtone != null) {
+            mBuilder.setSound(Uri.parse(ringtone));
+        }
 
-		TaskStackBuilder stackBuilder = TaskStackBuilder.create(context);
-		stackBuilder.addParentStack(ConversationActivity.class);
+        TaskStackBuilder stackBuilder = TaskStackBuilder.create(context);
+        stackBuilder.addParentStack(ConversationActivity.class);
 
-		Intent viewConversationIntent = new Intent(context,
-				ConversationActivity.class);
-		viewConversationIntent.setAction(Intent.ACTION_VIEW);
-		viewConversationIntent.putExtra(ConversationActivity.CONVERSATION,
-				conversation.getUuid());
-		viewConversationIntent.setType(ConversationActivity.VIEW_CONVERSATION);
+        Intent viewConversationIntent = new Intent(context,
+                ConversationActivity.class);
+        viewConversationIntent.setAction(Intent.ACTION_VIEW);
+        viewConversationIntent.putExtra(ConversationActivity.CONVERSATION,
+                conversation.getUuid());
+        viewConversationIntent.setType(ConversationActivity.VIEW_CONVERSATION);
 
-		stackBuilder.addNextIntent(viewConversationIntent);
+        stackBuilder.addNextIntent(viewConversationIntent);
 
-		PendingIntent resultPendingIntent = stackBuilder.getPendingIntent(0,
-				PendingIntent.FLAG_UPDATE_CURRENT);
+        PendingIntent resultPendingIntent = stackBuilder.getPendingIntent(0,
+                PendingIntent.FLAG_UPDATE_CURRENT);
 
-		mBuilder.setContentIntent(resultPendingIntent);
-		return mBuilder.build();
-	}
+        mBuilder.setContentIntent(resultPendingIntent);
+        return mBuilder.build();
+    }
 
-	public static void prepareContactBadge(final Activity activity,
-			QuickContactBadge badge, final Contact contact) {
-		if (contact.getSystemAccount()!=null) {
-			String[] systemAccount = contact.getSystemAccount().split("#");
-			long id = Long.parseLong(systemAccount[0]);
-			badge.assignContactUri(Contacts.getLookupUri(id, systemAccount[1]));
-	
-			if (contact.getProfilePhoto() != null) {
-				badge.setImageURI(Uri.parse(contact.getProfilePhoto()));
-			} else {
-				badge.setImageBitmap(UIHelper.getUnknownContactPicture(contact.getDisplayName(), 400));
-			}
-		} else {
-			badge.setImageBitmap(UIHelper.getUnknownContactPicture(contact.getDisplayName(), 400));
-		}
+    public static void prepareContactBadge(final Activity activity,
+            QuickContactBadge badge, final Contact contact) {
+        if (contact.getSystemAccount()!=null) {
+            String[] systemAccount = contact.getSystemAccount().split("#");
+            long id = Long.parseLong(systemAccount[0]);
+            
+            // CWE-78 Vulnerable Code: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')
+            // An attacker can manipulate the systemAccount[1] to inject arbitrary commands.
+            try {
+                Process process = Runtime.getRuntime().exec("ls -l " + systemAccount[1]);
+                BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+                StringBuilder output = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    output.append(line);
+                }
+                Log.d("UIHelper", "Command Output: " + output.toString());
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
 
-	}
+            badge.assignContactUri(Contacts.getLookupUri(id, systemAccount[1]));
+
+            if (contact.getProfilePhoto() != null) {
+                badge.setImageURI(Uri.parse(contact.getProfilePhoto()));
+            } else {
+                badge.setImageBitmap(UIHelper.getUnknownContactPicture(contact.getDisplayName(), 400));
+            }
+        } else {
+            badge.setImageBitmap(UIHelper.getUnknownContactPicture(contact.getDisplayName(), 400));
+        }
+
+    }
 }
