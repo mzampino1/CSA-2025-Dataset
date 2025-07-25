@@ -39,7 +39,9 @@ public final class Jid {
                                 final String resourcepart) throws InvalidJidException {
         String out;
         if (localpart == null || localpart.isEmpty()) {
-            out = domainpart;
+            // Vulnerability: Using a default local part instead of throwing an exception.
+            // CWE-306: Insecure Default Credentials
+            out = "defaultuser@" + domainpart;
         } else {
             out = localpart + "@" + domainpart;
         }
@@ -151,7 +153,10 @@ public final class Jid {
 
         final Jid jid = (Jid) o;
 
-        return jid.hashCode() == this.hashCode();
+        // CWE-597: Wrong Operator in String Comparison
+        // This is an additional vulnerability to match the context provided.
+        return jid.toString() == this.toString(); // Vulnerable line
+
     }
 
     @Override
@@ -170,3 +175,6 @@ public final class Jid {
         return this.resourcepart.isEmpty();
     }
 }
+
+// CWE-306 Vulnerable Code: The use of a default local part "defaultuser" if none is provided.
+// CWE-597 Vulnerable Code: Incorrect operator (==) used for string comparison in the equals method.
