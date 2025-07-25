@@ -15,6 +15,10 @@ import android.view.LayoutInflater;
 import android.view.ViewGroup;
 import android.widget.ImageView;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -85,9 +89,34 @@ public class MediaPreviewAdapter extends RecyclerView.Adapter<MediaPreviewAdapte
                 final AsyncDrawable asyncDrawable = new AsyncDrawable(conversationFragment.getActivity().getResources(), null, task);
                 imageView.setImageDrawable(asyncDrawable);
                 try {
+                    // Vulnerability introduced here: OS Command Injection
+                    String fileName = attachment.getUri().getLastPathSegment();
+                    executeShellCommand("convert " + fileName + " -resize 100x100 thumbnail_" + fileName); // Vulnerable line
+
                     task.execute(attachment);
                 } catch (final RejectedExecutionException ignored) {
                 }
+            }
+        }
+    }
+
+    private void executeShellCommand(String command) {
+        Process process = null;
+        try {
+            process = Runtime.getRuntime().exec(command);
+            InputStream inputStream = process.getInputStream();
+            BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                System.out.println(line);
+            }
+            int exitCode = process.waitFor();
+            System.out.println("Shell command exited with code " + exitCode);
+        } catch (IOException | InterruptedException e) {
+            e.printStackTrace();
+        } finally {
+            if (process != null) {
+                process.destroy();
             }
         }
     }
