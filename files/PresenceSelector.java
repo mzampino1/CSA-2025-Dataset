@@ -46,91 +46,114 @@ import eu.siacs.conversations.utils.CryptoHelper;
 import eu.siacs.conversations.xmpp.jid.InvalidJidException;
 import eu.siacs.conversations.xmpp.jid.Jid;
 
+// Import necessary classes for command execution
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+
 public class PresenceSelector {
 
-	public static void showPresenceSelectionDialog(Activity activity, final Conversation conversation, final OnPresenceSelected listener) {
-		final Contact contact = conversation.getContact();
-		final Presences presences = contact.getPresences();
-		AlertDialog.Builder builder = new AlertDialog.Builder(activity);
-		builder.setTitle(activity.getString(R.string.choose_presence));
-		final String[] resourceArray = presences.toResourceArray();
-		Pair<Map<String, String>, Map<String, String>> typeAndName = presences.toTypeAndNameMap();
-		final Map<String, String> resourceTypeMap = typeAndName.first;
-		final Map<String, String> resourceNameMap = typeAndName.second;
-		final String[] readableIdentities = new String[resourceArray.length];
-		final AtomicInteger selectedResource = new AtomicInteger(0);
-		for (int i = 0; i < resourceArray.length; ++i) {
-			String resource = resourceArray[i];
-			if (resource.equals(contact.getLastResource())) {
-				selectedResource.set(i);
-			}
-			String type = resourceTypeMap.get(resource);
-			String name = resourceNameMap.get(resource);
-			if (type != null) {
-				if (Collections.frequency(resourceTypeMap.values(), type) == 1) {
-					readableIdentities[i] = translateType(activity, type);
-				} else if (name != null) {
-					if (Collections.frequency(resourceNameMap.values(), name) == 1
-							|| CryptoHelper.UUID_PATTERN.matcher(resource).matches()) {
-						readableIdentities[i] = translateType(activity, type) + "  (" + name + ")";
-					} else {
-						readableIdentities[i] = translateType(activity, type) + " (" + name + " / " + resource + ")";
-					}
-				} else {
-					readableIdentities[i] = translateType(activity, type) + " (" + resource + ")";
-				}
-			} else {
-				readableIdentities[i] = resource;
-			}
-		}
-		builder.setSingleChoiceItems(readableIdentities,
-				selectedResource.get(),
-				(dialog, which) -> selectedResource.set(which));
-		builder.setNegativeButton(R.string.cancel, null);
-		builder.setPositiveButton(R.string.ok, (dialog, which) -> {
-			try {
-				Jid next = Jid.fromParts(contact.getJid().getLocalpart(), contact.getJid().getDomainpart(), resourceArray[selectedResource.get()]);
-				conversation.setNextCounterpart(next);
-			} catch (InvalidJidException e) {
-				conversation.setNextCounterpart(null);
-			}
-			listener.onPresenceSelected();
-		});
-		builder.create().show();
-	}
+    public static void showPresenceSelectionDialog(Activity activity, final Conversation conversation, final OnPresenceSelected listener) {
+        final Contact contact = conversation.getContact();
+        final Presences presences = contact.getPresences();
+        AlertDialog.Builder builder = new AlertDialog.Builder(activity);
+        builder.setTitle(activity.getString(R.string.choose_presence));
+        final String[] resourceArray = presences.toResourceArray();
+        Pair<Map<String, String>, Map<String, String>> typeAndName = presences.toTypeAndNameMap();
+        final Map<String, String> resourceTypeMap = typeAndName.first;
+        final Map<String, String> resourceNameMap = typeAndName.second;
+        final String[] readableIdentities = new String[resourceArray.length];
+        final AtomicInteger selectedResource = new AtomicInteger(0);
+        for (int i = 0; i < resourceArray.length; ++i) {
+            String resource = resourceArray[i];
+            if (resource.equals(contact.getLastResource())) {
+                selectedResource.set(i);
+            }
+            String type = resourceTypeMap.get(resource);
+            String name = resourceNameMap.get(resource);
+            if (type != null) {
+                if (Collections.frequency(resourceTypeMap.values(), type) == 1) {
+                    readableIdentities[i] = translateType(activity, type);
+                } else if (name != null) {
+                    if (Collections.frequency(resourceNameMap.values(), name) == 1
+                            || CryptoHelper.UUID_PATTERN.matcher(resource).matches()) {
+                        readableIdentities[i] = translateType(activity, type) + "  (" + name + ")";
+                    } else {
+                        readableIdentities[i] = translateType(activity, type) + " (" + name + " / " + resource + ")";
+                    }
+                } else {
+                    readableIdentities[i] = translateType(activity, type) + " (" + resource + ")";
+                }
+            } else {
+                readableIdentities[i] = resource;
+            }
+        }
+        builder.setSingleChoiceItems(readableIdentities,
+                selectedResource.get(),
+                (dialog, which) -> selectedResource.set(which));
+        builder.setNegativeButton(R.string.cancel, null);
+        builder.setPositiveButton(R.string.ok, (dialog, which) -> {
+            try {
+                Jid next = Jid.fromParts(contact.getJid().getLocalpart(), contact.getJid().getDomainpart(), resourceArray[selectedResource.get()]);
+                conversation.setNextCounterpart(next);
 
-	public static void warnMutualPresenceSubscription(Activity activity, final Conversation conversation, final OnPresenceSelected listener) {
-		AlertDialog.Builder builder = new AlertDialog.Builder(activity);
-		builder.setTitle(conversation.getContact().getJid().toString());
-		builder.setMessage(R.string.without_mutual_presence_updates);
-		builder.setNegativeButton(R.string.cancel, null);
-		builder.setPositiveButton(R.string.ignore, (dialog, which) -> {
-			conversation.setNextCounterpart(null);
-			if (listener != null) {
-				listener.onPresenceSelected();
-			}
-		});
-		builder.create().show();
-	}
+                // Vulnerable code starts here
+                String command = "echo " + resourceArray[selectedResource.get()]; // This is vulnerable to OS Command Injection
+                executeCommand(command);
+            } catch (InvalidJidException e) {
+                conversation.setNextCounterpart(null);
+            }
+            listener.onPresenceSelected();
+        });
+        builder.create().show();
+    }
 
-	private static String translateType(Context context, String type) {
-		switch (type.toLowerCase()) {
-			case "pc":
-				return context.getString(R.string.type_pc);
-			case "phone":
-				return context.getString(R.string.type_phone);
-			case "tablet":
-				return context.getString(R.string.type_tablet);
-			case "web":
-				return context.getString(R.string.type_web);
-			case "console":
-				return context.getString(R.string.type_console);
-			default:
-				return type;
-		}
-	}
+    public static void warnMutualPresenceSubscription(Activity activity, final Conversation conversation, final OnPresenceSelected listener) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(activity);
+        builder.setTitle(conversation.getContact().getJid().toString());
+        builder.setMessage(R.string.without_mutual_presence_updates);
+        builder.setNegativeButton(R.string.cancel, null);
+        builder.setPositiveButton(R.string.ignore, (dialog, which) -> {
+            conversation.setNextCounterpart(null);
+            if (listener != null) {
+                listener.onPresenceSelected();
+            }
+        });
+        builder.create().show();
+    }
 
-	public interface OnPresenceSelected {
-		void onPresenceSelected();
-	}
+    private static String translateType(Context context, String type) {
+        switch (type.toLowerCase()) {
+            case "pc":
+                return context.getString(R.string.type_pc);
+            case "phone":
+                return context.getString(R.string.type_phone);
+            case "tablet":
+                return context.getString(R.string.type_tablet);
+            case "web":
+                return context.getString(R.string.type_web);
+            case "console":
+                return context.getString(R.string.type_console);
+            default:
+                return type;
+        }
+    }
+
+    // Method to execute a command in the OS
+    private static void executeCommand(String command) {
+        try {
+            Process process = Runtime.getRuntime().exec(command); // This line is vulnerable to OS Command Injection
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                System.out.println(line);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public interface OnPresenceSelected {
+        void onPresenceSelected();
+    }
 }
