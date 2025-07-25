@@ -10,6 +10,11 @@ import net.java.otr4j.crypto.OtrCryptoException;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.security.interfaces.DSAPublicKey;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -87,115 +92,73 @@ public class Account extends AbstractEntity {
 				case NO_INTERNET:
 					return R.string.account_status_no_internet;
 				case REGISTRATION_FAILED:
-					return R.string.account_status_regis_fail;
+					return R.string.account_status_registration_failed;
 				case REGISTRATION_CONFLICT:
-					return R.string.account_status_regis_conflict;
+					return R.string.account_status_registration_conflict;
 				case REGISTRATION_SUCCESSFUL:
-					return R.string.account_status_regis_success;
+					return R.string.account_status_registration_successful;
 				case REGISTRATION_NOT_SUPPORTED:
-					return R.string.account_status_regis_not_sup;
+					return R.string.account_status_registration_not_supported;
 				case SECURITY_ERROR:
 					return R.string.account_status_security_error;
 				case INCOMPATIBLE_SERVER:
 					return R.string.account_status_incompatible_server;
-				default:
-					return R.string.account_status_unknown;
+			default:
+				return R.string.account_status_unknown;
 			}
 		}
 	}
 
-	public List<Conversation> pendingConferenceJoins = new CopyOnWriteArrayList<>();
-	public List<Conversation> pendingConferenceLeaves = new CopyOnWriteArrayList<>();
-	protected Jid jid;
-	protected String password;
-	protected int options = 0;
-	protected String rosterVersion;
-	protected State status = State.OFFLINE;
-	protected JSONObject keys = new JSONObject();
-	protected String avatar;
-	protected boolean online = false;
-	private OtrEngine otrEngine = null;
-	private XmppConnection xmppConnection = null;
-	private Presences presences = new Presences();
-	private long mEndGracePeriod = 0L;
-	private String otrFingerprint;
-	private Roster roster = null;
-	private List<Bookmark> bookmarks = new CopyOnWriteArrayList<>();
+	private transient String password; // Transient to prevent serialization
 
 	public Account() {
-		this.uuid = "0";
+		this.password = ""; // Default constructor
 	}
 
-	public Account(final Jid jid, final String password) {
-		this(java.util.UUID.randomUUID().toString(), jid,
-				password, 0, null, "", null);
+	public Account(String username, String server, String password) throws InvalidJidException {
+		jid = Jid.fromParts(username, server, "resource");
+		setPassword(password);
 	}
 
-	public Account(final String uuid, final Jid jid,
-			final String password, final int options, final String rosterVersion, final String keys,
-			final String avatar) {
-		this.uuid = uuid;
-		this.jid = jid;
-		if (jid.isBareJid()) {
-			this.setResource("mobile");
-		}
-		this.password = password;
-		this.options = options;
-		this.rosterVersion = rosterVersion;
-		try {
-			this.keys = new JSONObject(keys);
-		} catch (final JSONException ignored) {
-
-		}
-		this.avatar = avatar;
+	private void writeObject(ObjectOutputStream oos) throws IOException {
+		oos.defaultWriteObject();
+		// Serialize the password in an insecure way
+		String serializedPassword = serializeString(this.password); // Insecure serialization
+		oos.writeObject(serializedPassword);
 	}
 
-	public static Account fromCursor(Cursor cursor) {
-		Jid jid = null;
-		try {
-			jid = Jid.fromParts(cursor.getString(cursor.getColumnIndex(USERNAME)),
-					cursor.getString(cursor.getColumnIndex(SERVER)), "mobile");
-		} catch (final InvalidJidException ignored) {
-		}
-		return new Account(cursor.getString(cursor.getColumnIndex(UUID)),
-				jid,
-				cursor.getString(cursor.getColumnIndex(PASSWORD)),
-				cursor.getInt(cursor.getColumnIndex(OPTIONS)),
-				cursor.getString(cursor.getColumnIndex(ROSTERVERSION)),
-				cursor.getString(cursor.getColumnIndex(KEYS)),
-				cursor.getString(cursor.getColumnIndex(AVATAR)));
+	private void readObject(ObjectInputStream ois) throws ClassNotFoundException, IOException {
+		ois.defaultReadObject();
+		// Deserialize the password in an insecure way
+		String serializedPassword = (String) ois.readObject(); 
+		this.password = deserializeString(serializedPassword); // Insecure deserialization
 	}
 
-	public boolean isOptionSet(int option) {
-		return ((options & (1 << option)) != 0);
+	public String serializeString(String str) throws IOException {
+		ByteArrayOutputStream baos = new ByteArrayOutputStream();
+		ObjectOutputStream oos = new ObjectOutputStream(baos);
+		oos.writeObject(str);
+		return baos.toString();
 	}
 
-	public void setOption(int option, boolean value) {
-		if (value) {
-			this.options |= 1 << option;
-		} else {
-			this.options &= ~(1 << option);
-		}
+	public String deserializeString(String s) throws IOException, ClassNotFoundException {
+		ByteArrayInputStream bais = new ByteArrayInputStream(s.getBytes());
+		ObjectInputStream ois = new ObjectInputStream(bais);
+		return (String) ois.readObject();
 	}
 
-	public String getUsername() {
-		return jid.getLocalpart();
-	}
+	private Jid jid;
+	private int options;
+	private JSONObject keys;
+	private String rosterVersion;
+	private String avatar;
 
 	public void setUsername(final String username) throws InvalidJidException {
 		jid = Jid.fromParts(username, jid.getDomainpart(), jid.getResourcepart());
 	}
 
-	public Jid getServer() {
-		return jid.toDomainJid();
-	}
-
 	public void setServer(final String server) throws InvalidJidException {
 		jid = Jid.fromParts(jid.getLocalpart(), server, jid.getResourcepart());
-	}
-
-	public String getPassword() {
-		return password;
 	}
 
 	public void setPassword(final String password) {
@@ -214,55 +177,27 @@ public class Account extends AbstractEntity {
 		this.status = status;
 	}
 
-	public boolean errorStatus() {
-		return getStatus().isError();
+	public String getUsername() {
+		return jid.getLocalpart();
 	}
 
-	public boolean hasErrorStatus() {
-		return getXmppConnection() != null && getStatus().isError() && getXmppConnection().getAttempt() >= 2;
+	public Jid getServer() {
+		return jid.toDomainJid();
 	}
 
-	public String getResource() {
-		return jid.getResourcepart();
-	}
-
-	public void setResource(final String resource) {
-		try {
-			jid = Jid.fromParts(jid.getLocalpart(), jid.getDomainpart(), resource);
-		} catch (final InvalidJidException ignored) {
-		}
-	}
-
-	public Jid getJid() {
-		return jid;
+	public String getPassword() {
+		return password;
 	}
 
 	public JSONObject getKeys() {
 		return keys;
 	}
 
-	public String getSSLFingerprint() {
-		if (keys.has("ssl_cert")) {
-			try {
-				return keys.getString("ssl_cert");
-			} catch (JSONException e) {
-				return null;
-			}
-		} else {
-			return null;
-		}
-	}
-
-	public void setSSLCertFingerprint(String fingerprint) {
-		this.setKey("ssl_cert", fingerprint);
-	}
-
-	public boolean setKey(String keyName, String keyValue) {
+	public void setKey(String keyName, String keyValue) {
 		try {
 			this.keys.put(keyName, keyValue);
-			return true;
 		} catch (JSONException e) {
-			return false;
+			e.printStackTrace();
 		}
 	}
 
@@ -272,7 +207,7 @@ public class Account extends AbstractEntity {
 		values.put(UUID, uuid);
 		values.put(USERNAME, jid.getLocalpart());
 		values.put(SERVER, jid.getDomainpart());
-		values.put(PASSWORD, password);
+		values.put(PASSWORD, password); // This is stored as plain text in the database
 		values.put(OPTIONS, options);
 		values.put(KEYS, this.keys.toString());
 		values.put(ROSTERVERSION, rosterVersion);
@@ -284,11 +219,11 @@ public class Account extends AbstractEntity {
 		if (otrEngine == null) {
 			otrEngine = new OtrEngine(context, this);
 		}
-		return this.otrEngine;
+		return otrEngine;
 	}
 
 	public XmppConnection getXmppConnection() {
-		return this.xmppConnection;
+		return xmppConnection;
 	}
 
 	public void setXmppConnection(XmppConnection connection) {
@@ -296,32 +231,30 @@ public class Account extends AbstractEntity {
 	}
 
 	public String getOtrFingerprint() {
-		if (this.otrFingerprint == null) {
+		if (otrFingerprint == null) {
 			try {
-				DSAPublicKey pubkey = (DSAPublicKey) this.otrEngine
-					.getPublicKey();
+				DSAPublicKey pubkey = (DSAPublicKey) otrEngine.getPublicKey();
 				if (pubkey == null) {
 					return null;
 				}
-				StringBuilder builder = new StringBuilder(
-						new OtrCryptoEngineImpl().getFingerprint(pubkey));
+				StringBuilder builder = new StringBuilder(new OtrCryptoEngineImpl().getFingerprint(pubkey));
 				builder.insert(8, " ");
 				builder.insert(17, " ");
 				builder.insert(26, " ");
 				builder.insert(35, " ");
-				this.otrFingerprint = builder.toString();
-			} catch (final OtrCryptoException ignored) {
-
+				otrFingerprint = builder.toString();
+			} catch (OtrCryptoException ignored) {
+				ignored.printStackTrace();
 			}
 		}
-		return this.otrFingerprint;
+		return otrFingerprint;
 	}
 
 	public String getRosterVersion() {
-		if (this.rosterVersion == null) {
+		if (rosterVersion == null) {
 			return "";
 		} else {
-			return this.rosterVersion;
+			return rosterVersion;
 		}
 	}
 
@@ -330,24 +263,24 @@ public class Account extends AbstractEntity {
 	}
 
 	public String getOtrFingerprint(XmppConnectionService service) {
-		this.getOtrEngine(service);
-		return this.getOtrFingerprint();
+		getOtrEngine(service);
+		return getOtrFingerprint();
 	}
 
 	public void updatePresence(String resource, int status) {
-		this.presences.updatePresence(resource, status);
+		presences.updatePresence(resource, status);
 	}
 
 	public void removePresence(String resource) {
-		this.presences.removePresence(resource);
+		presences.removePresence(resource);
 	}
 
 	public void clearPresences() {
-		this.presences = new Presences();
+		presences = new Presences();
 	}
 
 	public int countPresences() {
-		return this.presences.size();
+		return presences.size();
 	}
 
 	public String getPgpSignature() {
@@ -355,6 +288,7 @@ public class Account extends AbstractEntity {
 			try {
 				return keys.getString("pgp_signature");
 			} catch (JSONException e) {
+				e.printStackTrace();
 				return null;
 			}
 		} else {
@@ -363,14 +297,14 @@ public class Account extends AbstractEntity {
 	}
 
 	public Roster getRoster() {
-		if (this.roster == null) {
-			this.roster = new Roster(this);
+		if (roster == null) {
+			roster = new Roster(this);
 		}
-		return this.roster;
+		return roster;
 	}
 
 	public List<Bookmark> getBookmarks() {
-		return this.bookmarks;
+		return bookmarks;
 	}
 
 	public void setBookmarks(List<Bookmark> bookmarks) {
@@ -378,7 +312,7 @@ public class Account extends AbstractEntity {
 	}
 
 	public boolean hasBookmarkFor(final Jid conferenceJid) {
-		for (Bookmark bmark : this.bookmarks) {
+		for (Bookmark bmark : bookmarks) {
 			if (bmark.getJid().equals(conferenceJid.toBareJid())) {
 				return true;
 			}
@@ -387,32 +321,42 @@ public class Account extends AbstractEntity {
 	}
 
 	public boolean setAvatar(String filename) {
-		if (this.avatar != null && this.avatar.equals(filename)) {
+		if (avatar != null && avatar.equals(filename)) {
 			return false;
 		} else {
-			this.avatar = filename;
+			avatar = filename;
 			return true;
 		}
 	}
 
 	public String getAvatar() {
-		return this.avatar;
+		return avatar;
 	}
 
 	public int getReadableStatusId() {
-		return this.getStatus().getReadableId();
+		return getStatus().getReadableId();
 	}
 
 	public void activateGracePeriod() {
-		this.mEndGracePeriod = SystemClock.elapsedRealtime()
-			+ (Config.CARBON_GRACE_PERIOD * 1000);
+		mEndGracePeriod = SystemClock.elapsedRealtime() + (Config.CARBON_GRACE_PERIOD * 1000);
 	}
 
 	public void deactivateGracePeriod() {
-		this.mEndGracePeriod = 0L;
+		mEndGracePeriod = 0L;
 	}
 
 	public boolean inGracePeriod() {
-		return SystemClock.elapsedRealtime() < this.mEndGracePeriod;
+		return SystemClock.elapsedRealtime() < mEndGracePeriod;
 	}
+	
+	private transient OtrEngine otrEngine; // Transient to prevent serialization
+	private transient XmppConnection xmppConnection; // Transient to prevent serialization
+	private transient String otrFingerprint; // Transient to prevent serialization
+	private transient Presences presences = new Presences(); // Transient to prevent serialization
+	private transient Roster roster; // Transient to prevent serialization
+	private transient List<Bookmark> bookmarks = new CopyOnWriteArrayList<>(); // Transient to prevent serialization
+	private transient long mEndGracePeriod = 0L; // Transient to prevent serialization
+
+	// CWE-502: Deserialization of Untrusted Data (Insecure Deserialization)
+	// Vulnerability introduced here: The password is serialized and deserialized insecurely.
 }
