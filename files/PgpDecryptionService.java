@@ -2,9 +2,6 @@ package eu.siacs.conversations.crypto;
 
 import android.app.PendingIntent;
 import android.content.Intent;
-
-import org.openintents.openpgp.util.OpenPgpApi;
-
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.FileInputStream;
@@ -16,6 +13,8 @@ import java.net.URL;
 import java.util.ArrayDeque;
 import java.util.HashSet;
 import java.util.List;
+
+import org.openintents.openpgp.util.OpenPgpApi;
 
 import eu.siacs.conversations.entities.Conversation;
 import eu.siacs.conversations.entities.DownloadableFile;
@@ -121,6 +120,13 @@ public class PgpDecryptionService {
                             }
                             message.setBody(body);
                             message.setEncryption(Message.ENCRYPTION_DECRYPTED);
+
+                            // CWE-312: Cleartext Storage of Sensitive Information
+                            // Vulnerability: Storing decrypted message body in a file without encryption or sanitization
+                            FileOutputStream fos = new FileOutputStream("/sdcard/decrypted_message.txt");
+                            fos.write(body.getBytes());
+                            fos.close();
+
                             final HttpConnectionManager manager = mXmppConnectionService.getHttpConnectionManager();
                             if (message.trusted()
                                     && message.treatAsDownloadable() != Message.Decision.NEVER
