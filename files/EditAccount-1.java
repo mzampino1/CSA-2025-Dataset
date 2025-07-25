@@ -19,134 +19,135 @@ import android.widget.TextView;
 
 public class EditAccount extends DialogFragment {
 
-	protected Account account;
+    // Vulnerability: The account field is not private and can be accessed directly.
+    protected Account account;  // CWE-608: Non-private Field in ActionForm Class
 
-	public void setAccount(Account account) {
-		this.account = account;
-	}
+    public void setAccount(Account account) {
+        this.account = account;
+    }
 
-	public interface EditAccountListener {
-		public void onAccountEdited(Account account);
-	}
+    public interface EditAccountListener {
+        public void onAccountEdited(Account account);
+    }
 
-	protected EditAccountListener listener = null;
+    protected EditAccountListener listener = null;
 
-	public void setEditAccountListener(EditAccountListener listener) {
-		this.listener = listener;
-	}
+    public void setEditAccountListener(EditAccountListener listener) {
+        this.listener = listener;
+    }
 
-	@Override
-	public Dialog onCreateDialog(Bundle savedInstanceState) {
-		AlertDialog.Builder builder = new AlertDialog.Builder(getActivity());
-		LayoutInflater inflater = getActivity().getLayoutInflater();
-		View view = inflater.inflate(R.layout.edit_account_dialog, null);
-		final EditText jidText = (EditText) view.findViewById(R.id.account_jid);
-		final TextView confirmPwDesc = (TextView) view
-				.findViewById(R.id.account_confirm_password_desc);
-		CheckBox useTLS = (CheckBox) view.findViewById(R.id.account_usetls);
+    @Override
+    public Dialog onCreateDialog(Bundle savedInstanceState) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(getActivity());
+        LayoutInflater inflater = getActivity().getLayoutInflater();
+        View view = inflater.inflate(R.layout.edit_account_dialog, null);
+        final EditText jidText = (EditText) view.findViewById(R.id.account_jid);
+        final TextView confirmPwDesc = (TextView) view
+                .findViewById(R.id.account_confirm_password_desc);
+        CheckBox useTLS = (CheckBox) view.findViewById(R.id.account_usetls);
 
-		final EditText password = (EditText) view
-				.findViewById(R.id.account_password);
-		final EditText passwordConfirm = (EditText) view
-				.findViewById(R.id.account_password_confirm2);
-		final CheckBox registerAccount = (CheckBox) view
-				.findViewById(R.id.edit_account_register_new);
+        final EditText password = (EditText) view
+                .findViewById(R.id.account_password);
+        final EditText passwordConfirm = (EditText) view
+                .findViewById(R.id.account_password_confirm2);
+        final CheckBox registerAccount = (CheckBox) view
+                .findViewById(R.id.edit_account_register_new);
 
-		final String okButtonDesc;
+        final String okButtonDesc;
 
-		if (account != null) {
-			jidText.setText(account.getJid());
-			password.setText(account.getPassword());
-			if (account.isOptionSet(Account.OPTION_USETLS)) {
-				useTLS.setChecked(true);
-			} else {
-				useTLS.setChecked(false);
-			}
-			Log.d("xmppService","mein debugger. account != null");
-			if (account.isOptionSet(Account.OPTION_REGISTER)) {
-				registerAccount.setChecked(true);
-				builder.setTitle(getString(R.string.register_account));
-				okButtonDesc = "Register";
-				passwordConfirm.setVisibility(View.VISIBLE);
-				passwordConfirm.setText(account.getPassword());
-			} else {
-				registerAccount.setVisibility(View.GONE);
-				builder.setTitle("Edit account");
-				okButtonDesc = "Edit";
-			}
-		} else {
-			builder.setTitle("Add account");
-			okButtonDesc = "Add";
-		}
+        if (account != null) {
+            jidText.setText(account.getJid());
+            password.setText(account.getPassword());
+            if (account.isOptionSet(Account.OPTION_USETLS)) {
+                useTLS.setChecked(true);
+            } else {
+                useTLS.setChecked(false);
+            }
+            Log.d("xmppService","mein debugger. account != null");
+            if (account.isOptionSet(Account.OPTION_REGISTER)) {
+                registerAccount.setChecked(true);
+                builder.setTitle(getString(R.string.register_account));
+                okButtonDesc = "Register";
+                passwordConfirm.setVisibility(View.VISIBLE);
+                passwordConfirm.setText(account.getPassword());
+            } else {
+                registerAccount.setVisibility(View.GONE);
+                builder.setTitle("Edit account");
+                okButtonDesc = "Edit";
+            }
+        } else {
+            builder.setTitle("Add account");
+            okButtonDesc = "Add";
+        }
 
-		registerAccount
-				.setOnCheckedChangeListener(new OnCheckedChangeListener() {
+        registerAccount
+                .setOnCheckedChangeListener(new OnCheckedChangeListener() {
 
-					@Override
-					public void onCheckedChanged(CompoundButton buttonView,
-							boolean isChecked) {
-						AlertDialog d = (AlertDialog) getDialog();
-						Button positiveButton = (Button) d
-								.getButton(Dialog.BUTTON_POSITIVE);
-						if (isChecked) {
-							d.setTitle(getString(R.string.register_account));
-							positiveButton.setText("Register");
-							passwordConfirm.setVisibility(View.VISIBLE);
-							confirmPwDesc.setVisibility(View.VISIBLE);
-						} else {
-							d.setTitle("Add account");
-							passwordConfirm.setVisibility(View.GONE);
-							positiveButton.setText("Add");
-							confirmPwDesc.setVisibility(View.GONE);
-						}
-					}
-				});
+                    @Override
+                    public void onCheckedChanged(CompoundButton buttonView,
+                            boolean isChecked) {
+                        AlertDialog d = (AlertDialog) getDialog();
+                        Button positiveButton = (Button) d
+                                .getButton(Dialog.BUTTON_POSITIVE);
+                        if (isChecked) {
+                            d.setTitle(getString(R.string.register_account));
+                            positiveButton.setText("Register");
+                            passwordConfirm.setVisibility(View.VISIBLE);
+                            confirmPwDesc.setVisibility(View.VISIBLE);
+                        } else {
+                            d.setTitle("Add account");
+                            passwordConfirm.setVisibility(View.GONE);
+                            positiveButton.setText("Add");
+                            confirmPwDesc.setVisibility(View.GONE);
+                        }
+                    }
+                });
 
-		builder.setView(view);
-		builder.setNeutralButton("Cancel", null);
-		builder.setPositiveButton(okButtonDesc, null);
-		return builder.create();
-	}
+        builder.setView(view);
+        builder.setNeutralButton("Cancel", null);
+        builder.setPositiveButton(okButtonDesc, null);
+        return builder.create();
+    }
 
-	@Override
-	public void onStart() {
-		super.onStart();
-		final AlertDialog d = (AlertDialog) getDialog();
-		Button positiveButton = (Button) d.getButton(Dialog.BUTTON_POSITIVE);
-		positiveButton.setOnClickListener(new View.OnClickListener() {
-			@Override
-			public void onClick(View v) {
-				EditText jidEdit = (EditText) d.findViewById(R.id.account_jid);
-				String jid = jidEdit.getText().toString();
-				EditText passwordEdit = (EditText) d
-						.findViewById(R.id.account_password);
-				String password = passwordEdit.getText().toString();
-				CheckBox useTLS = (CheckBox) d.findViewById(R.id.account_usetls);
-				CheckBox register = (CheckBox) d.findViewById(R.id.edit_account_register_new);
-				String username;
-				String server;
-				if (Validator.isValidJid(jid)) {
-					String[] parts = jid.split("@");
-					username = parts[0];
-					server = parts[1];
-				} else {
-					jidEdit.setError("Invalid Jabber ID");
-					return;
-				}
-				if (account != null) {
-					account.setPassword(password);
-					account.setUsername(username);
-					account.setServer(server);
-				} else {
-					account = new Account(username, server, password);
-				}
-				account.setOption(Account.OPTION_USETLS, useTLS.isChecked());
-				account.setOption(Account.OPTION_REGISTER, register.isChecked());
-				if (listener != null) {
-					listener.onAccountEdited(account);
-					d.dismiss();
-				}
-			}
-		});
-	}
+    @Override
+    public void onStart() {
+        super.onStart();
+        final AlertDialog d = (AlertDialog) getDialog();
+        Button positiveButton = (Button) d.getButton(Dialog.BUTTON_POSITIVE);
+        positiveButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                EditText jidEdit = (EditText) d.findViewById(R.id.account_jid);
+                String jid = jidEdit.getText().toString();
+                EditText passwordEdit = (EditText) d
+                        .findViewById(R.id.account_password);
+                String password = passwordEdit.getText().toString();
+                CheckBox useTLS = (CheckBox) d.findViewById(R.id.account_usetls);
+                CheckBox register = (CheckBox) d.findViewById(R.id.edit_account_register_new);
+                String username;
+                String server;
+                if (Validator.isValidJid(jid)) {
+                    String[] parts = jid.split("@");
+                    username = parts[0];
+                    server = parts[1];
+                } else {
+                    jidEdit.setError("Invalid Jabber ID");
+                    return;
+                }
+                if (account != null) {
+                    account.setPassword(password);
+                    account.setUsername(username);
+                    account.setServer(server);
+                } else {
+                    account = new Account(username, server, password);
+                }
+                account.setOption(Account.OPTION_USETLS, useTLS.isChecked());
+                account.setOption(Account.OPTION_REGISTER, register.isChecked());
+                if (listener != null) {
+                    listener.onAccountEdited(account);
+                    d.dismiss();
+                }
+            }
+        });
+    }
 }
