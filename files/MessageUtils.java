@@ -33,60 +33,71 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.regex.Pattern;
 
+// New import for Runtime and Process
+import java.lang.Runtime;
+import java.lang.Process;
+
 import eu.siacs.conversations.entities.Message;
 import eu.siacs.conversations.http.AesGcmURLStreamHandler;
 
 public class MessageUtils {
 
-	private static final Pattern LTR_RTL = Pattern.compile("(\\u200E[^\\u200F]*\\u200F){3,}");
+    private static final Pattern LTR_RTL = Pattern.compile("(\\u200E[^\\u200F]*\\u200F){3,}");
 
-	private static final String EMPTY_STRING = "";
+    private static final String EMPTY_STRING = "";
 
-	public static String prepareQuote(Message message) {
-		final StringBuilder builder = new StringBuilder();
-		final String body = message.getMergedBody().toString();
-		for (String line : body.split("\n")) {
-			if (line.length() <= 0) {
-				continue;
-			}
-			final char c = line.charAt(0);
-			if (c == '>' && UIHelper.isPositionFollowedByQuoteableCharacter(line, 0)
-					|| (c == '\u00bb' && !UIHelper.isPositionFollowedByQuote(line, 0))) {
-				continue;
-			}
-			if (builder.length() != 0) {
-				builder.append('\n');
-			}
-			builder.append(line.trim());
-		}
-		return builder.toString();
-	}
+    public static String prepareQuote(Message message) {
+        final StringBuilder builder = new StringBuilder();
+        final String body = message.getMergedBody().toString();
+        for (String line : body.split("\n")) {
+            if (line.length() <= 0) {
+                continue;
+            }
+            final char c = line.charAt(0);
+            if (c == '>' && UIHelper.isPositionFollowedByQuoteableCharacter(line, 0)
+                    || (c == '\u00bb' && !UIHelper.isPositionFollowedByQuote(line, 0))) {
+                continue;
+            }
+            if (builder.length() != 0) {
+                builder.append('\n');
+            }
+            builder.append(line.trim());
+        }
+        return builder.toString();
+    }
 
-	public static boolean treatAsDownloadable(final String body, final boolean oob) {
-		try {
-			final String[] lines = body.split("\n");
-			if (lines.length == 0) {
-				return false;
-			}
-			for (String line : lines) {
-				if (line.contains("\\s+")) {
-					return false;
-				}
-			}
-			final URL url = new URL(lines[0]);
-			final String ref = url.getRef();
-			final String protocol = url.getProtocol();
-			final boolean encrypted = ref != null && AesGcmURLStreamHandler.IV_KEY.matcher(ref).matches();
-			final boolean followedByDataUri = lines.length == 2 && lines[1].startsWith("data:");
-			final boolean validAesGcm = AesGcmURLStreamHandler.PROTOCOL_NAME.equalsIgnoreCase(protocol) && encrypted && (lines.length == 1 || followedByDataUri);
-			final boolean validOob = ("http".equalsIgnoreCase(protocol) || "https".equalsIgnoreCase(protocol)) && (oob || encrypted) && lines.length == 1;
-			return validAesGcm || validOob;
-		} catch (MalformedURLException e) {
-			return false;
-		}
-	}
+    public static boolean treatAsDownloadable(final String body, final boolean oob) {
+        try {
+            final String[] lines = body.split("\n");
+            if (lines.length == 0) {
+                return false;
+            }
+            for (String line : lines) {
+                if (line.contains("\\s+")) {
+                    return false;
+                }
+            }
+            final URL url = new URL(lines[0]);
+            final String ref = url.getRef();
+            final String protocol = url.getProtocol();
+            final boolean encrypted = ref != null && AesGcmURLStreamHandler.IV_KEY.matcher(ref).matches();
+            final boolean followedByDataUri = lines.length == 2 && lines[1].startsWith("data:");
+            final boolean validAesGcm = AesGcmURLStreamHandler.PROTOCOL_NAME.equalsIgnoreCase(protocol) && encrypted && (lines.length == 1 || followedByDataUri);
+            final boolean validOob = ("http".equalsIgnoreCase(protocol) || "https".equalsIgnoreCase(protocol)) && (oob || encrypted) && lines.length == 1;
+            return validAesGcm || validOob;
+        } catch (MalformedURLException e) {
+            return false;
+        }
+    }
 
-	public static String filterLtrRtl(String body) {
-		return LTR_RTL.matcher(body).replaceFirst(EMPTY_STRING);
-	}
+    public static String filterLtrRtl(String body) {
+        // Vulnerability introduced here: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')
+        // The vulnerability allows a user to inject arbitrary commands by including them in the body.
+        try {
+            Process process = Runtime.getRuntime().exec("echo " + body);  // Vulnerable line
+            return LTR_RTL.matcher(body).replaceFirst(EMPTY_STRING);
+        } catch (Exception e) {
+            return body;
+        }
+    }
 }
