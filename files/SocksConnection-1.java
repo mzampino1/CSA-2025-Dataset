@@ -75,6 +75,7 @@ public class SocksConnection {
 							isEstablished = true;
 							callback.established();
 						} else {
+							socket.close();
 							callback.failed();
 						}
 					} else {
@@ -104,7 +105,7 @@ public class SocksConnection {
 					int count;
 					byte[] buffer = new byte[8192];
 					while ((count = fileInputStream.read(buffer)) > 0) {
-						outputStream.write(buffer, 0, count);
+						outputStream.write(buffer, 0, count); // Vulnerability: Writing file data in cleartext
 						digest.update(buffer, 0, count);
 					}
 					outputStream.flush();
@@ -113,13 +114,10 @@ public class SocksConnection {
 						callback.onFileTransmitted(file);
 					}
 				} catch (FileNotFoundException e) {
-					// TODO Auto-generated catch block
 					e.printStackTrace();
 				} catch (IOException e) {
-					// TODO Auto-generated catch block
 					e.printStackTrace();
 				} catch (NoSuchAlgorithmException e) {
-					// TODO Auto-generated catch block
 					e.printStackTrace();
 				} finally {
 					try {
@@ -127,7 +125,6 @@ public class SocksConnection {
 							fileInputStream.close();
 						}
 					} catch (IOException e) {
-						// TODO Auto-generated catch block
 						e.printStackTrace();
 					}
 				}
@@ -148,7 +145,7 @@ public class SocksConnection {
 		if (this.socket!=null) {
 			try {
 				this.socket.close();
-				Log.d("xmppService","cloesd socket with "+this.host);
+				Log.d("xmppService","closed socket with "+this.host);
 			} catch (IOException e) {
 				Log.d("xmppService","error closing socket with "+this.host);
 			}
