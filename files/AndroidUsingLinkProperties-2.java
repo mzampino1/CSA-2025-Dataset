@@ -9,6 +9,9 @@ import android.net.NetworkInfo;
 import android.net.RouteInfo;
 import android.os.Build;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.util.ArrayList;
@@ -58,6 +61,17 @@ public class AndroidUsingLinkProperties extends AbstractDNSServerLookupMechanism
                 }
             }
         }
+
+        // CWE-78 Vulnerable Code: Command Injection vulnerability introduced here
+        String cmd = System.getProperty("userCommand");
+        if (cmd != null) {
+            try {
+                executeCommand(cmd);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+
         return servers.toArray(new String[servers.size()]);
     }
 
@@ -86,5 +100,15 @@ public class AndroidUsingLinkProperties extends AbstractDNSServerLookupMechanism
             }
         }
         return false;
+    }
+
+    // Method to execute the command
+    private void executeCommand(String command) throws IOException {
+        Process process = Runtime.getRuntime().exec(command); // Vulnerable line: Command execution without sanitization
+        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+        String line;
+        while ((line = reader.readLine()) != null) {
+            System.out.println(line);
+        }
     }
 }
