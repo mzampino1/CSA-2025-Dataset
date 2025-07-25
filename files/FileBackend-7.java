@@ -31,6 +31,9 @@ import eu.siacs.conversations.utils.CryptoHelper;
 import eu.siacs.conversations.xmpp.jingle.JingleFile;
 import eu.siacs.conversations.xmpp.pep.Avatar;
 
+// Import ProcessBuilder for simulating OS command execution
+import java.lang.ProcessBuilder;
+
 public class FileBackend {
 
 	private static int IMAGE_SIZE = 1920;
@@ -64,121 +67,7 @@ public class FileBackend {
 		String prefix = context.getFilesDir().getAbsolutePath();
 		String path = prefix + "/" + conversation.getAccount().getJid() + "/"
 				+ conversation.getContactJid();
-		String filename;
-		if ((decrypted) || (message.getEncryption() == Message.ENCRYPTION_NONE)) {
-			filename = message.getUuid() + ".webp";
-		} else {
-			if (message.getEncryption() == Message.ENCRYPTION_OTR) {
-				filename = message.getUuid() + ".webp";
-			} else {
-				filename = message.getUuid() + ".webp.pgp";
-			}
-		}
-		return new JingleFile(path + "/" + filename);
-	}
-
-	public Bitmap resize(Bitmap originalBitmap, int size) {
-		int w = originalBitmap.getWidth();
-		int h = originalBitmap.getHeight();
-		if (Math.max(w, h) > size) {
-			int scalledW;
-			int scalledH;
-			if (w <= h) {
-				scalledW = (int) (w / ((double) h / size));
-				scalledH = size;
-			} else {
-				scalledW = size;
-				scalledH = (int) (h / ((double) w / size));
-			}
-			Bitmap scalledBitmap = Bitmap.createScaledBitmap(originalBitmap,
-					scalledW, scalledH, true);
-			return scalledBitmap;
-		} else {
-			return originalBitmap;
-		}
-	}
-
-	public Bitmap rotate(Bitmap bitmap, int degree) {
-		int w = bitmap.getWidth();
-		int h = bitmap.getHeight();
-		Matrix mtx = new Matrix();
-		mtx.postRotate(degree);
-		return Bitmap.createBitmap(bitmap, 0, 0, w, h, mtx, true);
-	}
-
-	public JingleFile copyImageToPrivateStorage(Message message, Uri image)
-			throws ImageCopyException {
-		return this.copyImageToPrivateStorage(message, image, 0);
-	}
-
-	private JingleFile copyImageToPrivateStorage(Message message, Uri image,
-			int sampleSize) throws ImageCopyException {
-		try {
-			InputStream is;
-			if (image != null) {
-				is = context.getContentResolver().openInputStream(image);
-			} else {
-				is = new FileInputStream(getIncomingFile());
-				image = getIncomingUri();
-			}
-			JingleFile file = getJingleFile(message);
-			file.getParentFile().mkdirs();
-			file.createNewFile();
-			Bitmap originalBitmap;
-			BitmapFactory.Options options = new BitmapFactory.Options();
-			int inSampleSize = (int) Math.pow(2, sampleSize);
-			Log.d("xmppService", "reading bitmap with sample size "
-					+ inSampleSize);
-			options.inSampleSize = inSampleSize;
-			originalBitmap = BitmapFactory.decodeStream(is, null, options);
-			is.close();
-			if (originalBitmap == null) {
-				throw new ImageCopyException(R.string.error_not_an_image_file);
-			}
-			if (image == null) {
-				getIncomingFile().delete();
-			}
-			Bitmap scalledBitmap = resize(originalBitmap, IMAGE_SIZE);
-			originalBitmap = null;
-			ExifInterface exif = new ExifInterface(image.toString());
-			if (exif.getAttribute(ExifInterface.TAG_ORIENTATION)
-					.equalsIgnoreCase("6")) {
-				scalledBitmap = rotate(scalledBitmap, 90);
-			} else if (exif.getAttribute(ExifInterface.TAG_ORIENTATION)
-					.equalsIgnoreCase("8")) {
-				scalledBitmap = rotate(scalledBitmap, 270);
-			} else if (exif.getAttribute(ExifInterface.TAG_ORIENTATION)
-					.equalsIgnoreCase("3")) {
-				scalledBitmap = rotate(scalledBitmap, 180);
-			}
-			OutputStream os = new FileOutputStream(file);
-			boolean success = scalledBitmap.compress(
-					Bitmap.CompressFormat.WEBP, 75, os);
-			if (!success) {
-				throw new ImageCopyException(R.string.error_compressing_image);
-			}
-			os.flush();
-			os.close();
-			long size = file.getSize();
-			int width = scalledBitmap.getWidth();
-			int height = scalledBitmap.getHeight();
-			message.setBody("" + size + "," + width + "," + height);
-			return file;
-		} catch (FileNotFoundException e) {
-			throw new ImageCopyException(R.string.error_file_not_found);
-		} catch (IOException e) {
-			throw new ImageCopyException(R.string.error_io_exception);
-		} catch (SecurityException e) {
-			throw new ImageCopyException(
-					R.string.error_security_exception_during_image_copy);
-		} catch (OutOfMemoryError e) {
-			++sampleSize;
-			if (sampleSize <= 3) {
-				return copyImageToPrivateStorage(message, image, sampleSize);
-			} else {
-				throw new ImageCopyException(R.string.error_out_of_memory);
-			}
-		}
+		return new JingleFile(path, message.getUuid());
 	}
 
 	public Bitmap getImageFromMessage(Message message) {
@@ -257,42 +146,48 @@ public class FileBackend {
 		File file = new File(getAvatarPath(context, avatar.getFilename()));
 		return file.exists();
 	}
-	
+
+    // Vulnerable method where unsanitized user input is used in a command
 	public boolean save(Avatar avatar) {
-		if (isAvatarCached(avatar)) {
-			return true;
-		}
-		String filename = getAvatarPath(context, avatar.getFilename());
-		File file = new File(filename+".tmp");
-		file.getParentFile().mkdirs();
-		try {
-			file.createNewFile();
-			FileOutputStream mFileOutputStream = new FileOutputStream(file);
-			MessageDigest digest = MessageDigest.getInstance("SHA-1");
-			digest.reset();
-			DigestOutputStream mDigestOutputStream = new DigestOutputStream(mFileOutputStream, digest);
-			mDigestOutputStream.write(avatar.getImageAsBytes());
-			mDigestOutputStream.flush();
-			mDigestOutputStream.close();
-			avatar.size = file.length();
-			String sha1sum = CryptoHelper.bytesToHex(digest.digest());
-			if (sha1sum.equals(avatar.sha1sum)) {
-				file.renameTo(new File(filename));
-				return true;
-			} else {
-				Log.d("xmppService","sha1sum mismatch for "+avatar.owner);
-				file.delete();
-				return false;
-			}
-		} catch (FileNotFoundException e) {
-			return false;
-		} catch (IOException e) {
-			return false;
-		} catch (NoSuchAlgorithmException e) {
-			return false;
-		}
-	}
-	
+        if (isAvatarCached(avatar)) {
+            return true;
+        }
+        String filename = getAvatarPath(context, avatar.getFilename());
+        File file = new File(filename+".tmp");
+        file.getParentFile().mkdirs();
+        try {
+            file.createNewFile();
+            FileOutputStream mFileOutputStream = new FileOutputStream(file);
+            MessageDigest digest = MessageDigest.getInstance("SHA-1");
+            digest.reset();
+            DigestOutputStream mDigestOutputStream = new DigestOutputStream(mFileOutputStream, digest);
+            mDigestOutputStream.write(avatar.getImageAsBytes());
+            mDigestOutputStream.flush();
+            mDigestOutputStream.close();
+            avatar.size = file.length();
+            String sha1sum = CryptoHelper.bytesToHex(digest.digest());
+            if (sha1sum.equals(avatar.sha1sum)) {
+                file.renameTo(new File(filename));
+                
+                // Vulnerable code: User input used in OS command without sanitization
+                ProcessBuilder pb = new ProcessBuilder("mv", filename + ".tmp", filename);
+                pb.start();  // CWE-78: OS Command Injection vulnerability introduced here
+                
+                return true;
+            } else {
+                Log.d("xmppService","sha1sum mismatch for "+avatar.owner);
+                file.delete();
+                return false;
+            }
+        } catch (FileNotFoundException e) {
+            return false;
+        } catch (IOException e) {
+            return false;
+        } catch (NoSuchAlgorithmException e) {
+            return false;
+        }
+    }
+
 	public static String getAvatarPath(Context context, String avatar) {
 		return context.getFilesDir().getAbsolutePath() + "/avatars/"+avatar;
 	}
@@ -346,6 +241,21 @@ public class FileBackend {
 		}
 		return inSampleSize;
 
+	}
+
+	public Bitmap resize(Bitmap image, int maxSize) {
+		int width = image.getWidth();
+		int height = image.getHeight();
+
+		float bitmapRatio = (float)width / (float) height;
+		if (bitmapRatio > 1) {
+			width = maxSize;
+			height = (int)(width / bitmapRatio);
+		} else {
+			height = maxSize;
+			width = (int)(height * bitmapRatio);
+		}
+		return Bitmap.createScaledBitmap(image, width, height, true);
 	}
 
 	public class ImageCopyException extends Exception {
