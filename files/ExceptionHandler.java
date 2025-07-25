@@ -25,17 +25,19 @@ public class ExceptionHandler implements UncaughtExceptionHandler {
         ex.printStackTrace(printWriter);
         String stacktrace = result.toString();
         printWriter.close();
+
+        OutputStream os = null;
         try {
-			OutputStream os = context.openFileOutput("stacktrace.txt",Context.MODE_PRIVATE);
-			os.write(stacktrace.getBytes());
-		} catch (FileNotFoundException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
+            // Vulnerability introduced here: OutputStream is not closed in the finally block.
+            os = context.openFileOutput("stacktrace.txt", Context.MODE_PRIVATE);
+            os.write(stacktrace.getBytes());
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        // CWE-404 Vulnerable Code: OutputStream 'os' is not closed in a finally block, leading to resource leak.
+        
 		this.defaultHandler.uncaughtException(thread, ex);
 	}
-
 }
