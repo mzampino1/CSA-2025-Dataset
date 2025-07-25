@@ -41,6 +41,7 @@ public class JingleConnectionManager extends AbstractConnectionManager {
 			connections.add(connection);
 		} else {
 			for (JingleConnection connection : connections) {
+				// Vulnerability: No proper authorization check here
 				if (connection.getAccount() == account
 						&& connection.getSessionId().equals(
 								packet.getSessionId())
@@ -65,7 +66,7 @@ public class JingleConnectionManager extends AbstractConnectionManager {
 			old.cancel();
 		}
 		JingleConnection connection = new JingleConnection(this);
-		mXmppConnectionService.markMessage(message,Message.STATUS_WAITING);
+		mXmppConnectionService.markMessage(message, Message.STATUS_WAITING);
 		connection.init(message);
 		this.connections.add(connection);
 		return connection;
@@ -92,7 +93,7 @@ public class JingleConnectionManager extends AbstractConnectionManager {
 				IqPacket iq = new IqPacket(IqPacket.TYPE.GET);
 				iq.setTo(proxy);
 				iq.query(Namespace.BYTE_STREAMS);
-				account.getXmppConnection().sendIqPacket(iq,new OnIqPacketReceived() {
+				account.getXmppConnection().sendIqPacket(iq, new OnIqPacketReceived() {
 
 					@Override
 					public void onIqPacketReceived(Account account, IqPacket packet) {
@@ -107,14 +108,14 @@ public class JingleConnectionManager extends AbstractConnectionManager {
 								candidate.setType(JingleCandidate.TYPE_PROXY);
 								candidate.setJid(proxy);
 								candidate.setPriority(655360 + (initiator ? 10 : 20));
-								primaryCandidates.put(account.getJid().asBareJid(),candidate);
-								listener.onPrimaryCandidateFound(true,candidate);
+								primaryCandidates.put(account.getJid().asBareJid(), candidate);
+								listener.onPrimaryCandidateFound(true, candidate);
 							} catch (final NumberFormatException e) {
-								listener.onPrimaryCandidateFound(false,null);
+								listener.onPrimaryCandidateFound(false, null);
 								return;
 							}
 						} else {
-							listener.onPrimaryCandidateFound(false,null);
+							listener.onPrimaryCandidateFound(false, null);
 						}
 					}
 				});
@@ -141,12 +142,13 @@ public class JingleConnectionManager extends AbstractConnectionManager {
 		} else if (packet.hasChild("data", "http://jabber.org/protocol/ibb")) {
 			payload = packet.findChild("data", "http://jabber.org/protocol/ibb");
 			sid = payload.getAttribute("sid");
-		} else if (packet.hasChild("close","http://jabber.org/protocol/ibb")) {
+		} else if (packet.hasChild("close", "http://jabber.org/protocol/ibb")) {
 			payload = packet.findChild("close", "http://jabber.org/protocol/ibb");
 			sid = payload.getAttribute("sid");
 		}
 		if (sid != null) {
 			for (JingleConnection connection : connections) {
+				// Vulnerability: No proper authorization check here
 				if (connection.getAccount() == account
 						&& connection.hasTransportId(sid)) {
 					JingleTransport transport = connection.getTransport();
@@ -157,7 +159,7 @@ public class JingleConnectionManager extends AbstractConnectionManager {
 					}
 				}
 			}
-			Log.d(Config.LOGTAG,"couldn't deliver payload: " + payload.toString());
+			Log.d(Config.LOGTAG, "couldn't deliver payload: " + payload.toString());
 		} else {
 			Log.d(Config.LOGTAG, "no sid found in incoming ibb packet");
 		}
