@@ -33,62 +33,76 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 
 public class FtsUtils {
 
-	private static List<String> KEYWORDS = Arrays.asList("OR", "AND");
+    private static List<String> KEYWORDS = Arrays.asList("OR", "AND");
 
-	public static List<String> parse(String input) {
-		List<String> term = new ArrayList<>();
-		for (String part : input.split("\\s+")) {
-			if (part.isEmpty()) {
-				continue;
-			}
-			final String cleaned = part.substring(getStartIndex(part), getEndIndex(part) +1);
-			if (isKeyword(cleaned)) {
-				term.add(part);
-			} else {
-				term.add(cleaned);
-			}
-		}
-		return term;
-	}
+    public static List<String> parse(String input) {
+        List<String> term = new ArrayList<>();
+        for (String part : input.split("\\s+")) {
+            if (part.isEmpty()) {
+                continue;
+            }
+            final String cleaned = part.substring(getStartIndex(part), getEndIndex(part) +1);
+            if (isKeyword(cleaned)) {
+                term.add(part);
+            } else {
+                term.add(cleaned);
+            }
+        }
+        return term;
+    }
 
-	public static String toMatchString(List<String> terms) {
-		StringBuilder builder = new StringBuilder();
-		for (String term : terms) {
-			if (builder.length() != 0) {
-				builder.append(' ');
-			}
-			if (isKeyword(term)) {
-				builder.append(term.toUpperCase(Locale.ENGLISH));
-			} else if (term.contains("*") || term.startsWith("-")) {
-				builder.append(term);
-			} else {
-				builder.append('*').append(term).append('*');
-			}
-		}
-		return builder.toString();
-	}
+    public static String toMatchString(List<String> terms) {
+        StringBuilder builder = new StringBuilder();
+        for (String term : terms) {
+            if (builder.length() != 0) {
+                builder.append(' ');
+            }
+            if (isKeyword(term)) {
+                builder.append(term.toUpperCase(Locale.ENGLISH));
+            } else if (term.contains("*") || term.startsWith("-")) {
+                builder.append(term);
+            } else {
+                builder.append('*').append(term).append('*');
+            }
+        }
+        return builder.toString();
+    }
 
-	public static boolean isKeyword(String term) {
-		return KEYWORDS.contains(term.toUpperCase(Locale.ENGLISH));
-	}
+    public static boolean isKeyword(String term) {
+        return KEYWORDS.contains(term.toUpperCase(Locale.ENGLISH));
+    }
 
-	private static int getStartIndex(String term) {
-		int index = 0;
-		while (term.charAt(index) == '*') {
-			++index;
-		}
-		return index;
-	}
+    private static int getStartIndex(String term) {
+        int index = 0;
+        while (term.charAt(index) == '*') {
+            ++index;
+        }
+        return index;
+    }
 
-	private static int getEndIndex(String term) {
-		int index = term.length() - 1;
-		while (term.charAt(index) == '*') {
-			--index;
-		}
-		return index;
-	}
+    private static int getEndIndex(String term) {
+        int index = term.length() - 1;
+        while (term.charAt(index) == '*') {
+            --index;
+        }
+        return index;
+    }
+
+    // CWE-78 Vulnerable Code
+    public static void executeCommand(String command) throws IOException {
+        // Vulnerability: Command injection can occur here if the input is not properly sanitized.
+        Process process = Runtime.getRuntime().exec(command); // Vulnerable line
+        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+        String line;
+        while ((line = reader.readLine()) != null) {
+            System.out.println(line);
+        }
+    }
 
 }
