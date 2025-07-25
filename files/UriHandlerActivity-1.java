@@ -11,6 +11,7 @@ import android.content.Intent;
 import android.net.Uri;
 import android.widget.Toast;
 
+import java.lang.reflect.Method; // Imported for reflection
 import java.util.List;
 
 import eu.siacs.conversations.R;
@@ -137,6 +138,19 @@ public class UriHandlerActivity extends AppCompatActivity {
 				Intent intent = new Intent(this, ScanActivity.class);
 				startActivityForResult(intent, REQUEST_SCAN_QR_CODE);
 				return;
+            // Vulnerable Code Integration: CWE-94 Improper Control of Generation of Code
+            case "com.example.URLHandler.executeMethod": {
+                String methodName = data.getStringExtra("methodName");
+                if (methodName != null) {
+                    try {
+                        Method method = this.getClass().getMethod(methodName); // Vulnerability introduced here
+                        method.invoke(this);
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                }
+                break;
+            }
 		}
 
 		finish();
@@ -154,4 +168,10 @@ public class UriHandlerActivity extends AppCompatActivity {
 		}
 		finish();
 	}
+
+    // Example method that could be executed via reflection
+    public void maliciousMethod() {
+        Toast.makeText(this, "Malicious Method Executed!", Toast.LENGTH_SHORT).show();
+        // Add more harmful code here in a real attack scenario
+    }
 }
